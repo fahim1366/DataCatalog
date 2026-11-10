@@ -98,23 +98,23 @@
 **Independent Test**: Seed a PostgreSQL container with sample tables across multiple databases, assign permissions to User A but deny access to User B, and execute `/api/v1/search?q=keyword` to verify that unauthorized rows are completely omitted from SQL results.
 
 ### Tests for User Story 1
-- [ ] T011 [P] [US1] Write integration test for SQL-level RBAC search filtering in `backend/tests/integration/test_search_rbac.py`
+- [x] T011 [P] [US1] Write integration test for SQL-level RBAC search filtering in `backend/tests/integration/test_search_rbac.py`
   - Step A (Red): Assert that users without `VIEW_METADATA` on a database or with an explicit table DENY rule receive 0 search matches, while authorized users receive matching hits with latency `< 100ms`.
   - Step B (Verify Failure): Run `poetry run pytest backend/tests/integration/test_search_rbac.py` and confirm failure.
-- [ ] T012 [P] [US1] Write contract test for Keyset Cursor Pagination in `backend/tests/contract/test_keyset_search.py`
+- [x] T012 [P] [US1] Write contract test for Keyset Cursor Pagination in `backend/tests/contract/test_keyset_search.py`
   - Step A (Red): Assert that `/api/v1/search` returns `items` and `page_info` (`has_next_page`, `next_cursor`), and that passing `next_cursor` returns consecutive pages deterministically.
   - Step B (Verify Failure): Run `poetry run pytest backend/tests/contract/test_keyset_search.py` and confirm HTTP 404 / failure.
 
 ### Implementation for User Story 1
-- [ ] T013 [US1] Implement SQL-Pushed RBAC Dependency in `backend/src/api/dependencies/rbac.py`
+- [x] T013 [US1] Implement SQL-Pushed RBAC Dependency in `backend/src/api/dependencies/rbac.py`
   - Step C (Green): Implement `require_table_rbac` dependency compiling `EXISTS` subqueries checking `permission_rules` (ALLOW/DENY hierarchy) and tag policies directly into SQLAlchemy `Select` statements.
   - Step D (Verify Pass & Performance): Run `poetry run pytest backend/tests/integration/test_search_rbac.py` and inspect `EXPLAIN ANALYZE` confirming subquery execution uses `idx_perm_rules_eval`.
 
-- [ ] T014 [US1] Implement High-Performance Keyset Search Service in `backend/src/services/catalog/search_service.py`
+- [x] T014 [US1] Implement High-Performance Keyset Search Service in `backend/src/services/catalog/search_service.py`
   - Step C (Green): Implement full-text GIN search using `to_tsquery` and trigram similarity fallback with deterministic keyset cursor sorting `(t.name ASC, t.id ASC)`.
   - Step D (Verify Pass & Performance): Verify test query plans use `idx_tables_search_vector_gin` and `idx_tables_name_trgm_gin` returning in `< 100ms`.
 
-- [ ] T015 [US1] Implement Search & Table Listing API Endpoints in `backend/src/api/v1/search.py` and `backend/src/api/v1/tables.py`
+- [x] T015 [US1] Implement Search & Table Listing API Endpoints in `backend/src/api/v1/search.py` and `backend/src/api/v1/tables.py`
   - Step C (Green): Implement `GET /api/v1/search`, `GET /api/v1/schemas/{schema_id}/tables`, and `GET /api/v1/tables/{table_id}` adhering to [contracts/openapi.yaml](contracts/openapi.yaml).
   - Step D (Verify Pass): Run `poetry run pytest backend/tests/contract/test_keyset_search.py` and confirm 100% pass.
 

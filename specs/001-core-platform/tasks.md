@@ -65,7 +65,7 @@
   - Step C (Green): Implement all declarative models in `backend/src/models/` matching the full schema in [data-model.md](data-model.md).
   - Step D (Verify Pass): Run `poetry run pytest backend/tests/unit/test_model_metadata.py` and verify 100% metadata alignment.
 
-- [ ] T007 [P] Implement AES-256-GCM Envelope Encryption Service in `backend/src/services/crypto/envelope.py`
+- [x] T007 [P] Implement AES-256-GCM Envelope Encryption Service in `backend/src/services/crypto/envelope.py`
   - Step A (Red): Write `backend/tests/unit/test_envelope_crypto.py` testing encrypt/decrypt round-trip of JSON credentials, verifying unique 256-bit DEK generation, 96-bit IV randomness, auth tag validation, and tampering rejection.
   - Step B (Verify Failure): Run `poetry run pytest backend/tests/unit/test_envelope_crypto.py` and confirm failure.
   - Step C (Green): Implement `EnvelopeEncryptionService` in `backend/src/services/crypto/envelope.py` using `cryptography.hazmat.primitives.ciphers.aead.AESGCM` wrapping DEKs with Master KEK (`CATALOG_MASTER_KEK`).

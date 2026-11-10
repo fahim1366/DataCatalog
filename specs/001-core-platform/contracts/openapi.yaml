@@ -1,0 +1,642 @@
+openapi: 3.1.0
+info:
+  title: Enterprise Data Catalog API (Phase 1)
+  version: 1.0.0
+  description: High-performance metadata catalog API supporting 800 databases, 160k tables, and 5M columns with SQL-level RBAC, keyset pagination, and envelope encryption.
+paths:
+  /api/v1/search:
+    get:
+      summary: Keyset-paginated full-text and trigram search across catalog tables and columns
+      parameters:
+        - name: q
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+            maximum: 100
+        - name: cursor
+          in: query
+          description: Base64-encoded keyset cursor (sort_value, id)
+          schema:
+            type: string
+        - name: include_deleted
+          in: query
+          schema:
+            type: boolean
+            default: false
+      responses:
+        '200':
+          description: Paginated search results
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SearchResponse'
+
+  /api/v1/schemas/{schema_id}/tables:
+    get:
+      summary: Keyset-paginated tables for a schema
+      parameters:
+        - name: schema_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+            maximum: 200
+        - name: cursor
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: List of tables with keyset pagination
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TableListResponse'
+
+  /api/v1/tables/{table_id}:
+    get:
+      summary: Get table details with columns and active tags
+      parameters:
+        - name: table_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Table detail object
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TableDetail'
+
+  /api/v1/tables/{table_id}/description:
+    patch:
+      summary: Inline edit of table approved description
+      parameters:
+        - name: table_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [approved_description]
+              properties:
+                approved_description:
+                  type: string
+      responses:
+        '200':
+          description: Updated table description
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TableDetail'
+
+  /api/v1/columns/{column_id}/description:
+    patch:
+      summary: Inline edit of column approved description
+      parameters:
+        - name: column_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [approved_description]
+              properties:
+                approved_description:
+                  type: string
+      responses:
+        '200':
+          description: Updated column description
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ColumnItem'
+
+  /api/v1/tags/bulk-assign:
+    post:
+      summary: Bulk assign or remove tags across multiple entities
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BulkTagRequest'
+      responses:
+        '200':
+          description: Bulk tagging result summary
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BulkTagResponse'
+
+  /api/v1/tables/{table_id}/versions:
+    get:
+      summary: List all historical snapshot versions for a table
+      parameters:
+        - name: table_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: List of versions
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/TableVersionItem'
+
+  /api/v1/tables/{table_id}/versions/compare:
+    get:
+      summary: Compare two schema snapshot versions side-by-side
+      parameters:
+        - name: table_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: v1
+          in: query
+          required: true
+          schema:
+            type: integer
+        - name: v2
+          in: query
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Version diff payload
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VersionDiffResponse'
+
+  /api/v1/audit-logs:
+    get:
+      summary: Keyset-paginated immutable audit logs with multi-column filtering
+      parameters:
+        - name: entity_type
+          in: query
+          schema:
+            type: string
+            enum: [DATABASE, SCHEMA, TABLE, COLUMN]
+        - name: entity_id
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: actor_id
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: action
+          in: query
+          schema:
+            type: string
+        - name: start_time
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: end_time
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: cursor
+          in: query
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+            maximum: 200
+      responses:
+        '200':
+          description: Paginated audit log records
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuditLogResponse'
+
+  /api/v1/reports/completeness:
+    get:
+      summary: Fast sub-200ms metadata completeness report powered by Materialized View
+      responses:
+        '200':
+          description: Aggregated completeness metrics
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CompletenessReport'
+
+  /api/v1/reports/classification-distribution:
+    get:
+      summary: Classification & PII breakdown metrics across all connected databases
+      responses:
+        '200':
+          description: Aggregated classification metrics
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ClassificationReport'
+
+components:
+  schemas:
+    KeysetPageInfo:
+      type: object
+      required: [has_next_page, next_cursor, limit]
+      properties:
+        has_next_page:
+          type: boolean
+        next_cursor:
+          type: string
+          nullable: true
+        limit:
+          type: integer
+
+    SearchHit:
+      type: object
+      required: [id, entity_type, name, database_name, schema_name, rank]
+      properties:
+        id:
+          type: string
+          format: uuid
+        entity_type:
+          type: string
+          enum: [TABLE, COLUMN]
+        name:
+          type: string
+        database_name:
+          type: string
+        schema_name:
+          type: string
+        table_name:
+          type: string
+          nullable: true
+        effective_description:
+          type: string
+          nullable: true
+        rank:
+          type: number
+        classification_level:
+          type: string
+          nullable: true
+        status:
+          type: string
+
+    SearchResponse:
+      type: object
+      required: [items, page_info]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/SearchHit'
+        page_info:
+          $ref: '#/components/schemas/KeysetPageInfo'
+
+    TableItem:
+      type: object
+      required: [id, schema_id, name, table_type, row_count_estimate, size_bytes, status]
+      properties:
+        id:
+          type: string
+          format: uuid
+        schema_id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        table_type:
+          type: string
+        row_count_estimate:
+          type: integer
+        size_bytes:
+          type: integer
+        effective_description:
+          type: string
+          nullable: true
+        owner:
+          type: string
+          nullable: true
+        status:
+          type: string
+
+    TableListResponse:
+      type: object
+      required: [items, page_info]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/TableItem'
+        page_info:
+          $ref: '#/components/schemas/KeysetPageInfo'
+
+    ColumnItem:
+      type: object
+      required: [id, table_id, name, ordinal_position, data_type, raw_data_type, is_nullable, is_primary_key, is_foreign_key, classification_level, status]
+      properties:
+        id:
+          type: string
+          format: uuid
+        table_id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        ordinal_position:
+          type: integer
+        data_type:
+          type: string
+        raw_data_type:
+          type: string
+        is_nullable:
+          type: boolean
+        is_primary_key:
+          type: boolean
+        is_foreign_key:
+          type: boolean
+        default_value:
+          type: string
+          nullable: true
+        source_description:
+          type: string
+          nullable: true
+        approved_description:
+          type: string
+          nullable: true
+        effective_description:
+          type: string
+          nullable: true
+        classification_level:
+          type: string
+        status:
+          type: string
+
+    TableDetail:
+      type: object
+      required: [id, schema_id, schema_name, database_name, name, table_type, columns, tags, status]
+      properties:
+        id:
+          type: string
+          format: uuid
+        schema_id:
+          type: string
+          format: uuid
+        schema_name:
+          type: string
+        database_name:
+          type: string
+        name:
+          type: string
+        table_type:
+          type: string
+        row_count_estimate:
+          type: integer
+        size_bytes:
+          type: integer
+        source_description:
+          type: string
+          nullable: true
+        approved_description:
+          type: string
+          nullable: true
+        effective_description:
+          type: string
+          nullable: true
+        owner:
+          type: string
+          nullable: true
+        status:
+          type: string
+        columns:
+          type: array
+          items:
+            $ref: '#/components/schemas/ColumnItem'
+        tags:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: string
+                format: uuid
+              name:
+                type: string
+              color:
+                type: string
+
+    BulkTagRequest:
+      type: object
+      required: [tag_ids, action, targets]
+      properties:
+        tag_ids:
+          type: array
+          items:
+            type: string
+            format: uuid
+        action:
+          type: string
+          enum: [ASSIGN, REMOVE]
+        targets:
+          type: array
+          items:
+            type: object
+            required: [entity_type, entity_id]
+            properties:
+              entity_type:
+                type: string
+                enum: [DATABASE, SCHEMA, TABLE, COLUMN]
+              entity_id:
+                type: string
+                format: uuid
+
+    BulkTagResponse:
+      type: object
+      required: [success, affected_count]
+      properties:
+        success:
+          type: boolean
+        affected_count:
+          type: integer
+
+    TableVersionItem:
+      type: object
+      required: [id, table_id, version_num, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        table_id:
+          type: string
+          format: uuid
+        version_num:
+          type: integer
+        created_by_username:
+          type: string
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+
+    VersionDiffResponse:
+      type: object
+      required: [table_id, v1_num, v2_num, added_columns, removed_columns, modified_columns]
+      properties:
+        table_id:
+          type: string
+          format: uuid
+        v1_num:
+          type: integer
+        v2_num:
+          type: integer
+        added_columns:
+          type: array
+          items:
+            type: object
+        removed_columns:
+          type: array
+          items:
+            type: object
+        modified_columns:
+          type: array
+          items:
+            type: object
+            properties:
+              column_name:
+                type: string
+              v1_attributes:
+                type: object
+              v2_attributes:
+                type: object
+
+    AuditLogItem:
+      type: object
+      required: [id, actor_username, action, entity_type, entity_id, diff_jsonb, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        actor_id:
+          type: string
+          format: uuid
+          nullable: true
+        actor_username:
+          type: string
+        ip_address:
+          type: string
+          nullable: true
+        user_agent:
+          type: string
+          nullable: true
+        action:
+          type: string
+        entity_type:
+          type: string
+        entity_id:
+          type: string
+          format: uuid
+        diff_jsonb:
+          type: object
+        created_at:
+          type: string
+          format: date-time
+
+    AuditLogResponse:
+      type: object
+      required: [items, page_info]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/AuditLogItem'
+        page_info:
+          $ref: '#/components/schemas/KeysetPageInfo'
+
+    CompletenessReport:
+      type: object
+      required: [overall_completeness_pct, total_databases, total_tables, total_columns, database_breakdown]
+      properties:
+        overall_completeness_pct:
+          type: number
+        total_databases:
+          type: integer
+        total_tables:
+          type: integer
+        total_columns:
+          type: integer
+        database_breakdown:
+          type: array
+          items:
+            type: object
+            properties:
+              connection_id:
+                type: string
+                format: uuid
+              database_name:
+                type: string
+              table_count:
+                type: integer
+              tables_with_desc:
+                type: integer
+              tables_with_owner:
+                type: integer
+              completeness_pct:
+                type: number
+
+    ClassificationReport:
+      type: object
+      required: [total_classified_columns, breakdown]
+      properties:
+        total_classified_columns:
+          type: integer
+        breakdown:
+          type: array
+          items:
+            type: object
+            properties:
+              classification_level:
+                type: string
+              column_count:
+                type: integer
+              affected_table_count:
+                type: integer
+

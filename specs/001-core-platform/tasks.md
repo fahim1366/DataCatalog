@@ -71,7 +71,7 @@
   - Step C (Green): Implement `EnvelopeEncryptionService` in `backend/src/services/crypto/envelope.py` using `cryptography.hazmat.primitives.ciphers.aead.AESGCM` wrapping DEKs with Master KEK (`CATALOG_MASTER_KEK`).
   - Step D (Verify Pass & Performance): Run `poetry run pytest backend/tests/unit/test_envelope_crypto.py` and verify encryption/decryption execution takes `< 5ms` per operation.
 
-- [ ] T008 [P] Implement Core Audit Logging Service & Session Hook in `backend/src/services/audit/audit_service.py`
+- [x] T008 [P] Implement Core Audit Logging Service & Session Hook in `backend/src/services/audit/audit_service.py`
   - Step A (Red): Write `backend/tests/integration/test_audit_service_core.py` asserting that `record_audit_event` persists an `AuditLog` in the current month partition within the active transaction and rolls back cleanly if transaction fails.
   - Step B (Verify Failure): Run `poetry run pytest backend/tests/integration/test_audit_service_core.py` and confirm failure.
   - Step C (Green): Implement `record_audit_event` and `AuditService` in `backend/src/services/audit/audit_service.py` attached to SQLAlchemy `AsyncSession` flushes.

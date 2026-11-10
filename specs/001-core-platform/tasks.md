@@ -59,7 +59,7 @@
   - Step C (Green): Implement raw SQL DDL in `backend/alembic/versions/001_baseline_schema.py` applying complete DDL from [data-model.md](data-model.md) including `audit_logs_no_update` and `audit_logs_no_delete` rules.
   - Step D (Verify Pass): Run `poetry run alembic upgrade head` followed by `poetry run pytest backend/tests/integration/test_migrations.py`.
 
-- [ ] T006 [P] Implement Consolidated Core SQLAlchemy 2.0 Models in `backend/src/models/`
+- [x] T006 [P] Implement Consolidated Core SQLAlchemy 2.0 Models in `backend/src/models/`
   - Step A (Red): Write `backend/tests/unit/test_model_metadata.py` asserting all tables and relationships map to `Base.metadata` matching the database schema for `User`, `Role`, `UserRole` (`identity.py`), `PermissionRule`, `Category`, `CategoryAssignment` (`rbac.py`), `DatabaseSchema`, `CatalogTable`, `CatalogColumn`, `Tag`, `TagAssignment` (`catalog.py`), `DatabaseConnection`, `SyncSchedule` (`connections.py`), `TableVersion`, `SchemaChangeLog` (`versioning.py`), and `AuditLog` (`audit.py`).
   - Step B (Verify Failure): Run `poetry run pytest backend/tests/unit/test_model_metadata.py` and confirm `ImportError` / failure.
   - Step C (Green): Implement all declarative models in `backend/src/models/` matching the full schema in [data-model.md](data-model.md).

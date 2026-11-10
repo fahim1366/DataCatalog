@@ -118,13 +118,13 @@
   - Step C (Green): Implement `GET /api/v1/search`, `GET /api/v1/schemas/{schema_id}/tables`, and `GET /api/v1/tables/{table_id}` adhering to [contracts/openapi.yaml](contracts/openapi.yaml).
   - Step D (Verify Pass): Run `poetry run pytest backend/tests/contract/test_keyset_search.py` and confirm 100% pass.
 
-- [ ] T016 [P] [US1] Implement Angular Catalog Signal Store in `frontend/src/app/features/catalog/stores/catalog.store.ts`
+- [x] T016 [P] [US1] Implement Angular Catalog Signal Store in `frontend/src/app/features/catalog/stores/catalog.store.ts`
   - Step A (Red): Write `frontend/src/app/features/catalog/stores/catalog.store.spec.ts` asserting search query dispatch, cursor appending, and `searchHits` signal updates.
   - Step B (Verify Failure): Run `npm --prefix frontend test -- --include src/app/features/catalog/stores/catalog.store.spec.ts` and confirm failure.
   - Step C (Green): Implement `CatalogStore` using Angular Signals (`signal`, `computed`) managing `searchHits`, `isLoading`, and `hasMore`.
   - Step D (Verify Pass): Run `npm --prefix frontend test -- --include src/app/features/catalog/stores/catalog.store.spec.ts` and confirm pass.
 
-- [ ] T017 [US1] Implement CDK Virtual Scroll Table Component in `frontend/src/app/features/catalog/components/table-virtual-scroll/table-virtual-scroll.component.ts`
+- [x] T017 [US1] Implement CDK Virtual Scroll Table Component in `frontend/src/app/features/catalog/components/table-virtual-scroll/table-virtual-scroll.component.ts`
   - Step A (Red): Write `table-virtual-scroll.component.spec.ts` testing rendering of 1,000 mock items, verifying that DOM contains only visible row elements.
   - Step B (Verify Failure): Run `npm --prefix frontend test -- --include src/app/features/catalog/components/table-virtual-scroll/table-virtual-scroll.component.spec.ts` and confirm failure.
   - Step C (Green): Implement `<cdk-virtual-scroll-viewport itemSize="48">` rendering catalog items with infinite scroll pagination triggers.

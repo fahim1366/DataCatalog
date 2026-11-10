@@ -1,0 +1,55 @@
+<div class="virtual-scroll-container">
+  @if (items().length > 0) {
+    <div class="table-header">
+      <div class="col-name">Table Name</div>
+      <div class="col-hierarchy">Database / Schema</div>
+      <div class="col-desc">Description</div>
+      <div class="col-status">Status</div>
+    </div>
+
+    <cdk-virtual-scroll-viewport
+      itemSize="48"
+      minBufferPx="480"
+      maxBufferPx="960"
+      class="viewport"
+      (scrolledIndexChange)="onScroll($event)"
+    >
+      <div
+        *cdkVirtualFor="let table of items(); trackBy: trackById"
+        class="table-row"
+      >
+        <div class="col-name">
+          <a [routerLink]="['/catalog/tables', table.id]" class="table-link">
+            {{ table.name }}
+          </a>
+        </div>
+        <div class="col-hierarchy">
+          {{ table.database_name }} / {{ table.schema_name }}
+        </div>
+        <div class="col-desc" [title]="table.effective_description || 'No description provided'">
+          {{ table.effective_description || 'No description provided' }}
+        </div>
+        <div class="col-status">
+          <span
+            class="status-pill"
+            [class.archived]="table.status === 'DELETED'"
+            [class.active]="table.status === 'ACTIVE'"
+          >
+            {{ table.status }}
+          </span>
+        </div>
+      </div>
+    </cdk-virtual-scroll-viewport>
+  } @else if (!store.isLoading()) {
+    <div class="empty-catalog-state">
+      <p>No catalog items found.</p>
+    </div>
+  }
+
+  @if (store.isLoading()) {
+    <div class="loading-catalog-indicator">
+      <span>Loading catalog items...</span>
+    </div>
+  }
+</div>
+

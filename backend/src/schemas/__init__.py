@@ -8,6 +8,13 @@ from backend.src.schemas.catalog import (
     TableListResponse,
     TagItem,
 )
+from backend.src.schemas.connections import (
+    ConnectionCreateRequest,
+    ConnectionResponse,
+    ConnectionTestResponse,
+    ConnectionUpdateRequest,
+    SyncScheduleResponse,
+)
 
 __all__ = [
     "KeysetPageInfo",
@@ -19,5 +26,9 @@ __all__ = [
     "TableListResponse",
     "ColumnItem",
     "TagItem",
+    "ConnectionCreateRequest",
+    "ConnectionResponse",
+    "ConnectionTestResponse",
+    "ConnectionUpdateRequest",
+    "SyncScheduleResponse",
 ]
-

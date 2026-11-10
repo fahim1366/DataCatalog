@@ -1,12 +1,13 @@
 from fastapi import APIRouter
+from backend.src.api.v1.connections import router as connections_router
 from backend.src.api.v1.permissions import router as permissions_router
 from backend.src.api.v1.search import router as search_router
 from backend.src.api.v1.tables import router as tables_router
 
 api_v1_router = APIRouter()
+api_v1_router.include_router(connections_router)
 api_v1_router.include_router(permissions_router)
 api_v1_router.include_router(search_router)
 api_v1_router.include_router(tables_router)
 
 __all__ = ["api_v1_router"]
-

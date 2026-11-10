@@ -170,23 +170,23 @@
 **Independent Test**: Register a connection with password and SSL cert, verify ciphertext in PostgreSQL is AES-256-GCM encrypted with zero plaintext, and run live connection ping test.
 
 ### Tests for User Story 3
-- [ ] T023 [P] [US3] Write integration test for Database Connection Registry in `backend/tests/integration/test_connections.py`
+- [x] T023 [P] [US3] Write integration test for Database Connection Registry in `backend/tests/integration/test_connections.py`
   - Step A (Red): Assert connection creation encrypts credentials with unique DEK, rejects invalid 5-part cron schedules, masks credentials in API responses, and generates audit log entry.
   - Step B (Verify Failure): Run `poetry run pytest backend/tests/integration/test_connections.py` and confirm failure.
-- [ ] T024 [P] [US3] Write integration test for Dialect Connection Testing in `backend/tests/integration/test_connection_ping.py`
+- [x] T024 [P] [US3] Write integration test for Dialect Connection Testing in `backend/tests/integration/test_connection_ping.py`
   - Step A (Red): Assert that `/api/v1/connections/{id}/test` attempts dialect ping with 5s timeout and returns latency and diagnostic error structures.
   - Step B (Verify Failure): Run `poetry run pytest backend/tests/integration/test_connection_ping.py` and confirm failure.
 
 ### Implementation for User Story 3
-- [ ] T025 [US3] Implement Connection Registry Service in `backend/src/services/connections/connection_service.py`
+- [x] T025 [US3] Implement Connection Registry Service in `backend/src/services/connections/connection_service.py`
   - Step C (Green): Implement CRUD with `EnvelopeEncryptionService` and `record_audit_event` integration, ensuring credentials decrypted only in memory during test pings.
   - Step D (Verify Pass): Run `poetry run pytest backend/tests/integration/test_connections.py` and verify zero plaintext in DB.
 
-- [ ] T026 [US3] Implement Async Dialect Ping Service in `backend/src/services/connections/ping_service.py`
+- [x] T026 [US3] Implement Async Dialect Ping Service in `backend/src/services/connections/ping_service.py`
   - Step C (Green): Implement lightweight dialect pingers for PostgreSQL (`SELECT 1`), MSSQL, MySQL, Oracle, ClickHouse with `asyncio.wait_for(timeout=5.0)`.
   - Step D (Verify Pass): Run `poetry run pytest backend/tests/integration/test_connection_ping.py` and verify structured failure reports.
 
-- [ ] T027 [US3] Implement Connection Endpoints in `backend/src/api/v1/connections.py`
+- [x] T027 [US3] Implement Connection Endpoints in `backend/src/api/v1/connections.py`
   - Step C (Green): Implement `POST /api/v1/connections`, `GET /api/v1/connections`, and `POST /api/v1/connections/{id}/test`.
   - Step D (Verify Pass): Run contract test suite verifying redacted credential response and audit record.
 

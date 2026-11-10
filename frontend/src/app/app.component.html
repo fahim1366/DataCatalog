@@ -1,0 +1,31 @@
+<div class="app-layout">
+  <header class="app-header">
+    <div class="header-brand">
+      <button class="toggle-btn" (click)="toggleSidebar()" aria-label="Toggle navigation">
+        ☰
+      </button>
+      <span class="brand-title">{{ title() }}</span>
+    </div>
+    <div class="header-actions">
+      <span class="version-badge">v{{ currentVersion() }}</span>
+    </div>
+  </header>
+
+  <div class="app-body">
+    @if (isSidebarOpen()) {
+      <aside class="app-sidebar">
+        <nav class="nav-menu">
+          <a class="nav-item active" href="#">Catalog Discovery</a>
+          <a class="nav-item" href="#">Connections</a>
+          <a class="nav-item" href="#">Audit Logs</a>
+          <a class="nav-item" href="#">Executive Reports</a>
+        </nav>
+      </aside>
+    }
+
+    <main class="app-content">
+      <router-outlet></router-outlet>
+    </main>
+  </div>
+</div>
+

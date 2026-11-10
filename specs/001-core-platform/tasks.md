@@ -77,7 +77,7 @@
   - Step C (Green): Implement `record_audit_event` and `AuditService` in `backend/src/services/audit/audit_service.py` attached to SQLAlchemy `AsyncSession` flushes.
   - Step D (Verify Pass): Run `poetry run pytest backend/tests/integration/test_audit_service_core.py` and verify atomic transaction recording.
 
-- [ ] T009 Implement Core Identity & JWT Authentication Service in `backend/src/services/auth/jwt_service.py`
+- [x] T009 Implement Core Identity & JWT Authentication Service in `backend/src/services/auth/jwt_service.py`
   - Step A (Red): Write `backend/tests/integration/test_auth_service.py` asserting user authentication, Argon2id password hashing, JWT issue/validation, expiration handling, and invalid signature rejection.
   - Step B (Verify Failure): Run `poetry run pytest backend/tests/integration/test_auth_service.py` and confirm failure.
   - Step C (Green): Implement `JWTAuthService` in `backend/src/services/auth/jwt_service.py` with claims encoding and password verification.

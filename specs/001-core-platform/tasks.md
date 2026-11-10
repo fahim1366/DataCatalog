@@ -139,23 +139,23 @@
 **Independent Test**: Assign `VIEW_METADATA` on a Database to Role A, assign DENY on Table X to Role A, verify Role A sees all tables except Table X. Assign Category permission to Role B and verify access cascades down the entire sub-tree.
 
 ### Tests for User Story 2
-- [ ] T018 [P] [US2] Write integration test for Hierarchical RBAC & Category Sub-Tree in `backend/tests/integration/test_rbac_hierarchy.py`
+- [x] T018 [P] [US2] Write integration test for Hierarchical RBAC & Category Sub-Tree in `backend/tests/integration/test_rbac_hierarchy.py`
   - Step A (Red): Assert permission inheritance from Database -> Schema -> Table, verify DENY precedence overrides ALLOW, and verify category tree sub-query resolution.
   - Step B (Verify Failure): Run `poetry run pytest backend/tests/integration/test_rbac_hierarchy.py` and confirm failure.
-- [ ] T019 [P] [US2] Write contract test for Permission Rules API in `backend/tests/contract/test_permissions_api.py`
+- [x] T019 [P] [US2] Write contract test for Permission Rules API in `backend/tests/contract/test_permissions_api.py`
   - Step A (Red): Assert CRUD on `/api/v1/permissions` with role assignments, validation of valid actions and resource types, and audit record generation.
   - Step B (Verify Failure): Run `poetry run pytest backend/tests/contract/test_permissions_api.py` and confirm failure.
 
 ### Implementation for User Story 2
-- [ ] T020 [US2] Implement Category Recursive Tree Traversal Service in `backend/src/services/rbac/category_service.py`
+- [x] T020 [US2] Implement Category Recursive Tree Traversal Service in `backend/src/services/rbac/category_service.py`
   - Step C (Green): Implement recursive CTE query fetching all descendants of a category node and resolving effective permissions for tagged assets.
   - Step D (Verify Pass & Performance): Run `poetry run pytest backend/tests/integration/test_rbac_hierarchy.py` and verify sub-10ms traversal.
 
-- [ ] T021 [US2] Implement Permissions API Endpoints in `backend/src/api/v1/permissions.py`
+- [x] T021 [US2] Implement Permissions API Endpoints in `backend/src/api/v1/permissions.py`
   - Step C (Green): Implement endpoints to grant, revoke, and inspect permission rules, atomically recording audit records via `record_audit_event`.
   - Step D (Verify Pass): Run `poetry run pytest backend/tests/contract/test_permissions_api.py` and verify pass and audit log entry.
 
-- [ ] T022 [P] [US2] Implement Angular Route & Directive Guards in `frontend/src/app/core/guards/permission.guard.ts` and `frontend/src/app/core/directives/has-permission.directive.ts`
+- [x] T022 [P] [US2] Implement Angular Route & Directive Guards in `frontend/src/app/core/guards/permission.guard.ts` and `frontend/src/app/core/directives/has-permission.directive.ts`
   - Step A (Red): Write unit specs testing route blocking for unauthorized actions and DOM removal via `*hasPermission`.
   - Step B (Verify Failure): Run Angular tests and confirm failure.
   - Step C (Green): Implement `permissionGuard` CanActivateFn and `HasPermissionDirective` using Signals.

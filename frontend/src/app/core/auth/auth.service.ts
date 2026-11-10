@@ -8,6 +8,7 @@ export interface UserContext {
   email: string;
   roles: string[];
   is_superadmin: boolean;
+  permissions?: string[];
 }
 
 export interface AuthResponse {
@@ -27,6 +28,7 @@ export interface JwtPayload {
   email?: string;
   roles?: string[];
   is_superadmin?: boolean;
+  permissions?: string[];
   exp?: number;
   iat?: number;
   nbf?: number;
@@ -119,6 +121,7 @@ export class AuthService {
       email: payload.email ?? '',
       roles: Array.isArray(payload.roles) ? [...payload.roles] : [],
       is_superadmin: Boolean(payload.is_superadmin),
+      permissions: Array.isArray(payload.permissions) ? [...payload.permissions] : [],
     };
 
     this._token.set(token);

@@ -133,11 +133,25 @@ def build_table_rbac_filter(
                         CategoryAssignment.entity_type == EntityType.TABLE,
                         CategoryAssignment.entity_id == CatalogTable.id,
                         PermissionRule.resource_type == ResourceType.CATEGORY,
-                        PermissionRule.resource_id == CategoryAssignment.category_id,
+                        or_(
+                            PermissionRule.resource_id == CategoryAssignment.category_id,
+                            text("""
+                                EXISTS (
+                                    WITH RECURSIVE cat_tree AS (
+                                        SELECT id FROM categories WHERE id = permission_rules.resource_id
+                                        UNION ALL
+                                        SELECT c.id FROM categories c JOIN cat_tree ct ON c.parent_id = ct.id
+                                    )
+                                    SELECT 1 FROM cat_tree WHERE cat_tree.id = category_assignments.category_id
+                                )
+                            """),
+                        ),
                     )
+                    .correlate_except(CategoryAssignment)
                 ),
             ),
         )
+        .correlate_except(PermissionRule, DatabaseSchema)
     )
 
     # 2. DENY Subquery: Explicit table, schema, or database DENY overrides ALLOW

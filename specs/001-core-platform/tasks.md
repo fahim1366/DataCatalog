@@ -83,7 +83,7 @@
   - Step C (Green): Implement `JWTAuthService` in `backend/src/services/auth/jwt_service.py` with claims encoding and password verification.
   - Step D (Verify Pass): Run `poetry run pytest backend/tests/integration/test_auth_service.py` and verify 100% pass.
 
-- [ ] T010 [P] Implement Angular Core Authentication & Interceptor in `frontend/src/app/core/auth/auth.service.ts`
+- [x] T010 [P] Implement Angular Core Authentication & Interceptor in `frontend/src/app/core/auth/auth.service.ts`
   - Step A (Red): Write `frontend/src/app/core/auth/auth.service.spec.ts` asserting token storage, reactive `currentUser` signal, and `authInterceptor` adding `Authorization: Bearer <token>` header.
   - Step B (Verify Failure): Run `npm --prefix frontend test -- --include src/app/core/auth/auth.service.spec.ts` and confirm failure.
   - Step C (Green): Implement `AuthService` using Angular Signals and `authInterceptor` in `frontend/src/app/core/auth/auth.interceptor.ts`.

@@ -1,4 +1,5 @@
 from fastapi import APIRouter
+from backend.src.api.v1.audit_logs import router as audit_logs_router
 from backend.src.api.v1.connections import router as connections_router
 from backend.src.api.v1.ingestion import router as ingestion_router
 from backend.src.api.v1.permissions import router as permissions_router
@@ -7,6 +8,7 @@ from backend.src.api.v1.tables import router as tables_router
 from backend.src.api.v1.versions import router as versions_router
 
 api_v1_router = APIRouter()
+api_v1_router.include_router(audit_logs_router)
 api_v1_router.include_router(connections_router)
 api_v1_router.include_router(ingestion_router)
 api_v1_router.include_router(permissions_router)

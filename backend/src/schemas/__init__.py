@@ -26,6 +26,10 @@ from backend.src.schemas.ingestion import (
     IngestColumnPayload,
     IngestTablePayload,
 )
+from backend.src.schemas.audit import (
+    AuditLogItem,
+    AuditLogResponse,
+)
 
 __all__ = [
     "KeysetPageInfo",
@@ -49,4 +53,6 @@ __all__ = [
     "BulkIngestionResponse",
     "IngestColumnPayload",
     "IngestTablePayload",
+    "AuditLogItem",
+    "AuditLogResponse",
 ]

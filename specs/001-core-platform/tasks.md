@@ -242,19 +242,19 @@
 **Independent Test**: Query `/api/v1/audit-logs` with entity and date filters, verify partition pruning in PostgreSQL, and execute a direct SQL `DELETE` to verify that PostgreSQL blocks the deletion.
 
 ### Tests for User Story 5
-- [ ] T035 [P] [US5] Write integration test for Partitioned Audit Log Immutability & Pruning in `backend/tests/integration/test_audit_logging.py`
+- [x] T035 [P] [US5] Write integration test for Partitioned Audit Log Immutability & Pruning in `backend/tests/integration/test_audit_logging.py`
   - Step A (Red): Assert that direct SQL `UPDATE` or `DELETE` on `audit_logs` raises an exception or does nothing, and verify query execution plans prune non-matching month partitions.
   - Step B (Verify Failure): Run `poetry run pytest backend/tests/integration/test_audit_logging.py` and confirm failure.
-- [ ] T036 [P] [US5] Write contract test for Audit Log Filtering API in `backend/tests/contract/test_audit_api.py`
+- [x] T036 [P] [US5] Write contract test for Audit Log Filtering API in `backend/tests/contract/test_audit_api.py`
   - Step A (Red): Assert `/api/v1/audit-logs` supports filtering by `entity_type`, `entity_id`, `actor_id`, and keyset pagination.
   - Step B (Verify Failure): Run `poetry run pytest backend/tests/contract/test_audit_api.py` and confirm failure.
 
 ### Implementation for User Story 5
-- [ ] T037 [US5] Implement Keyset-Paginated Audit Query Service in `backend/src/services/audit/audit_query_service.py`
+- [x] T037 [US5] Implement Keyset-Paginated Audit Query Service in `backend/src/services/audit/audit_query_service.py`
   - Step C (Green): Implement partition-pruned keyset query service filtering by actor, entity type, entity ID, and timestamp range.
   - Step D (Verify Pass & Performance): Verify query plan uses `idx_audit_logs_entity_created` and `idx_audit_logs_actor_created`.
 
-- [ ] T038 [US5] Implement Keyset-Paginated Audit Log Endpoints in `backend/src/api/v1/audit_logs.py`
+- [x] T038 [US5] Implement Keyset-Paginated Audit Log Endpoints in `backend/src/api/v1/audit_logs.py`
   - Step C (Green): Implement `GET /api/v1/audit-logs` conforming to [contracts/openapi.yaml](contracts/openapi.yaml).
   - Step D (Verify Pass): Run `poetry run pytest backend/tests/contract/test_audit_api.py` and confirm pass.
 

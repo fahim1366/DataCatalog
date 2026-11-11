@@ -1,0 +1,157 @@
+<div class="connections-container">
+  <header class="connections-header">
+    <div class="header-left">
+      <h1 class="page-title">Database Connections</h1>
+      <p class="page-subtitle">
+        Manage database connection profiles with AES-256-GCM envelope encryption and automated cron synchronization.
+      </p>
+    </div>
+    <div class="header-actions">
+      <button
+        type="button"
+        class="btn-primary btn-add-connection"
+        (click)="openCreateDialog()"
+      >
+        + Register Connection
+      </button>
+    </div>
+  </header>
+
+  @if (errorMessage()) {
+    <div class="alert-banner alert-error" role="alert">
+      {{ errorMessage() }}
+    </div>
+  }
+
+  @if (isLoading()) {
+    <div class="loading-state">
+      <div class="spinner"></div>
+      <p>Loading connection profiles...</p>
+    </div>
+  } @else if (connections().length === 0) {
+    <div class="empty-state">
+      <h3>No Database Connections Registered</h3>
+      <p>Click "Register Connection" above to configure your first database connection profile.</p>
+    </div>
+  } @else {
+    <div class="connections-grid">
+      @for (conn of connections(); track conn.id) {
+        <div class="connection-card">
+          <div class="card-header">
+            <div class="title-group">
+              <span class="engine-badge engine-{{ conn.engine_type.toLowerCase() }}">
+                {{ conn.engine_type }}
+              </span>
+              <h2 class="connection-name">{{ conn.name }}</h2>
+            </div>
+            <div class="status-group">
+              @if (conn.is_active) {
+                <span class="status-badge badge-active">Active</span>
+              } @else {
+                <span class="status-badge badge-inactive">Inactive</span>
+              }
+            </div>
+          </div>
+
+          <div class="card-body">
+            <div class="property-grid">
+              <div class="property-item">
+                <span class="property-label">Endpoint</span>
+                <span class="property-value font-mono">{{ conn.host }}:{{ conn.port }}</span>
+              </div>
+              <div class="property-item">
+                <span class="property-label">Database</span>
+                <span class="property-value font-mono">{{ conn.database_name }}</span>
+              </div>
+              @if (conn.default_schema) {
+                <div class="property-item">
+                  <span class="property-label">Schema</span>
+                  <span class="property-value">{{ conn.default_schema }}</span>
+                </div>
+              }
+              <div class="property-item">
+                <span class="property-label">Owner</span>
+                <span class="property-value">{{ conn.owner }}</span>
+              </div>
+            </div>
+
+            @if (conn.sync_schedule) {
+              <div class="schedule-section">
+                <div class="schedule-header">
+                  <span class="schedule-title">Automated Sync Schedule</span>
+                  @if (conn.sync_schedule.last_run_status) {
+                    <span
+                      class="schedule-badge schedule-status-{{ conn.sync_schedule.last_run_status.toLowerCase() }}"
+                    >
+                      {{ conn.sync_schedule.last_run_status }}
+                    </span>
+                  }
+                </div>
+                <div class="schedule-details">
+                  <div class="cron-display font-mono">
+                    <span class="cron-icon">⏱</span>
+                    <code>{{ conn.sync_schedule.cron_expression }}</code>
+                  </div>
+                  @if (conn.sync_schedule.last_run_message) {
+                    <div class="schedule-message">
+                      {{ conn.sync_schedule.last_run_message }}
+                    </div>
+                  }
+                </div>
+              </div>
+            }
+
+            @if (testResults()[conn.id]; as result) {
+              <div class="test-result-container">
+                @if (result.success) {
+                  <div class="test-result-indicator test-result-success">
+                    <span class="indicator-icon">✓</span>
+                    <div class="indicator-text">
+                      <strong>Connected</strong>: {{ result.message }} ({{ result.latency_ms.toFixed(1) }}ms)
+                    </div>
+                  </div>
+                } @else {
+                  <div class="test-result-indicator test-result-failure">
+                    <span class="indicator-icon">✕</span>
+                    <div class="indicator-text">
+                      <strong>Ping Failed</strong>: {{ result.message }}
+                      @if (result.diagnostic_details) {
+                        <div class="diagnostic-code">
+                          {{ result.diagnostic_details | json }}
+                        </div>
+                      }
+                    </div>
+                  </div>
+                }
+              </div>
+            }
+          </div>
+
+          <div class="card-footer">
+            <button
+              type="button"
+              class="btn-test-connection"
+              [disabled]="testingConnectionId() === conn.id"
+              (click)="onTestConnection(conn.id)"
+            >
+              @if (testingConnectionId() === conn.id) {
+                <span class="btn-spinner"></span>
+                <span>Testing Ping...</span>
+              } @else {
+                <span>⚡ Test Connection</span>
+              }
+            </button>
+          </div>
+        </div>
+      }
+    </div>
+  }
+
+  @if (showDialog()) {
+    <app-connection-dialog
+      (save)="onSaveConnection($event)"
+      (cancel)="closeDialog()"
+    ></app-connection-dialog>
+  }
+</div>
+

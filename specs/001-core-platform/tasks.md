@@ -190,7 +190,7 @@
   - Step C (Green): Implement `POST /api/v1/connections`, `GET /api/v1/connections`, and `POST /api/v1/connections/{id}/test`.
   - Step D (Verify Pass): Run contract test suite verifying redacted credential response and audit record.
 
-- [ ] T028 [P] [US3] Implement Angular Connection Management UI in `frontend/src/app/features/connections/connection-list.component.ts`
+- [x] T028 [P] [US3] Implement Angular Connection Management UI in `frontend/src/app/features/connections/connection-list.component.ts`
   - Step A (Red): Write component spec testing connection list rendering, status badges, and test connection button dispatch.
   - Step B (Verify Failure): Run Angular test runner and confirm failure.
   - Step C (Green): Implement standalone `ConnectionListComponent` and `ConnectionDialogComponent` with cron validation feedback.

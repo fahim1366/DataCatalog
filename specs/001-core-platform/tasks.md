@@ -227,7 +227,7 @@
   - Step C (Green): Implement `GET /api/v1/tables/{table_id}/versions`, `GET /api/v1/tables/{table_id}/versions/compare`, and `POST /api/v1/ingestion/bulk`.
   - Step D (Verify Pass): Run `poetry run pytest backend/tests/contract/test_version_diff_api.py` and confirm pass.
 
-- [ ] T034 [P] [US4] Implement Angular Schema Diff Viewer Component in `frontend/src/app/features/versioning/version-diff.component.ts`
+- [x] T034 [P] [US4] Implement Angular Schema Diff Viewer Component in `frontend/src/app/features/versioning/version-diff.component.ts`
   - Step A (Red): Write component spec testing side-by-side display of added columns (green), removed (red), and changed types (amber).
   - Step B (Verify Failure): Run Angular tests and confirm failure.
   - Step C (Green): Implement standalone `VersionDiffComponent` with visual color-coded badges.

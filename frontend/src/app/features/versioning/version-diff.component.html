@@ -1,0 +1,305 @@
+<div class="version-diff-container">
+  @if (isLoading()) {
+    <div class="diff-loading-state" role="status">
+      <div class="spinner"></div>
+      <span>Loading schema version comparison...</span>
+    </div>
+  }
+
+  @if (errorMessage()) {
+    <div class="diff-error-banner" role="alert">
+      <span class="error-icon">⚠</span>
+      <span>{{ errorMessage() }}</span>
+    </div>
+  }
+
+  @if (activeDiff(); as diff) {
+    <!-- Comparison Header -->
+    <header class="diff-header">
+      <div class="header-left">
+        <h3 class="diff-title">Schema Version Comparison</h3>
+        <div class="version-badges-row">
+          <span class="version-chip base-version">
+            <span class="chip-label">Base:</span>
+            <strong>Version {{ diff.v1_num }}</strong>
+          </span>
+          <span class="version-arrow">➔</span>
+          <span class="version-chip target-version">
+            <span class="chip-label">Target:</span>
+            <strong>Version {{ diff.v2_num }}</strong>
+          </span>
+        </div>
+      </div>
+
+      <!-- Summary Counters & View Switcher -->
+      <div class="header-right">
+        <div class="summary-counters">
+          <span class="summary-badge summary-badge-added badge-green">
+            <span class="badge-icon">+</span>
+            <span>{{ addedColumns().length }} Added</span>
+          </span>
+          <span class="summary-badge summary-badge-removed badge-red">
+            <span class="badge-icon">-</span>
+            <span>{{ removedColumns().length }} Removed</span>
+          </span>
+          <span class="summary-badge summary-badge-modified badge-amber">
+            <span class="badge-icon">~</span>
+            <span>{{ modifiedColumns().length }} Modified</span>
+          </span>
+        </div>
+
+        <div class="view-mode-group">
+          <button
+            type="button"
+            class="btn-view-toggle btn-view-side-by-side"
+            [class.active]="activeView() === 'side-by-side'"
+            (click)="setViewMode('side-by-side')"
+          >
+            Side-by-Side
+          </button>
+          <button
+            type="button"
+            class="btn-view-toggle btn-view-categorized"
+            [class.active]="activeView() === 'categorized'"
+            (click)="setViewMode('categorized')"
+          >
+            Categorized
+          </button>
+        </div>
+      </div>
+    </header>
+
+    @if (isEmpty()) {
+      <div class="diff-empty-state">
+        <div class="empty-icon">✓</div>
+        <h4>No schema changes detected</h4>
+        <p>The schema structure is identical between Version {{ diff.v1_num }} and Version {{ diff.v2_num }}.</p>
+      </div>
+    } @else {
+      <!-- Side-by-Side View -->
+      @if (activeView() === 'side-by-side') {
+        <div class="side-by-side-wrapper">
+          <table class="side-by-side-table" aria-label="Schema Version Comparison Table">
+            <thead>
+              <tr class="version-column-headers">
+                <th class="th-version th-v1">
+                  <span class="th-badge">v{{ diff.v1_num }}</span> Baseline Snapshot
+                </th>
+                <th class="th-divider" aria-hidden="true"></th>
+                <th class="th-version th-v2">
+                  <span class="th-badge">v{{ diff.v2_num }}</span> Target Snapshot
+                </th>
+                <th class="th-status">Change</th>
+              </tr>
+            </thead>
+            <tbody>
+              @for (row of sideBySideRows(); track row.column_name + '-' + row.change_type) {
+                <tr
+                  class="diff-row"
+                  [class.diff-row-added]="row.change_type === 'ADDED'"
+                  [class.diff-row-removed]="row.change_type === 'REMOVED'"
+                  [class.diff-row-modified]="row.change_type === 'MODIFIED'"
+                >
+                  <!-- V1 Cell -->
+                  @if (row.change_type === 'ADDED') {
+                    <td class="diff-cell diff-cell-v1 cell-empty text-center">—</td>
+                  } @else {
+                    <td class="diff-cell diff-cell-v1">
+                      <div class="column-meta-box">
+                        <span class="col-name font-mono">{{ row.v1_col?.name }}</span>
+                        <span class="type-tag">{{ row.v1_col?.data_type }}</span>
+                        @if (row.v1_col?.is_primary_key) {
+                          <span class="pk-badge">PK</span>
+                        }
+                        @if (row.v1_col?.is_nullable === false) {
+                          <span class="not-null-badge">NOT NULL</span>
+                        }
+                      </div>
+                    </td>
+                  }
+
+                  <!-- Split Divider -->
+                  <td class="diff-divider-cell" aria-hidden="true"></td>
+
+                  <!-- V2 Cell -->
+                  @if (row.change_type === 'REMOVED') {
+                    <td class="diff-cell diff-cell-v2 cell-empty text-center">—</td>
+                  } @else {
+                    <td class="diff-cell diff-cell-v2">
+                      <div class="column-meta-box">
+                        <span class="col-name font-mono">{{ row.v2_col?.name }}</span>
+                        <span class="type-tag">{{ row.v2_col?.data_type }}</span>
+                        @if (row.v2_col?.is_primary_key) {
+                          <span class="pk-badge">PK</span>
+                        }
+                        @if (row.v2_col?.is_nullable === false) {
+                          <span class="not-null-badge">NOT NULL</span>
+                        }
+                        @if (row.change_type === 'MODIFIED') {
+                          <div class="attribute-diffs-container">
+                            @for (attr of row.modified_attributes; track attr.attribute) {
+                              <span class="attribute-diff-chip">
+                                <span class="attr-name">{{ attr.attribute }}:</span>
+                                <span class="old-attr">{{ attr.v1_val }}</span>
+                                <span class="attr-arrow">➔</span>
+                                <span class="new-attr">{{ attr.v2_val }}</span>
+                              </span>
+                            }
+                          </div>
+                        }
+                      </div>
+                    </td>
+                  }
+
+                  <!-- Change Badge Cell -->
+                  <td class="diff-cell cell-status">
+                    @if (row.change_type === 'ADDED') {
+                      <span class="diff-badge badge-added badge-green">ADDED</span>
+                    } @else if (row.change_type === 'REMOVED') {
+                      <span class="diff-badge badge-removed badge-red">REMOVED</span>
+                    } @else {
+                      <span class="diff-badge badge-modified badge-amber">MODIFIED</span>
+                    }
+                  </td>
+                </tr>
+              }
+            </tbody>
+          </table>
+        </div>
+      }
+
+      <!-- Categorized View -->
+      @if (activeView() === 'categorized') {
+        <div class="categorized-wrapper">
+          <!-- Added Columns Section -->
+          <div class="diff-category-section category-added">
+            <h4 class="category-heading heading-added">
+              <span class="heading-badge badge-green">+</span>
+              Added Columns ({{ addedColumns().length }})
+            </h4>
+            @if (addedColumns().length === 0) {
+              <div class="category-empty-notice">No columns added in this version.</div>
+            } @else {
+              <div class="category-table-wrapper">
+                <table class="category-table">
+                  <thead>
+                    <tr>
+                      <th>Column Name</th>
+                      <th>Data Type</th>
+                      <th>Nullable</th>
+                      <th>Keys</th>
+                      <th>Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    @for (col of addedColumns(); track col.name) {
+                      <tr class="diff-row-added">
+                        <td class="cell-name font-mono">{{ col.name }}</td>
+                        <td><span class="type-tag">{{ col.data_type }}</span></td>
+                        <td>{{ col.is_nullable ? 'YES' : 'NO' }}</td>
+                        <td>
+                          @if (col.is_primary_key) { <span class="pk-badge">PK</span> }
+                          @if (col.is_foreign_key) { <span class="fk-badge">FK</span> }
+                        </td>
+                        <td><span class="diff-badge badge-added badge-green">ADDED</span></td>
+                      </tr>
+                    }
+                  </tbody>
+                </table>
+              </div>
+            }
+          </div>
+
+          <!-- Removed Columns Section -->
+          <div class="diff-category-section category-removed">
+            <h4 class="category-heading heading-removed">
+              <span class="heading-badge badge-red">-</span>
+              Removed Columns ({{ removedColumns().length }})
+            </h4>
+            @if (removedColumns().length === 0) {
+              <div class="category-empty-notice">No columns removed in this version.</div>
+            } @else {
+              <div class="category-table-wrapper">
+                <table class="category-table">
+                  <thead>
+                    <tr>
+                      <th>Column Name</th>
+                      <th>Previous Data Type</th>
+                      <th>Previous Nullable</th>
+                      <th>Previous Keys</th>
+                      <th>Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    @for (col of removedColumns(); track col.name) {
+                      <tr class="diff-row-removed">
+                        <td class="cell-name font-mono">{{ col.name }}</td>
+                        <td><span class="type-tag">{{ col.data_type }}</span></td>
+                        <td>{{ col.is_nullable ? 'YES' : 'NO' }}</td>
+                        <td>
+                          @if (col.is_primary_key) { <span class="pk-badge">PK</span> }
+                          @if (col.is_foreign_key) { <span class="fk-badge">FK</span> }
+                        </td>
+                        <td><span class="diff-badge badge-removed badge-red">REMOVED</span></td>
+                      </tr>
+                    }
+                  </tbody>
+                </table>
+              </div>
+            }
+          </div>
+
+          <!-- Modified Columns Section -->
+          <div class="diff-category-section category-modified">
+            <h4 class="category-heading heading-modified">
+              <span class="heading-badge badge-amber">~</span>
+              Modified Columns ({{ modifiedColumns().length }})
+            </h4>
+            @if (modifiedColumns().length === 0) {
+              <div class="category-empty-notice">No columns modified in this version.</div>
+            } @else {
+              <div class="category-table-wrapper">
+                <table class="category-table">
+                  <thead>
+                    <tr>
+                      <th>Column Name</th>
+                      <th>Base Version (v{{ diff.v1_num }})</th>
+                      <th>Target Version (v{{ diff.v2_num }})</th>
+                      <th>Diff Details</th>
+                      <th>Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    @for (mod of modifiedColumns(); track mod.column_name) {
+                      <tr class="diff-row-modified">
+                        <td class="cell-name font-mono">{{ mod.column_name }}</td>
+                        <td>
+                          <span class="type-tag">{{ mod.v1_attributes['data_type'] ?? '—' }}</span>
+                        </td>
+                        <td>
+                          <span class="type-tag">{{ mod.v2_attributes['data_type'] ?? '—' }}</span>
+                        </td>
+                        <td>
+                          @for (attr of getAttributeDiffs(mod); track attr.attribute) {
+                            <span class="attribute-diff-chip">
+                              <span class="attr-name">{{ attr.attribute }}:</span>
+                              <span class="old-attr">{{ attr.v1_val }}</span>
+                              <span class="attr-arrow">➔</span>
+                              <span class="new-attr">{{ attr.v2_val }}</span>
+                            </span>
+                          }
+                        </td>
+                        <td><span class="diff-badge badge-modified badge-amber">MODIFIED</span></td>
+                      </tr>
+                    }
+                  </tbody>
+                </table>
+              </div>
+            }
+          </div>
+        </div>
+      }
+    }
+  }
+</div>
+

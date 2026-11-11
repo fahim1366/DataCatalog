@@ -289,7 +289,7 @@
   - Step C (Green): Implement `GET /api/v1/reports/completeness` and `GET /api/v1/reports/classification-distribution`.
   - Step D (Verify Pass): Run `poetry run pytest backend/tests/contract/test_reports_api.py` and verify sub-200ms latency.
 
-- [ ] T044 [P] [US6] Implement Angular Apache ECharts Executive Widgets in `frontend/src/app/features/reports/executive-dashboard.component.ts`
+- [x] T044 [P] [US6] Implement Angular Apache ECharts Executive Widgets in `frontend/src/app/features/reports/executive-dashboard.component.ts`
   - Step A (Red): Write component specs testing completeness gauge and classification distribution charts rendering without errors.
   - Step B (Verify Failure): Run Angular tests and confirm failure.
   - Step C (Green): Implement `ExecutiveDashboardComponent`, `CompletenessGaugeComponent`, and `ClassificationSunburstComponent` with `ngx-echarts` Canvas rendering.

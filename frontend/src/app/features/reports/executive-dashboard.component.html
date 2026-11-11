@@ -1,0 +1,168 @@
+<div class="dashboard-container">
+  <!-- Header -->
+  <header class="dashboard-header">
+    <div class="header-content">
+      <div class="title-group">
+        <h1 class="dashboard-title">Executive Governance &amp; Reporting Dashboard</h1>
+        <p class="dashboard-subtitle">
+          Sub-200ms real-time governance metrics and classification breakdown across all 800 connected databases powered by PostgreSQL Materialized Views.
+        </p>
+      </div>
+      <div class="header-actions">
+        <button
+          type="button"
+          class="btn-refresh"
+          data-testid="refresh-reports-btn"
+          [disabled]="isRefreshing() || isLoading()"
+          (click)="refreshViews()"
+        >
+          <span class="refresh-icon" [class.spinning]="isRefreshing()">↻</span>
+          {{ isRefreshing() ? 'Refreshing Views...' : 'Refresh Reports' }}
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- Notification Banners -->
+  @if (errorMessage()) {
+    <div class="alert alert-error" role="alert">
+      <span class="alert-icon">⚠</span>
+      <span class="alert-text">{{ errorMessage() }}</span>
+    </div>
+  }
+
+  @if (refreshSuccessMessage()) {
+    <div class="alert alert-success" role="alert">
+      <span class="alert-icon">✓</span>
+      <span class="alert-text">{{ refreshSuccessMessage() }}</span>
+    </div>
+  }
+
+  <!-- Loading State -->
+  @if (isLoading() && !completenessReport()) {
+    <div class="loading-state">
+      <div class="spinner"></div>
+      <p>Loading executive governance data...</p>
+    </div>
+  } @else {
+    <!-- Executive KPI Metrics Grid -->
+    <section class="kpi-grid">
+      <div class="kpi-card card-highlight">
+        <div class="kpi-header">
+          <span class="kpi-label">Overall Completeness</span>
+          <span class="kpi-tag" [class.tag-good]="overallScore() >= 80" [class.tag-warning]="overallScore() < 80">
+            {{ overallScore() >= 80 ? 'Target Met' : 'Action Required' }}
+          </span>
+        </div>
+        <div class="kpi-value-row">
+          <span class="kpi-value">{{ overallScore() }}%</span>
+        </div>
+        <p class="kpi-subtext">Catalog assets with approved descriptions &amp; owners</p>
+      </div>
+
+      <div class="kpi-card">
+        <div class="kpi-header">
+          <span class="kpi-label">Connected Databases</span>
+        </div>
+        <div class="kpi-value-row">
+          <span class="kpi-value">{{ totalDatabases() | number }}</span>
+        </div>
+        <p class="kpi-subtext">Enterprise database sources</p>
+      </div>
+
+      <div class="kpi-card">
+        <div class="kpi-header">
+          <span class="kpi-label">Catalog Tables</span>
+        </div>
+        <div class="kpi-value-row">
+          <span class="kpi-value">{{ totalTables() | number }}</span>
+        </div>
+        <p class="kpi-subtext">Total cataloged tables</p>
+      </div>
+
+      <div class="kpi-card">
+        <div class="kpi-header">
+          <span class="kpi-label">Catalog Columns</span>
+        </div>
+        <div class="kpi-value-row">
+          <span class="kpi-value">{{ totalColumns() | number }}</span>
+        </div>
+        <p class="kpi-subtext">Monitored enterprise columns</p>
+      </div>
+
+      <div class="kpi-card">
+        <div class="kpi-header">
+          <span class="kpi-label">Classified Columns</span>
+        </div>
+        <div class="kpi-value-row">
+          <span class="kpi-value">{{ totalClassified() | number }}</span>
+        </div>
+        <p class="kpi-subtext">Public, Internal, Confidential, Restricted</p>
+      </div>
+    </section>
+
+    <!-- Visual Charts Grid (ECharts Widgets) -->
+    <section class="charts-grid">
+      <div class="chart-widget-container">
+        <app-completeness-gauge [score]="overallScore()" />
+      </div>
+      <div class="chart-widget-container">
+        <app-classification-sunburst [report]="classificationReport()" />
+      </div>
+    </section>
+
+    <!-- Detailed Database Completeness Breakdown -->
+    <section class="breakdown-section">
+      <div class="breakdown-card">
+        <div class="breakdown-card-header">
+          <h2 class="breakdown-title">Database Completeness Breakdown</h2>
+          <span class="breakdown-count">{{ databaseBreakdown().length }} Databases</span>
+        </div>
+        <div class="table-wrapper">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Database</th>
+                <th>Total Tables</th>
+                <th>With Description</th>
+                <th>With Owner</th>
+                <th>Completeness</th>
+              </tr>
+            </thead>
+            <tbody>
+              @for (db of databaseBreakdown(); track db.connection_id) {
+                <tr>
+                  <td class="db-name-cell">
+                    <strong>{{ db.database_name }}</strong>
+                  </td>
+                  <td>{{ db.table_count | number }}</td>
+                  <td>{{ db.tables_with_desc | number }}</td>
+                  <td>{{ db.tables_with_owner | number }}</td>
+                  <td>
+                    <div class="pct-cell">
+                      <div class="progress-bar-bg">
+                        <div
+                          class="progress-bar-fill"
+                          [style.width.%]="db.completeness_pct"
+                          [class.fill-good]="db.completeness_pct >= 85"
+                          [class.fill-warning]="db.completeness_pct >= 60 && db.completeness_pct < 85"
+                          [class.fill-danger]="db.completeness_pct < 60"
+                        ></div>
+                      </div>
+                      <span class="pct-text">{{ db.completeness_pct }}%</span>
+                    </div>
+                  </td>
+                </tr>
+              } @empty {
+                <tr>
+                  <td colspan="5" class="empty-cell">No database completeness records available.</td>
+                </tr>
+              }
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+  }
+</div>
+

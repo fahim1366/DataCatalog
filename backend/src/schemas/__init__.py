@@ -30,6 +30,13 @@ from backend.src.schemas.audit import (
     AuditLogItem,
     AuditLogResponse,
 )
+from backend.src.schemas.reports import (
+    ClassificationBreakdownItem,
+    ClassificationReport,
+    CompletenessReport,
+    DatabaseCompletenessItem,
+    ReportRefreshResponse,
+)
 
 __all__ = [
     "KeysetPageInfo",
@@ -55,4 +62,9 @@ __all__ = [
     "IngestTablePayload",
     "AuditLogItem",
     "AuditLogResponse",
+    "DatabaseCompletenessItem",
+    "CompletenessReport",
+    "ClassificationBreakdownItem",
+    "ClassificationReport",
+    "ReportRefreshResponse",
 ]

@@ -273,19 +273,19 @@
 **Independent Test**: Populate test database, run materialized view concurrent refresh, and verify `/api/v1/reports/completeness` responds in `< 100ms` with accurate completeness percentages.
 
 ### Tests for User Story 6
-- [ ] T040 [P] [US6] Write integration test for Materialized View Refresh & Reporting in `backend/tests/integration/test_reports.py`
+- [x] T040 [P] [US6] Write integration test for Materialized View Refresh & Reporting in `backend/tests/integration/test_reports.py`
   - Step A (Red): Assert `mv_metadata_completeness` and `mv_classification_distribution` compute correct counts and refresh concurrently without blocking reads.
   - Step B (Verify Failure): Run `poetry run pytest backend/tests/integration/test_reports.py` and confirm failure.
-- [ ] T041 [P] [US6] Write contract test for Reporting APIs in `backend/tests/contract/test_reports_api.py`
+- [x] T041 [P] [US6] Write contract test for Reporting APIs in `backend/tests/contract/test_reports_api.py`
   - Step A (Red): Assert `/api/v1/reports/completeness` and `/api/v1/reports/classification-distribution` return expected aggregated JSON payloads in `< 200ms`.
   - Step B (Verify Failure): Run `poetry run pytest backend/tests/contract/test_reports_api.py` and confirm failure.
 
 ### Implementation for User Story 6
-- [ ] T042 [P] [US6] Implement Materialized Views & Concurrent Refresh Service in `backend/src/services/reporting/report_service.py`
+- [x] T042 [P] [US6] Implement Materialized Views & Concurrent Refresh Service in `backend/src/services/reporting/report_service.py`
   - Step C (Green): Implement DDL/ORM query for materialized views and `refresh_all_materialized_views_concurrently` method.
   - Step D (Verify Pass & Performance): Run `poetry run pytest backend/tests/integration/test_reports.py` and confirm query latency `< 50ms`.
 
-- [ ] T043 [US6] Implement Executive Reporting API Endpoints in `backend/src/api/v1/reports.py`
+- [x] T043 [US6] Implement Executive Reporting API Endpoints in `backend/src/api/v1/reports.py`
   - Step C (Green): Implement `GET /api/v1/reports/completeness` and `GET /api/v1/reports/classification-distribution`.
   - Step D (Verify Pass): Run `poetry run pytest backend/tests/contract/test_reports_api.py` and verify sub-200ms latency.
 

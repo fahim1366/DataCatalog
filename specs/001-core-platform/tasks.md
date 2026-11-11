@@ -205,25 +205,25 @@
 **Independent Test**: Execute bulk ingestion with modified column types and new columns, verify that `TableVersion` snapshots and `SchemaChangeLog` records are automatically generated while preserving user-curated descriptions, and query `/api/v1/tables/{id}/versions/compare` to verify the delta.
 
 ### Tests for User Story 4
-- [ ] T029 [P] [US4] Write integration test for Table Versioning & Change Logs in `backend/tests/integration/test_versioning.py`
+- [x] T029 [P] [US4] Write integration test for Table Versioning & Change Logs in `backend/tests/integration/test_versioning.py`
   - Step A (Red): Assert snapshot creation, version number increment, and column delta calculation between version snapshots.
   - Step B (Verify Failure): Run `poetry run pytest backend/tests/integration/test_versioning.py` and confirm failure.
-- [ ] T030 [P] [US4] Write contract test for Schema Version Diff API in `backend/tests/contract/test_version_diff_api.py`
+- [x] T030 [P] [US4] Write contract test for Schema Version Diff API in `backend/tests/contract/test_version_diff_api.py`
   - Step A (Red): Assert `/api/v1/tables/{table_id}/versions/compare?v1=1&v2=2` returns `added_columns`, `removed_columns`, and `modified_columns`.
   - Step B (Verify Failure): Run `poetry run pytest backend/tests/contract/test_version_diff_api.py` and confirm failure.
 
 ### Implementation for User Story 4
-- [ ] T031 [US4] Implement Version Snapshot & Diff Calculation Engine in `backend/src/services/catalog/version_service.py`
+- [x] T031 [US4] Implement Version Snapshot & Diff Calculation Engine in `backend/src/services/catalog/version_service.py`
   - Step C (Green): Implement JSONB snapshot generation and side-by-side structural comparison logic detecting added, removed, and type-modified columns.
   - Step D (Verify Pass): Run `poetry run pytest backend/tests/integration/test_versioning.py` and verify exact delta detection.
 
-- [ ] T032 [US4] Implement Bulk Ingestion Service Wired to Version Snapshots in `backend/src/services/ingestion/bulk_ingestion_service.py`
+- [x] T032 [US4] Implement Bulk Ingestion Service Wired to Version Snapshots in `backend/src/services/ingestion/bulk_ingestion_service.py`
   - Step A (Red): Write `backend/tests/integration/test_bulk_ingestion.py` asserting batch upsert (`INSERT ... ON CONFLICT DO UPDATE`) updates `source_description` and attributes without clearing `approved_description`, soft-deletes missing tables/columns as `DELETED`, and triggers `version_service` to generate new `TableVersion` and `SchemaChangeLog` rows on structural mutations.
   - Step B (Verify Failure): Run `poetry run pytest backend/tests/integration/test_bulk_ingestion.py` and confirm failure.
   - Step C (Green): Implement `BulkIngestionService` executing batch upserts in transactions and calling `version_service.capture_version_if_changed` and `record_audit_event`.
   - Step D (Verify Pass): Run `poetry run pytest backend/tests/integration/test_bulk_ingestion.py` and confirm description preservation and version snapshot creation.
 
-- [ ] T033 [US4] Implement Version History & Bulk Ingestion Endpoints in `backend/src/api/v1/versions.py` and `backend/src/api/v1/ingestion.py`
+- [x] T033 [US4] Implement Version History & Bulk Ingestion Endpoints in `backend/src/api/v1/versions.py` and `backend/src/api/v1/ingestion.py`
   - Step C (Green): Implement `GET /api/v1/tables/{table_id}/versions`, `GET /api/v1/tables/{table_id}/versions/compare`, and `POST /api/v1/ingestion/bulk`.
   - Step D (Verify Pass): Run `poetry run pytest backend/tests/contract/test_version_diff_api.py` and confirm pass.
 

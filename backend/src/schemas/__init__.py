@@ -15,6 +15,17 @@ from backend.src.schemas.connections import (
     ConnectionUpdateRequest,
     SyncScheduleResponse,
 )
+from backend.src.schemas.versioning import (
+    ModifiedColumnItem,
+    TableVersionItem,
+    VersionDiffResponse,
+)
+from backend.src.schemas.ingestion import (
+    BulkIngestionRequest,
+    BulkIngestionResponse,
+    IngestColumnPayload,
+    IngestTablePayload,
+)
 
 __all__ = [
     "KeysetPageInfo",
@@ -31,4 +42,11 @@ __all__ = [
     "ConnectionTestResponse",
     "ConnectionUpdateRequest",
     "SyncScheduleResponse",
+    "TableVersionItem",
+    "ModifiedColumnItem",
+    "VersionDiffResponse",
+    "BulkIngestionRequest",
+    "BulkIngestionResponse",
+    "IngestColumnPayload",
+    "IngestTablePayload",
 ]

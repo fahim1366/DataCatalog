@@ -258,7 +258,7 @@
   - Step C (Green): Implement `GET /api/v1/audit-logs` conforming to [contracts/openapi.yaml](contracts/openapi.yaml).
   - Step D (Verify Pass): Run `poetry run pytest backend/tests/contract/test_audit_api.py` and confirm pass.
 
-- [ ] T039 [P] [US5] Implement Angular Virtual Scroll Audit Viewer in `frontend/src/app/features/audit/audit-log-viewer.component.ts`
+- [x] T039 [P] [US5] Implement Angular Virtual Scroll Audit Viewer in `frontend/src/app/features/audit/audit-log-viewer.component.ts`
   - Step A (Red): Write component spec testing virtual scrolling through audit log records and JSON diff modal display.
   - Step B (Verify Failure): Run Angular tests and confirm failure.
   - Step C (Green): Implement standalone `AuditLogViewerComponent` using Angular CDK Virtual Scroll.

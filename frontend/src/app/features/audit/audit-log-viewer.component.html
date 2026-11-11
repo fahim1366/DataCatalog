@@ -1,0 +1,263 @@
+<div class="audit-viewer-container">
+  <!-- Audit Header & Filters -->
+  <header class="audit-viewer-header">
+    <div class="header-titles">
+      <h2 class="viewer-title">Security & Compliance Audit Trail</h2>
+      <p class="viewer-subtitle">
+        Immutable, month-partitioned audit log stream tracking all authentication, authorization, and metadata mutations.
+      </p>
+    </div>
+
+    <!-- Filter Toolbar -->
+    <div class="filter-toolbar">
+      <div class="filter-group">
+        <label for="filter-entity-type" class="filter-label">Entity Type</label>
+        <select
+          id="filter-entity-type"
+          class="filter-control select-control"
+          [ngModel]="filterEntityType()"
+          (ngModelChange)="filterEntityType.set($event)"
+        >
+          <option value="">All Entities</option>
+          <option value="DATABASE">DATABASE</option>
+          <option value="SCHEMA">SCHEMA</option>
+          <option value="TABLE">TABLE</option>
+          <option value="COLUMN">COLUMN</option>
+        </select>
+      </div>
+
+      <div class="filter-group">
+        <label for="filter-action" class="filter-label">Action</label>
+        <input
+          id="filter-action"
+          type="text"
+          class="filter-control text-control"
+          placeholder="e.g. UPDATE_DESCRIPTION"
+          [ngModel]="filterAction()"
+          (ngModelChange)="filterAction.set($event)"
+        />
+      </div>
+
+      <div class="filter-group">
+        <label for="filter-actor-id" class="filter-label">Actor ID</label>
+        <input
+          id="filter-actor-id"
+          type="text"
+          class="filter-control text-control"
+          placeholder="UUID..."
+          [ngModel]="filterActorId()"
+          (ngModelChange)="filterActorId.set($event)"
+        />
+      </div>
+
+      <div class="filter-group">
+        <label for="filter-entity-id" class="filter-label">Entity ID</label>
+        <input
+          id="filter-entity-id"
+          type="text"
+          class="filter-control text-control"
+          placeholder="UUID..."
+          [ngModel]="filterEntityId()"
+          (ngModelChange)="filterEntityId.set($event)"
+        />
+      </div>
+
+      <div class="filter-group">
+        <label for="filter-start-time" class="filter-label">Start Time</label>
+        <input
+          id="filter-start-time"
+          type="datetime-local"
+          class="filter-control date-control"
+          [ngModel]="filterStartTime()"
+          (ngModelChange)="filterStartTime.set($event)"
+        />
+      </div>
+
+      <div class="filter-group">
+        <label for="filter-end-time" class="filter-label">End Time</label>
+        <input
+          id="filter-end-time"
+          type="datetime-local"
+          class="filter-control date-control"
+          [ngModel]="filterEndTime()"
+          (ngModelChange)="filterEndTime.set($event)"
+        />
+      </div>
+
+      <div class="filter-actions">
+        <button
+          type="button"
+          class="btn-primary apply-filters-btn"
+          (click)="applyFilters()"
+          [disabled]="isLoading()"
+        >
+          Apply Filters
+        </button>
+        <button
+          type="button"
+          class="btn-secondary reset-filters-btn"
+          (click)="resetFilters()"
+          [disabled]="isLoading()"
+        >
+          Reset
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- Error Alert -->
+  <div *ngIf="errorMessage()" class="audit-error-alert" role="alert">
+    <span class="error-icon">⚠</span>
+    <span>{{ errorMessage() }}</span>
+  </div>
+
+  <!-- Table Viewport Wrapper -->
+  <div class="audit-table-card">
+    <div class="audit-table-header">
+      <div class="col col-timestamp">Timestamp</div>
+      <div class="col col-actor">Actor</div>
+      <div class="col col-action">Action</div>
+      <div class="col col-entity-type">Entity Type</div>
+      <div class="col col-entity-id">Entity ID</div>
+      <div class="col col-ip">IP Address</div>
+      <div class="col col-actions">Payload</div>
+    </div>
+
+    <!-- Loading State -->
+    <div *ngIf="isLoading()" class="audit-loading-state">
+      <div class="spinner"></div>
+      <span>Loading audit log records...</span>
+    </div>
+
+    <!-- Empty State -->
+    <div *ngIf="!isLoading() && items().length === 0" class="empty-audit-state">
+      <div class="empty-icon">🛡</div>
+      <h4>No audit records found</h4>
+      <p>No audit events match your selected filters. Adjust or clear criteria to inspect records.</p>
+    </div>
+
+    <!-- CDK Virtual Scroll Viewport -->
+    <cdk-virtual-scroll-viewport
+      *ngIf="!isLoading() && items().length > 0"
+      itemSize="52"
+      class="audit-viewport"
+      (scrolledIndexChange)="onScroll($event)"
+    >
+      <div
+        *cdkVirtualFor="let item of items(); trackBy: trackById"
+        class="audit-row"
+        (click)="inspectPayload(item)"
+        tabindex="0"
+        role="row"
+      >
+        <div class="col col-timestamp" [title]="item.created_at">
+          {{ item.created_at | date: 'yyyy-MM-dd HH:mm:ss' }}
+        </div>
+        <div class="col col-actor" [title]="item.actor_username">
+          <span class="actor-name">{{ item.actor_username }}</span>
+        </div>
+        <div class="col col-action">
+          <span class="badge" [ngClass]="getActionBadgeClass(item.action)">
+            {{ item.action }}
+          </span>
+        </div>
+        <div class="col col-entity-type">
+          <span class="badge" [ngClass]="getEntityTypeBadgeClass(item.entity_type)">
+            {{ item.entity_type }}
+          </span>
+        </div>
+        <div class="col col-entity-id font-mono" [title]="item.entity_id">
+          {{ item.entity_id }}
+        </div>
+        <div class="col col-ip font-mono" [title]="item.ip_address || '—'">
+          {{ item.ip_address || '—' }}
+        </div>
+        <div class="col col-actions">
+          <button
+            type="button"
+            class="btn-inspect inspect-payload-btn"
+            (click)="$event.stopPropagation(); inspectPayload(item)"
+          >
+            Inspect
+          </button>
+        </div>
+      </div>
+
+      <!-- Infinite Scroll Loading Indicator -->
+      <div *ngIf="isLoadingMore()" class="audit-loading-more">
+        <div class="spinner-small"></div>
+        <span>Loading additional keyset records...</span>
+      </div>
+    </cdk-virtual-scroll-viewport>
+  </div>
+
+  <!-- Detail Inspection Drawer / Modal -->
+  <ng-container *ngIf="selectedItem() as item">
+    <div class="audit-drawer-backdrop" (click)="closeDetail()"></div>
+    <aside class="audit-drawer" role="dialog" aria-labelledby="drawer-title" aria-modal="true">
+      <div class="drawer-header">
+        <div class="drawer-title-group">
+          <h3 id="drawer-title" class="drawer-title">Audit Record Details</h3>
+          <span class="badge" [ngClass]="getActionBadgeClass(item.action)">
+            {{ item.action }}
+          </span>
+        </div>
+        <button
+          type="button"
+          class="drawer-close-btn"
+          (click)="closeDetail()"
+          aria-label="Close detail modal"
+        >
+          &times;
+        </button>
+      </div>
+
+      <div class="drawer-body">
+        <section class="drawer-metadata-grid">
+          <div class="meta-item">
+            <span class="meta-label">Actor Username</span>
+            <span class="meta-value">{{ item.actor_username }}</span>
+          </div>
+          <div class="meta-item">
+            <span class="meta-label">Actor ID</span>
+            <span class="meta-value font-mono">{{ item.actor_id || 'System / None' }}</span>
+          </div>
+          <div class="meta-item">
+            <span class="meta-label">Entity Type</span>
+            <span class="meta-value">{{ item.entity_type }}</span>
+          </div>
+          <div class="meta-item">
+            <span class="meta-label">Entity ID</span>
+            <span class="meta-value font-mono">{{ item.entity_id }}</span>
+          </div>
+          <div class="meta-item">
+            <span class="meta-label">Timestamp (UTC)</span>
+            <span class="meta-value font-mono">{{ item.created_at }}</span>
+          </div>
+          <div class="meta-item">
+            <span class="meta-label">IP Address</span>
+            <span class="meta-value font-mono">{{ item.ip_address || '—' }}</span>
+          </div>
+          <div class="meta-item col-span-2">
+            <span class="meta-label">User Agent</span>
+            <span class="meta-value font-mono text-sm">{{ item.user_agent || '—' }}</span>
+          </div>
+        </section>
+
+        <section class="drawer-diff-section">
+          <h4 class="diff-title">State Mutation / JSON Diff Payload</h4>
+          <div class="diff-payload-content">
+            <pre><code>{{ formattedDiffJson() }}</code></pre>
+          </div>
+        </section>
+      </div>
+
+      <div class="drawer-footer">
+        <button type="button" class="btn-secondary" (click)="closeDetail()">
+          Close
+        </button>
+      </div>
+    </aside>
+  </ng-container>
+</div>
+

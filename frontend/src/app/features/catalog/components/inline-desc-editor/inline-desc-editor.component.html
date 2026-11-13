@@ -1,0 +1,81 @@
+<div class="inline-desc-editor">
+  @if (!isEditing()) {
+    <div
+      class="desc-container"
+      [class.editable]="canEdit()"
+      (click)="canEdit() ? startEdit() : null"
+    >
+      <div class="desc-content">
+        @if (currentDescription()) {
+          <p class="desc-display-text">{{ currentDescription() }}</p>
+        } @else {
+          <p class="desc-display-text placeholder">{{ placeholder() }}</p>
+        }
+      </div>
+
+      @if (canEdit()) {
+        <button
+          type="button"
+          class="btn-edit"
+          (click)="$event.stopPropagation(); startEdit()"
+          aria-label="Edit description"
+          title="Edit description"
+        >
+          ✏️ Edit
+        </button>
+      }
+    </div>
+  } @else {
+    <div class="desc-edit-form">
+      <textarea
+        class="desc-editor-textarea"
+        [value]="editValue()"
+        (input)="onInputChange($event)"
+        (keydown.escape)="cancelEdit()"
+        placeholder="Enter curated description..."
+        rows="3"
+        [disabled]="isLoading()"
+      ></textarea>
+
+      @if (errorMessage()) {
+        <div class="error-banner">{{ errorMessage() }}</div>
+      }
+
+      <div class="action-buttons">
+        <button
+          type="button"
+          class="btn-save"
+          (click)="save()"
+          [disabled]="isLoading()"
+        >
+          @if (isLoading()) {
+            Saving...
+          } @else {
+            Save
+          }
+        </button>
+        <button
+          type="button"
+          class="btn-cancel"
+          (click)="cancelEdit()"
+          [disabled]="isLoading()"
+        >
+          Cancel
+        </button>
+      </div>
+    </div>
+  }
+
+  @if (tags().length > 0) {
+    <div class="tags-container">
+      @for (tag of tags(); track tag.id) {
+        <app-tag-chip
+          [tag]="tag"
+          [removable]="canManageTags()"
+          (removed)="onTagRemove($event)"
+        ></app-tag-chip>
+      }
+    </div>
+  }
+</div>
+

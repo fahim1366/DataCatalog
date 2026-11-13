@@ -91,6 +91,11 @@ async def get_completeness_report(
     response_model=ClassificationReport,
     summary="Classification & PII breakdown metrics across all connected databases",
 )
+@router.get(
+    "/classification",
+    response_model=ClassificationReport,
+    include_in_schema=False,
+)
 async def get_classification_distribution_report(
     user_ctx: UserContext = Depends(require_reports_permission),
     db: AsyncSession = Depends(get_db_session),

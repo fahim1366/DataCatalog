@@ -1,0 +1,23 @@
+<span
+  class="tag-chip"
+  [class.governed]="tag().is_governed"
+  [style.borderColor]="tag().color"
+  [style.color]="tag().color"
+  [title]="tag().description || tag().name"
+>
+  @if (tag().is_governed) {
+    <span class="governed-badge" title="Governed Tag">🛡️</span>
+  }
+  <span class="tag-name">{{ tag().name }}</span>
+  @if (removable()) {
+    <button
+      type="button"
+      class="tag-remove-btn"
+      (click)="onRemove($event)"
+      aria-label="Remove tag"
+    >
+      &times;
+    </button>
+  }
+</span>
+

@@ -97,3 +97,32 @@ class TableDetail(BaseModel):
     columns: List[ColumnItem] = Field(default_factory=list)
     tags: List[TagItem] = Field(default_factory=list)
 
+
+class DescriptionUpdateRequest(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    approved_description: str
+
+
+class BulkTagTarget(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    entity_type: str = Field(..., pattern="^(DATABASE|SCHEMA|TABLE|COLUMN)$")
+    entity_id: uuid.UUID
+
+
+class BulkTagRequest(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    tag_ids: List[uuid.UUID]
+    action: str = Field(..., pattern="^(ASSIGN|REMOVE)$")
+    targets: List[BulkTagTarget]
+
+
+class BulkTagResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    success: bool = True
+    affected_count: int
+
+

@@ -1,0 +1,42 @@
+.tag-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.15rem 0.5rem;
+  font-size: 0.75rem;
+  font-weight: 500;
+  border-radius: 9999px;
+  border: 1.5px solid currentColor;
+  background-color: rgba(255, 255, 255, 0.05);
+  transition: all 0.2s ease;
+  line-height: 1.25;
+}
+
+.tag-chip:hover {
+  background-color: rgba(255, 255, 255, 0.12);
+}
+
+.governed-badge {
+  font-size: 0.7rem;
+}
+
+.tag-name {
+  white-space: nowrap;
+}
+
+.tag-remove-btn {
+  background: none;
+  border: none;
+  padding: 0 0.15rem;
+  font-size: 0.9rem;
+  line-height: 1;
+  color: inherit;
+  cursor: pointer;
+  opacity: 0.7;
+  transition: opacity 0.15s ease;
+}
+
+.tag-remove-btn:hover {
+  opacity: 1;
+}
+

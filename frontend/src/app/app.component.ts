@@ -1,11 +1,11 @@
 import { Component, ChangeDetectionStrategy, signal } from '@angular/core';
-import { RouterOutlet } from '@angular/router';
+import { RouterOutlet, RouterLink, RouterLinkActive } from '@angular/router';
 import { ScrollingModule } from '@angular/cdk/scrolling';
 
 @Component({
   selector: 'app-root',
   standalone: true,
-  imports: [RouterOutlet, ScrollingModule],
+  imports: [RouterOutlet, RouterLink, RouterLinkActive, ScrollingModule],
   templateUrl: './app.component.html',
   styleUrl: './app.component.css',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -22,4 +22,3 @@ export class AppComponent {
 
 // Alias for compatibility
 export { AppComponent as App };
-

@@ -15,10 +15,11 @@
     @if (isSidebarOpen()) {
       <aside class="app-sidebar">
         <nav class="nav-menu">
-          <a class="nav-item active" href="#">Catalog Discovery</a>
-          <a class="nav-item" href="#">Connections</a>
-          <a class="nav-item" href="#">Audit Logs</a>
-          <a class="nav-item" href="#">Executive Reports</a>
+          <a class="nav-item" routerLink="/catalog" routerLinkActive="active" id="nav-catalog">Catalog Search</a>
+          <a class="nav-item" routerLink="/connections" routerLinkActive="active" id="nav-connections">Connections</a>
+          <a class="nav-item" routerLink="/diff" routerLinkActive="active" id="nav-diff">Version Diff Viewer</a>
+          <a class="nav-item" routerLink="/audit" routerLinkActive="active" id="nav-audit">Audit Log Viewer</a>
+          <a class="nav-item" routerLink="/reports" routerLinkActive="active" id="nav-reports">Executive Dashboard</a>
         </nav>
       </aside>
     }
@@ -28,4 +29,3 @@
     </main>
   </div>
 </div>
-

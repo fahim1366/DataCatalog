@@ -301,20 +301,20 @@
 
 **Purpose**: Deliver inline description curation and bulk tagging operations with schema change logging and audit tracking, followed by full quickstart verification.
 
-- [ ] T045 [P] Write integration test for Inline Description Editing & Bulk Tagging in `backend/tests/integration/test_curation_tagging.py`
+- [x] T045 [P] Write integration test for Inline Description Editing & Bulk Tagging in `backend/tests/integration/test_curation_tagging.py`
   - Step A (Red): Assert that updating table/column approved description records `DESCRIPTION_UPDATED` in `schema_change_logs` and an `AuditLog` entry, and verify bulk tag assignment updates `tag_assignments` atomically.
   - Step B (Verify Failure): Run `poetry run pytest backend/tests/integration/test_curation_tagging.py` and confirm failure.
-- [ ] T046 Implement Inline Description Editing & Bulk Tagging Endpoints in `backend/src/api/v1/tables.py` and `backend/src/api/v1/tags.py`
+- [x] T046 Implement Inline Description Editing & Bulk Tagging Endpoints in `backend/src/api/v1/tables.py` and `backend/src/api/v1/tags.py`
   - Step C (Green): Implement `PATCH /api/v1/tables/{table_id}/description`, `PATCH /api/v1/columns/{column_id}/description`, and `POST /api/v1/tags/bulk-assign` with audit logging and change log records.
   - Step D (Verify Pass): Run `poetry run pytest backend/tests/integration/test_curation_tagging.py` and confirm pass.
 
-- [ ] T047 [P] Implement Angular Inline Description Editor & Tag Chip Component in `frontend/src/app/features/catalog/components/inline-desc-editor/inline-desc-editor.component.ts`
+- [x] T047 [P] Implement Angular Inline Description Editor & Tag Chip Component in `frontend/src/app/features/catalog/components/inline-desc-editor/inline-desc-editor.component.ts`
   - Step A (Red): Write component spec testing inline click-to-edit, save dispatch, cancel rollback, and tag chip display.
   - Step B (Verify Failure): Run Angular tests and confirm failure.
   - Step C (Green): Implement standalone `InlineDescEditorComponent` and `TagChipComponent`.
   - Step D (Verify Pass): Run Angular tests and confirm pass.
 
-- [ ] T048 Execute Full Quickstart Validation Scenarios in `specs/001-core-platform/quickstart.md`
+- [x] T048 Execute Full Quickstart Validation Scenarios in `specs/001-core-platform/quickstart.md`
   - Step A (Red): Run validation test harness asserting all 5 scenarios from `quickstart.md` pass against running services.
   - Step B (Verify Failure): Identify any failing integration or boundary condition.
   - Step C (Green): Resolve any integration gaps and verify complete end-to-end flow.

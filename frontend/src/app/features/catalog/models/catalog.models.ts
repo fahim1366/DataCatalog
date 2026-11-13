@@ -39,3 +39,16 @@ export interface TableListResponse {
   page_info: KeysetPageInfo;
 }
 
+export interface TagItem {
+  id: string;
+  name: string;
+  color: string;
+  description?: string | null;
+  is_governed?: boolean;
+}
+
+export interface DescriptionUpdateRequest {
+  approved_description: string;
+}
+
+

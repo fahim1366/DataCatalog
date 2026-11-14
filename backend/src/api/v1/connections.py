@@ -5,16 +5,22 @@ import uuid
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from backend.src.api.dependencies.rbac import UserContext, get_current_user
 from backend.src.core.database import get_db_session
+from backend.src.models.connections import DatabaseConnection, SyncSchedule
+from backend.src.models.rbac import EntityType
 from backend.src.schemas.connections import (
     ConnectionCreateRequest,
     ConnectionResponse,
     ConnectionTestResponse,
 )
+from backend.src.services.audit.audit_service import record_audit_event
 from backend.src.services.connections.connection_service import connection_service
+from backend.src.services.connections.cron_validator import validate_cron_expression
 
 logger = logging.getLogger(__name__)
 
@@ -91,6 +97,109 @@ async def get_connection(
     return connection_service.serialize_response(connection)
 
 
+@router.put(
+    "/{connection_id}",
+    response_model=ConnectionResponse,
+    summary="Update connection profile and sync schedule",
+)
+async def update_connection(
+    connection_id: uuid.UUID,
+    payload: ConnectionCreateRequest,
+    user_ctx: UserContext = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+) -> ConnectionResponse:
+    """
+    Updates connection profile attributes and schedule.
+    """
+    stmt = (
+        select(DatabaseConnection)
+        .options(selectinload(DatabaseConnection.sync_schedule))
+        .where(DatabaseConnection.id == connection_id)
+    )
+    res = await db.execute(stmt)
+    conn = res.scalar_one_or_none()
+    if conn is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Connection '{connection_id}' not found.",
+        )
+
+    conn.name = payload.name
+    conn.engine_type = payload.engine_type
+    conn.host = payload.host
+    conn.port = payload.port
+    conn.database_name = payload.database_name
+    conn.default_schema = payload.default_schema
+    conn.owner = payload.owner
+
+    # If new credentials provided, re-encrypt
+    if payload.credentials:
+        enc_dek, enc_creds = connection_service.crypto.encrypt_credentials(payload.credentials)
+        conn.encrypted_dek = enc_dek
+        conn.encrypted_credentials = enc_creds
+
+    # Update SyncSchedule if provided
+    if payload.sync_schedule is not None:
+        validate_cron_expression(payload.sync_schedule.cron_expression)
+        if conn.sync_schedule:
+            conn.sync_schedule.cron_expression = payload.sync_schedule.cron_expression
+            conn.sync_schedule.is_enabled = payload.sync_schedule.is_enabled
+        else:
+            sched = SyncSchedule(
+                id=uuid.uuid4(),
+                connection_id=conn.id,
+                cron_expression=payload.sync_schedule.cron_expression,
+                is_enabled=payload.sync_schedule.is_enabled,
+            )
+            db.add(sched)
+            conn.sync_schedule = sched
+
+    await record_audit_event(
+        session=db,
+        actor_username=user_ctx.user.username,
+        actor_id=user_ctx.user.id,
+        action="UPDATE_CONNECTION",
+        entity_type=EntityType.DATABASE,
+        entity_id=conn.id,
+        diff_jsonb={"name": conn.name, "host": conn.host, "database": conn.database_name},
+        flush=True,
+    )
+    await db.flush()
+
+    return connection_service.serialize_response(conn)
+
+
+@router.delete(
+    "/{connection_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Delete connection profile",
+)
+async def delete_connection(
+    connection_id: uuid.UUID,
+    user_ctx: UserContext = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+) -> None:
+    conn = await db.get(DatabaseConnection, connection_id)
+    if conn is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Connection '{connection_id}' not found.",
+        )
+
+    await record_audit_event(
+        session=db,
+        actor_username=user_ctx.user.username,
+        actor_id=user_ctx.user.id,
+        action="DELETE_CONNECTION",
+        entity_type=EntityType.DATABASE,
+        entity_id=conn.id,
+        diff_jsonb={"deleted_connection": conn.name},
+        flush=True,
+    )
+    await db.delete(conn)
+    await db.flush()
+
+
 @router.post(
     "/{connection_id}/test",
     response_model=ConnectionTestResponse,
@@ -121,4 +230,3 @@ async def test_connection_ping(
         diagnostic_details=result.diagnostic_details,
         tested_at=result.tested_at,
     )
-

@@ -18,16 +18,22 @@ router = APIRouter(tags=["Search"])
     summary="Keyset-paginated full-text and trigram search across catalog tables and columns",
 )
 async def search_catalog(
-    q: str = Query(..., min_length=1, description="Search query string"),
+    q: Optional[str] = Query("", description="Search query string"),
     limit: int = Query(50, ge=1, le=100, description="Max results per page"),
     cursor: Optional[str] = Query(None, description="Base64-encoded keyset cursor"),
     include_deleted: bool = Query(False, description="Include soft-deleted tables"),
+    database: Optional[str] = Query(None, description="Filter by database name"),
+    schema: Optional[str] = Query(None, description="Filter by schema name"),
+    classification: Optional[str] = Query(None, description="Filter by classification level"),
+    status: Optional[str] = Query(None, description="Filter by lifecycle status"),
+    tag: Optional[str] = Query(None, description="Filter by tag name"),
     user_ctx: UserContext = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session),
 ) -> SearchResponse:
     """
     Executes high-performance full-text GIN and trigram similarity search,
     strictly pushed down to PostgreSQL with user RBAC subqueries.
+    When q is empty, returns all authorized tables.
     """
     items, page_info = await search_service.search(
         session=db,
@@ -36,6 +42,10 @@ async def search_catalog(
         limit=limit,
         cursor=cursor,
         include_deleted=include_deleted,
+        database_name=database,
+        schema_name=schema,
+        classification_level=classification,
+        lifecycle_status=status,
+        tag_name=tag,
     )
     return SearchResponse(items=items, page_info=page_info)
-

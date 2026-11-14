@@ -1,10 +1,19 @@
 from __future__ import annotations
 
 import uuid
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, ConfigDict, Field
 
 from backend.src.schemas.pagination import KeysetPageInfo
+
+
+class TagItem(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    name: str
+    color: str
+    description: Optional[str] = None
 
 
 class SearchHit(BaseModel):
@@ -16,10 +25,14 @@ class SearchHit(BaseModel):
     database_name: str
     schema_name: str
     table_name: Optional[str] = None
+    table_type: Optional[str] = "TABLE"
     effective_description: Optional[str] = None
     rank: float
     classification_level: Optional[str] = None
     status: str
+    row_count_estimate: Optional[int] = 0
+    size_bytes: Optional[int] = 0
+    tags: List[TagItem] = Field(default_factory=list)
 
 
 class SearchResponse(BaseModel):
@@ -41,6 +54,7 @@ class TableItem(BaseModel):
     effective_description: Optional[str] = None
     owner: Optional[str] = None
     status: str
+    tags: List[TagItem] = Field(default_factory=list)
 
 
 class TableListResponse(BaseModel):
@@ -68,14 +82,7 @@ class ColumnItem(BaseModel):
     effective_description: Optional[str] = None
     classification_level: str
     status: str
-
-
-class TagItem(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-
-    id: uuid.UUID
-    name: str
-    color: str
+    tags: List[TagItem] = Field(default_factory=list)
 
 
 class TableDetail(BaseModel):
@@ -96,12 +103,20 @@ class TableDetail(BaseModel):
     status: str
     columns: List[ColumnItem] = Field(default_factory=list)
     tags: List[TagItem] = Field(default_factory=list)
+    categories: List[str] = Field(default_factory=list)
+    custom_properties: Dict[str, Any] = Field(default_factory=dict)
 
 
 class DescriptionUpdateRequest(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     approved_description: str
+
+
+class ClassificationUpdateRequest(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    classification_level: str = Field(..., pattern="^(PUBLIC|INTERNAL|CONFIDENTIAL|PII)$")
 
 
 class BulkTagTarget(BaseModel):
@@ -124,5 +139,3 @@ class BulkTagResponse(BaseModel):
 
     success: bool = True
     affected_count: int
-
-

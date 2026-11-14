@@ -24,10 +24,16 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# CORS middleware for enterprise Angular frontend
+# CORS middleware for enterprise Angular frontend (strictly allowing port 4200 & localhost dev server)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[
+        "http://localhost:4200",
+        "http://127.0.0.1:4200",
+        "http://localhost:8000",
+        "http://127.0.0.1:8000",
+    ],
+    allow_origin_regex=r"http://(localhost|127\.0\.0\.1)(:\d+)?",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -45,4 +51,3 @@ async def health_check():
         "status": "UP",
         "database": db_health,
     }
-

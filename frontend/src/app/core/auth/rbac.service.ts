@@ -28,12 +28,31 @@ export const ROLE_PERMISSIONS: Record<string, string[]> = {
     PermissionAction.MANAGE_TAGS,
     PermissionAction.EXPORT_REPORTS,
   ],
+  DATASTEWARD: [
+    PermissionAction.VIEW_METADATA,
+    PermissionAction.EDIT_DESCRIPTION,
+    PermissionAction.MANAGE_TAGS,
+    PermissionAction.EXPORT_REPORTS,
+  ],
   DATA_ENGINEER: [
     PermissionAction.VIEW_METADATA,
     PermissionAction.MANAGE_CONNECTIONS,
     PermissionAction.EXPORT_REPORTS,
   ],
+  DATAENGINEER: [
+    PermissionAction.VIEW_METADATA,
+    PermissionAction.MANAGE_CONNECTIONS,
+    PermissionAction.EXPORT_REPORTS,
+  ],
   ANALYST: [
+    PermissionAction.VIEW_METADATA,
+    PermissionAction.EXPORT_REPORTS,
+  ],
+  DATAANALYST: [
+    PermissionAction.VIEW_METADATA,
+    PermissionAction.EXPORT_REPORTS,
+  ],
+  DATA_ANALYST: [
     PermissionAction.VIEW_METADATA,
     PermissionAction.EXPORT_REPORTS,
   ],

@@ -2,23 +2,23 @@
   <!-- Audit Header & Filters -->
   <header class="audit-viewer-header">
     <div class="header-titles">
-      <h2 class="viewer-title">Security & Compliance Audit Trail</h2>
+      <h2 class="viewer-title">لاگ‌های ممیزی و امنیت (Security &amp; Compliance Audit Trail)</h2>
       <p class="viewer-subtitle">
-        Immutable, month-partitioned audit log stream tracking all authentication, authorization, and metadata mutations.
+        جریان لاگ‌های تغییرناپذیر ممیزی با پارتیشن‌بندی ماهانه دیتابیس جهت ردیابی تمامی رویدادهای احراز هویت، مجوزها و تغییرات متادیتا.
       </p>
     </div>
 
     <!-- Filter Toolbar -->
     <div class="filter-toolbar">
       <div class="filter-group">
-        <label for="filter-entity-type" class="filter-label">Entity Type</label>
+        <label for="filter-entity-type" class="filter-label">نوع موجودیت (Entity Type)</label>
         <select
           id="filter-entity-type"
           class="filter-control select-control"
           [ngModel]="filterEntityType()"
           (ngModelChange)="filterEntityType.set($event)"
         >
-          <option value="">All Entities</option>
+          <option value="">همه موارد (All Entities)</option>
           <option value="DATABASE">DATABASE</option>
           <option value="SCHEMA">SCHEMA</option>
           <option value="TABLE">TABLE</option>
@@ -27,7 +27,7 @@
       </div>
 
       <div class="filter-group">
-        <label for="filter-action" class="filter-label">Action</label>
+        <label for="filter-action" class="filter-label">نوع عملیات (Action)</label>
         <input
           id="filter-action"
           type="text"
@@ -39,7 +39,7 @@
       </div>
 
       <div class="filter-group">
-        <label for="filter-actor-id" class="filter-label">Actor ID</label>
+        <label for="filter-actor-id" class="filter-label">شناسه کاربر (Actor ID)</label>
         <input
           id="filter-actor-id"
           type="text"
@@ -51,7 +51,7 @@
       </div>
 
       <div class="filter-group">
-        <label for="filter-entity-id" class="filter-label">Entity ID</label>
+        <label for="filter-entity-id" class="filter-label">شناسه موجودیت (Entity ID)</label>
         <input
           id="filter-entity-id"
           type="text"
@@ -63,7 +63,7 @@
       </div>
 
       <div class="filter-group">
-        <label for="filter-start-time" class="filter-label">Start Time</label>
+        <label for="filter-start-time" class="filter-label">از تاریخ (Start Time)</label>
         <input
           id="filter-start-time"
           type="datetime-local"
@@ -74,7 +74,7 @@
       </div>
 
       <div class="filter-group">
-        <label for="filter-end-time" class="filter-label">End Time</label>
+        <label for="filter-end-time" class="filter-label">تا تاریخ (End Time)</label>
         <input
           id="filter-end-time"
           type="datetime-local"
@@ -91,7 +91,7 @@
           (click)="applyFilters()"
           [disabled]="isLoading()"
         >
-          Apply Filters
+          🔍 اعمال فیلتر (Apply)
         </button>
         <button
           type="button"
@@ -99,7 +99,7 @@
           (click)="resetFilters()"
           [disabled]="isLoading()"
         >
-          Reset
+          🔄 بازنشانی (Reset)
         </button>
       </div>
     </div>
@@ -114,26 +114,26 @@
   <!-- Table Viewport Wrapper -->
   <div class="audit-table-card">
     <div class="audit-table-header">
-      <div class="col col-timestamp">Timestamp</div>
-      <div class="col col-actor">Actor</div>
-      <div class="col col-action">Action</div>
-      <div class="col col-entity-type">Entity Type</div>
-      <div class="col col-entity-id">Entity ID</div>
-      <div class="col col-ip">IP Address</div>
-      <div class="col col-actions">Payload</div>
+      <div class="col col-timestamp">زمان (Timestamp)</div>
+      <div class="col col-actor">کاربر (Actor)</div>
+      <div class="col col-action">عملیات (Action)</div>
+      <div class="col col-entity-type">موجودیت (Entity Type)</div>
+      <div class="col col-entity-id">شناسه موجودیت (Entity ID)</div>
+      <div class="col col-ip">آدرس IP (IP Address)</div>
+      <div class="col col-actions">جزئیات (Details)</div>
     </div>
 
     <!-- Loading State -->
     <div *ngIf="isLoading()" class="audit-loading-state">
       <div class="spinner"></div>
-      <span>Loading audit log records...</span>
+      <span>در حال بارگذاری لاگ‌های ممیزی...</span>
     </div>
 
     <!-- Empty State -->
     <div *ngIf="!isLoading() && items().length === 0" class="empty-audit-state">
       <div class="empty-icon">🛡</div>
-      <h4>No audit records found</h4>
-      <p>No audit events match your selected filters. Adjust or clear criteria to inspect records.</p>
+      <h4>هیچ لاگ ممیزی یافت نشد (No audit records found)</h4>
+      <p>هیچ رویدادی مطابق با فیلترهای انتخابی پیدا نشد. لطفا فیلترها را تنظیم یا بازنشانی کنید.</p>
     </div>
 
     <!-- CDK Virtual Scroll Viewport -->
@@ -178,7 +178,7 @@
             class="btn-inspect inspect-payload-btn"
             (click)="$event.stopPropagation(); inspectPayload(item)"
           >
-            Inspect
+            🔍 جزئیات (Inspect)
           </button>
         </div>
       </div>
@@ -186,7 +186,7 @@
       <!-- Infinite Scroll Loading Indicator -->
       <div *ngIf="isLoadingMore()" class="audit-loading-more">
         <div class="spinner-small"></div>
-        <span>Loading additional keyset records...</span>
+        <span>در حال دریافت صفحات بعدی...</span>
       </div>
     </cdk-virtual-scroll-viewport>
   </div>
@@ -197,7 +197,7 @@
     <aside class="audit-drawer" role="dialog" aria-labelledby="drawer-title" aria-modal="true">
       <div class="drawer-header">
         <div class="drawer-title-group">
-          <h3 id="drawer-title" class="drawer-title">Audit Record Details</h3>
+          <h3 id="drawer-title" class="drawer-title">جزئیات لاگ ممیزی (Audit Record Details)</h3>
           <span class="badge" [ngClass]="getActionBadgeClass(item.action)">
             {{ item.action }}
           </span>
@@ -215,37 +215,37 @@
       <div class="drawer-body">
         <section class="drawer-metadata-grid">
           <div class="meta-item">
-            <span class="meta-label">Actor Username</span>
+            <span class="meta-label">نام کاربری (Actor Username)</span>
             <span class="meta-value">{{ item.actor_username }}</span>
           </div>
           <div class="meta-item">
-            <span class="meta-label">Actor ID</span>
-            <span class="meta-value font-mono">{{ item.actor_id || 'System / None' }}</span>
+            <span class="meta-label">شناسه کاربر (Actor ID)</span>
+            <span class="meta-value font-mono">{{ item.actor_id || 'سیستمی (System)' }}</span>
           </div>
           <div class="meta-item">
-            <span class="meta-label">Entity Type</span>
+            <span class="meta-label">نوع موجودیت (Entity Type)</span>
             <span class="meta-value">{{ item.entity_type }}</span>
           </div>
           <div class="meta-item">
-            <span class="meta-label">Entity ID</span>
+            <span class="meta-label">شناسه موجودیت (Entity ID)</span>
             <span class="meta-value font-mono">{{ item.entity_id }}</span>
           </div>
           <div class="meta-item">
-            <span class="meta-label">Timestamp (UTC)</span>
+            <span class="meta-label">زمان ثبت رویداد (Timestamp UTC)</span>
             <span class="meta-value font-mono">{{ item.created_at }}</span>
           </div>
           <div class="meta-item">
-            <span class="meta-label">IP Address</span>
+            <span class="meta-label">آدرس IP</span>
             <span class="meta-value font-mono">{{ item.ip_address || '—' }}</span>
           </div>
           <div class="meta-item col-span-2">
-            <span class="meta-label">User Agent</span>
+            <span class="meta-label">مرورگر و کلاینت (User Agent)</span>
             <span class="meta-value font-mono text-sm">{{ item.user_agent || '—' }}</span>
           </div>
         </section>
 
         <section class="drawer-diff-section">
-          <h4 class="diff-title">State Mutation / JSON Diff Payload</h4>
+          <h4 class="diff-title">تغییرات ثبت شده (Audit State Mutation &amp; JSON Diff)</h4>
           <div class="diff-payload-content">
             <pre><code>{{ formattedDiffJson() }}</code></pre>
           </div>
@@ -254,7 +254,7 @@
 
       <div class="drawer-footer">
         <button type="button" class="btn-secondary" (click)="closeDetail()">
-          Close
+          بستن (Close)
         </button>
       </div>
     </aside>

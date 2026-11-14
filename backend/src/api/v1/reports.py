@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import logging
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi.responses import PlainTextResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -126,3 +127,41 @@ async def refresh_reporting_views(
         refreshed_views=list(refreshed.keys()),
     )
 
+
+@router.get(
+    "/export",
+    summary="Export executive reporting summary to JSON or CSV",
+)
+async def export_reports(
+    format: str = Query("json", pattern="^(json|csv)$"),
+    user_ctx: UserContext = Depends(require_reports_permission),
+    db: AsyncSession = Depends(get_db_session),
+):
+    """
+    Exports executive reporting summary to JSON or CSV, guarded by EXPORT_REPORTS permission.
+    """
+    completeness = await report_service.get_metadata_completeness(db)
+    classification = await report_service.get_classification_distribution(db)
+
+    if format == "csv":
+        csv_lines = [
+            "Metric,Value",
+            f"Overall Completeness Pct,{completeness.overall_completeness_pct}",
+            f"Total Databases,{completeness.total_databases}",
+            f"Total Tables,{completeness.total_tables}",
+            f"Total Columns,{completeness.total_columns}",
+            f"Total Classified Columns,{classification.total_classified_columns}",
+        ]
+        for item in classification.breakdown:
+            csv_lines.append(f"Classification {item.classification_level} Columns,{item.column_count}")
+
+        return PlainTextResponse(
+            "\n".join(csv_lines),
+            media_type="text/csv",
+            headers={"Content-Disposition": "attachment; filename=catalog_report.csv"},
+        )
+
+    return {
+        "completeness": completeness.model_dump(),
+        "classification": classification.model_dump(),
+    }

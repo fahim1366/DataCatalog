@@ -9,6 +9,7 @@ import {
 import { CommonModule } from '@angular/common';
 import { forkJoin } from 'rxjs';
 import { ReportService } from './services/report.service';
+import { HasPermissionDirective } from '../../core/directives/has-permission.directive';
 import {
   ClassificationReport,
   CompletenessReport,
@@ -24,6 +25,7 @@ import { ClassificationSunburstComponent } from './classification-sunburst.compo
     CommonModule,
     CompletenessGaugeComponent,
     ClassificationSunburstComponent,
+    HasPermissionDirective,
   ],
   templateUrl: './executive-dashboard.component.html',
   styleUrls: ['./executive-dashboard.component.css'],
@@ -36,6 +38,7 @@ export class ExecutiveDashboardComponent implements OnInit {
   readonly classificationReport = signal<ClassificationReport | null>(null);
   readonly isLoading = signal<boolean>(false);
   readonly isRefreshing = signal<boolean>(false);
+  readonly isExporting = signal<boolean>(false);
   readonly errorMessage = signal<string | null>(null);
   readonly refreshSuccessMessage = signal<string | null>(null);
 
@@ -103,6 +106,26 @@ export class ExecutiveDashboardComponent implements OnInit {
             : 'Failed to refresh materialized views concurrently';
         this.errorMessage.set(msg);
         this.isRefreshing.set(false);
+      },
+    });
+  }
+
+  exportReport(format: 'json' | 'csv'): void {
+    this.isExporting.set(true);
+    this.reportService.exportReports(format).subscribe({
+      next: (blob) => {
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `datacatalog_report_${new Date().toISOString().slice(0, 10)}.${format}`;
+        a.click();
+        window.URL.revokeObjectURL(url);
+        this.isExporting.set(false);
+      },
+      error: (err: unknown) => {
+        const msg = err instanceof Error ? err.message : 'خطا در دریافت خروجی گزارش';
+        this.errorMessage.set(msg);
+        this.isExporting.set(false);
       },
     });
   }

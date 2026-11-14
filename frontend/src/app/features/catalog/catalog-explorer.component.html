@@ -1,0 +1,698 @@
+<div class="explorer-layout">
+  <!-- Right Pane: Hierarchical Tree Explorer (RTL Right side) -->
+  <aside class="tree-pane" [class.collapsed]="!isSidebarExpanded()">
+    <div class="tree-header">
+      <div class="tree-title-row">
+        <h2 class="tree-title">درختواره و منابع داده</h2>
+        <button
+          class="btn-icon"
+          (click)="isSidebarExpanded.set(!isSidebarExpanded())"
+          title="تغییر وضعیت نوار کناری"
+        >
+          {{ isSidebarExpanded() ? '◀' : '▶' }}
+        </button>
+      </div>
+
+      <!-- Tree Tabs Switcher -->
+      <div class="segmented-control">
+        <button
+          class="seg-btn"
+          [class.active]="activeTreeTab() === 'physical'"
+          (click)="activeTreeTab.set('physical')"
+        >
+          ساختار پایگاه داده
+        </button>
+        <button
+          class="seg-btn"
+          [class.active]="activeTreeTab() === 'category'"
+          (click)="activeTreeTab.set('category')"
+        >
+          دسته‌بندی موضوعی
+        </button>
+      </div>
+    </div>
+
+    <!-- Tree Ingestion Action Button -->
+    <div class="tree-actions">
+      <button
+        *hasPermission="'MANAGE_CONNECTIONS'"
+        class="btn btn-primary btn-sm btn-block"
+        (click)="openIngestionModal()"
+      >
+        <span>+ بارگذاری متادیتا (Bulk Ingestion)</span>
+      </button>
+    </div>
+
+    <!-- Tree Content View -->
+    <div class="tree-scroll-area">
+      @if (isTreeLoading()) {
+        <div class="tree-loading">
+          <div class="spinner"></div>
+          <span>در حال بارگذاری ساختار...</span>
+        </div>
+      } @else {
+        <!-- Physical Database Tree -->
+        @if (activeTreeTab() === 'physical') {
+          <div class="tree-list">
+            @for (conn of physicalTree(); track conn.id) {
+              <div class="tree-group">
+                <div class="tree-node node-db">
+                  <span class="node-icon">🗄️</span>
+                  <span class="node-label mono-font">{{ conn.name }}</span>
+                  <span class="node-engine-badge">{{ conn.engine_type }}</span>
+                </div>
+
+                <div class="tree-subnodes">
+                  @for (schema of conn.schemas; track schema.id) {
+                    <div class="tree-node node-schema" (click)="filterBySchema(schema.name)">
+                      <span class="node-icon">📁</span>
+                      <span class="node-label mono-font">{{ schema.name }}</span>
+                      <span class="node-count-badge">{{ schema.table_count }} جدول</span>
+                    </div>
+
+                    <div class="tree-tables">
+                      @for (tbl of schema.tables; track tbl.id) {
+                        <div class="tree-node node-table" (click)="filterByTable(tbl.name)">
+                          <span class="node-icon">📄</span>
+                          <span class="node-label mono-font">{{ tbl.name }}</span>
+                          <span class="node-col-badge">{{ tbl.column_count }} فیلد</span>
+                        </div>
+                      }
+                    </div>
+                  }
+                </div>
+              </div>
+            } @empty {
+              <div class="tree-empty">اتصالی تعریف نشده است.</div>
+            }
+          </div>
+        }
+
+        <!-- Business Category Tree -->
+        @if (activeTreeTab() === 'category') {
+          <div class="tree-list">
+            @for (cat of categoryTree(); track cat.id) {
+              <div class="tree-group">
+                <div class="tree-node node-cat" (click)="filterByCategory(cat.name)">
+                  <span class="node-icon">🏷️</span>
+                  <span class="node-label">{{ cat.name }}</span>
+                  <span class="node-count-badge">{{ cat.tables.length }} جدول</span>
+                </div>
+
+                <!-- Children categories -->
+                @if (cat.children && cat.children.length > 0) {
+                  <div class="tree-subnodes">
+                    @for (sub of cat.children; track sub.id) {
+                      <div class="tree-node node-cat" (click)="filterByCategory(sub.name)">
+                        <span class="node-icon">↳ 📂</span>
+                        <span class="node-label">{{ sub.name }}</span>
+                        <span class="node-count-badge">{{ sub.tables.length }} جدول</span>
+                      </div>
+                      <div class="tree-tables">
+                        @for (tbl of sub.tables; track tbl.id) {
+                          <div class="tree-node node-table" (click)="filterByTable(tbl.name)">
+                            <span class="node-icon">📄</span>
+                            <span class="node-label mono-font">{{ tbl.name }}</span>
+                          </div>
+                        }
+                      </div>
+                    }
+                  </div>
+                }
+
+                <div class="tree-tables">
+                  @for (tbl of cat.tables; track tbl.id) {
+                    <div class="tree-node node-table" (click)="filterByTable(tbl.name)">
+                      <span class="node-icon">📄</span>
+                      <span class="node-label mono-font">{{ tbl.name }}</span>
+                    </div>
+                  }
+                </div>
+              </div>
+            } @empty {
+              <div class="tree-empty">دسته‌بندی موضوعی یافت نشد.</div>
+            }
+          </div>
+        }
+      }
+    </div>
+  </aside>
+
+  <!-- Left/Center Pane: Main Catalog Search & Results Grid -->
+  <main class="main-content-pane">
+    <!-- Top Filter Header -->
+    <header class="catalog-header">
+      <div class="search-bar-row">
+        <div class="search-input-wrapper">
+          <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="11" cy="11" r="8"></circle>
+            <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+          </svg>
+          <input
+            type="text"
+            class="search-input"
+            [(ngModel)]="searchQuery"
+            (keyup.enter)="executeSearch()"
+            placeholder="جستجوی آنی در متادیتا، نام جداول، فیلدها و برچسب‌ها..."
+          />
+          @if (searchQuery) {
+            <button class="clear-btn" (click)="searchQuery = ''; executeSearch()">✕</button>
+          }
+        </div>
+
+        <button class="btn btn-primary" (click)="executeSearch()" [disabled]="store.isLoading()">
+          @if (store.isLoading()) {
+            <span>در حال جستجو...</span>
+          } @else {
+            <span>جستجو</span>
+          }
+        </button>
+
+        <button class="btn btn-secondary" (click)="resetFilters()">
+          بازنشانی فیلترها
+        </button>
+      </div>
+
+      <!-- Advanced Filter Controls Bar -->
+      <div class="filters-row">
+        <div class="filter-item">
+          <label>پایگاه داده:</label>
+          <input
+            type="text"
+            class="filter-select mono-font"
+            [(ngModel)]="selectedDatabase"
+            (change)="executeSearch()"
+            placeholder="همه پایگاه‌ها"
+          />
+        </div>
+
+        <div class="filter-item">
+          <label>اسکیما:</label>
+          <input
+            type="text"
+            class="filter-select mono-font"
+            [(ngModel)]="selectedSchema"
+            (change)="executeSearch()"
+            placeholder="همه اسکیماها"
+          />
+        </div>
+
+        <div class="filter-item">
+          <label>سطح محرمانگی:</label>
+          <select class="filter-select" [(ngModel)]="selectedClassification" (change)="executeSearch()">
+            <option value="">همه سطوح</option>
+            <option value="PUBLIC">عمومی (PUBLIC)</option>
+            <option value="INTERNAL">داخلی (INTERNAL)</option>
+            <option value="CONFIDENTIAL">محرمانه (CONFIDENTIAL)</option>
+            <option value="PII">حاوی اطلاعات هویتی (PII)</option>
+          </select>
+        </div>
+
+        <div class="filter-item">
+          <label>وضعیت چرخه حیات:</label>
+          <select class="filter-select" [(ngModel)]="selectedStatus" (change)="executeSearch()">
+            <option value="">همه وضعیت‌ها</option>
+            <option value="ACTIVE">فعال (ACTIVE)</option>
+            <option value="DEPRECATED">منسوخ (DEPRECATED)</option>
+            <option value="DELETED">حذف شده (DELETED)</option>
+          </select>
+        </div>
+
+        <div class="filter-item">
+          <label>تگ سازمانی:</label>
+          <select class="filter-select" [(ngModel)]="selectedTag" (change)="executeSearch()">
+            <option value="">همه تگ‌ها</option>
+            @for (t of availableTags(); track t.id) {
+              <option [value]="t.name">{{ t.name }}</option>
+            }
+          </select>
+        </div>
+      </div>
+
+      <!-- Multi-select Bulk Actions Bar (appears when >= 1 table selected) -->
+      @if (hasSelectedTables()) {
+        <div class="bulk-action-bar">
+          <div class="bulk-count">
+            <strong>{{ selectedCount() }}</strong> جدول انتخاب شده است
+          </div>
+          <div class="bulk-actions">
+            <button
+              *hasPermission="'MANAGE_TAGS'"
+              class="btn btn-primary btn-sm"
+              (click)="openBulkTagModal()"
+            >
+              🏷️ تخصیص گروهی تگ (Bulk Tagging)
+            </button>
+            <button class="btn btn-secondary btn-sm" (click)="clearSelection()">
+              انصراف از انتخاب
+            </button>
+          </div>
+        </div>
+      }
+    </header>
+
+    <!-- Keyset Results CDK Virtual Scroll Table -->
+    <div class="table-container">
+      @if (store.isLoading() && store.searchHits().length === 0) {
+        <div class="loading-state">
+          <div class="spinner"></div>
+          <p>در حال کاوش و دریافت ساختار متادیتا...</p>
+        </div>
+      } @else if (store.searchHits().length === 0) {
+        <div class="empty-state">
+          <div class="empty-icon">🔍</div>
+          <h3>موردی در کاتالوگ متادیتا یافت نشد</h3>
+          <p>هیچ جدولی با شرایط فیلتر یا کلیدواژه جستجوی فعلی تطابق ندارد یا سطح دسترسی شما برای مشاهده آن محدود است.</p>
+          <button class="btn btn-primary btn-sm" (click)="resetFilters()">مشاهده تمامی جداول در دسترس</button>
+        </div>
+      } @else {
+        <!-- Table Column Headers -->
+        <div class="table-header-row">
+          <div class="col-checkbox">
+            <input
+              type="checkbox"
+              [checked]="selectedCount() === store.searchHits().length && selectedCount() > 0"
+              (change)="toggleSelectAll()"
+            />
+          </div>
+          <div class="col-name">نام جدول و منبع</div>
+          <div class="col-source">پایگاه داده / اسکیما</div>
+          <div class="col-stats">تعداد رکورد / حجم</div>
+          <div class="col-tags">تگ‌های متصل</div>
+          <div class="col-desc">توضیحات تایید شده حاکمیتی</div>
+          <div class="col-action">عملیات</div>
+        </div>
+
+        <!-- Virtual Scroll Viewport -->
+        <cdk-virtual-scroll-viewport itemSize="64" class="viewport">
+          <div
+            *cdkVirtualFor="let hit of store.searchHits(); trackBy: trackByHitId"
+            class="table-row"
+            [class.row-selected]="isTableSelected(hit.id)"
+          >
+            <div class="col-checkbox">
+              <input
+                type="checkbox"
+                [checked]="isTableSelected(hit.id)"
+                (change)="toggleTableSelection(hit.id)"
+              />
+            </div>
+
+            <div class="col-name" (click)="inspectTable(hit.id)">
+              <div class="table-title mono-font">
+                <span class="type-icon">📊</span>
+                <strong>{{ hit.name }}</strong>
+              </div>
+              <div class="table-type-badge">{{ hit.table_type || 'TABLE' }}</div>
+            </div>
+
+            <div class="col-source">
+              <span class="badge badge-internal mono-font">{{ hit.database_name }}</span>
+              <span class="slash">/</span>
+              <span class="mono-font">{{ hit.schema_name }}</span>
+            </div>
+
+            <div class="col-stats">
+              <div>{{ (hit.row_count_estimate || 0).toLocaleString('fa-IR') }} رکورد</div>
+              <div class="text-muted">{{ (hit.size_bytes ? (hit.size_bytes / 1024 / 1024).toFixed(1) : 0) }} مگابایت</div>
+            </div>
+
+            <div class="col-tags">
+              @if (hit.tags && hit.tags.length > 0) {
+                <div class="tags-flex">
+                  @for (tag of hit.tags; track tag.id) {
+                    <app-tag-chip [tag]="tag" [removable]="false"></app-tag-chip>
+                  }
+                </div>
+              } @else {
+                <span class="text-muted">-</span>
+              }
+            </div>
+
+            <div class="col-desc">
+              <div class="desc-text" [title]="hit.effective_description || 'توضیحی ثبت نشده است'">
+                {{ hit.effective_description || 'بدون توضیحات ثبت شده' }}
+              </div>
+            </div>
+
+            <div class="col-action">
+              <button class="btn btn-secondary btn-sm" (click)="inspectTable(hit.id)">
+                شناسنامه جدول 🔍
+              </button>
+            </div>
+          </div>
+        </cdk-virtual-scroll-viewport>
+      }
+    </div>
+  </main>
+</div>
+
+<!-- ========================================================================= -->
+<!-- TABLE DETAIL INSPECTOR DRAWER (3 Tabs) -->
+<!-- ========================================================================= -->
+@if (selectedTableId()) {
+  <div class="inspector-backdrop" (click)="closeInspector()"></div>
+  <aside class="inspector-drawer">
+    <div class="inspector-header">
+      <div class="inspector-title-box">
+        <span class="badge badge-internal">شناسنامه متادیتا</span>
+        <h2 class="inspector-title mono-font">{{ selectedTable()?.name || 'در حال بارگذاری...' }}</h2>
+        <span class="text-muted mono-font">{{ selectedTable()?.database_name }} / {{ selectedTable()?.schema_name }}</span>
+      </div>
+      <button class="btn-close" (click)="closeInspector()" aria-label="بستن">✕</button>
+    </div>
+
+    <!-- Inspector Tabs -->
+    <div class="inspector-tabs">
+      <button
+        class="tab-btn"
+        [class.active]="activeInspectorTab() === 'columns'"
+        (click)="activeInspectorTab.set('columns')"
+      >
+        ستون‌ها و فیلدها ({{ selectedTable()?.columns?.length || 0 }})
+      </button>
+      <button
+        class="tab-btn"
+        [class.active]="activeInspectorTab() === 'metadata'"
+        (click)="activeInspectorTab.set('metadata')"
+      >
+        مشخصات جدول
+      </button>
+      <button
+        class="tab-btn"
+        [class.active]="activeInspectorTab() === 'history'"
+        (click)="activeInspectorTab.set('history')"
+      >
+        تاریخچه و تغییرات اسکیما ({{ tableHistory().length }})
+      </button>
+    </div>
+
+    <div class="inspector-body">
+      @if (isInspectorLoading()) {
+        <div class="loading-state">
+          <div class="spinner"></div>
+          <p>در حال بارگذاری جزئیات و ساختار ستون‌ها...</p>
+        </div>
+      } @else if (selectedTable()) {
+        <!-- TAB 1: COLUMNS -->
+        @if (activeInspectorTab() === 'columns') {
+          <div class="columns-grid-wrapper">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>ردیف</th>
+                  <th>نام فیلد</th>
+                  <th>نوع داده</th>
+                  <th>ویژگی کلید</th>
+                  <th>اجباری</th>
+                  <th>سطح محرمانگی</th>
+                  <th>تگ‌های فیلد</th>
+                  <th>توضیحات مبدا و تایید شده</th>
+                </tr>
+              </thead>
+              <tbody>
+                @for (col of selectedTable()!.columns; track col.id) {
+                  <tr>
+                    <td class="text-muted">{{ col.ordinal_position }}</td>
+                    <td class="mono-font fw-bold">
+                      {{ col.name }}
+                      @if (col.is_primary_key) {
+                        <span class="badge badge-danger">PK</span>
+                      }
+                      @if (col.is_foreign_key) {
+                        <span class="badge badge-internal">FK</span>
+                      }
+                    </td>
+                    <td><span class="code-badge">{{ col.data_type }}</span></td>
+                    <td>
+                      @if (col.is_primary_key) { <span>کلید اصلی</span> }
+                      @else if (col.is_foreign_key) { <span>کلید خارجی</span> }
+                      @else { <span class="text-muted">-</span> }
+                    </td>
+                    <td>
+                      @if (!col.is_nullable) {
+                        <span class="badge badge-deprecated">NOT NULL</span>
+                      } @else {
+                        <span class="text-muted">اختیاری</span>
+                      }
+                    </td>
+                    <td>
+                      <!-- Editable Classification Dropdown -->
+                      <select
+                        class="form-select select-sm"
+                        [ngModel]="col.classification_level"
+                        (ngModelChange)="onClassificationChange(col, $event)"
+                      >
+                        <option value="PUBLIC">PUBLIC</option>
+                        <option value="INTERNAL">INTERNAL</option>
+                        <option value="CONFIDENTIAL">CONFIDENTIAL</option>
+                        <option value="PII">PII</option>
+                      </select>
+                    </td>
+                    <td>
+                      <div class="col-tags-container">
+                        @for (t of col.tags || []; track t.id) {
+                          <app-tag-chip
+                            [tag]="t"
+                            [removable]="true"
+                            (removed)="removeTagFromColumn(col, t)"
+                          ></app-tag-chip>
+                        }
+                        <button class="btn-tag-add" (click)="openColumnTagModal(col)">+</button>
+                      </div>
+                    </td>
+                    <td>
+                      <div class="dual-desc-container">
+                        @if (col.source_description) {
+                          <div class="source-desc-hint">
+                            <span class="label-muted">مبدا:</span> {{ col.source_description }}
+                          </div>
+                        }
+                        <app-inline-desc-editor
+                          [description]="col.approved_description"
+                          placeholder="توضیحات تایید شده فیلد..."
+                          (saved)="onSaveColumnDescription(col, $event)"
+                        ></app-inline-desc-editor>
+                      </div>
+                    </td>
+                  </tr>
+                }
+              </tbody>
+            </table>
+          </div>
+        }
+
+        <!-- TAB 2: TABLE METADATA -->
+        @if (activeInspectorTab() === 'metadata') {
+          <div class="metadata-tab-content">
+            <div class="meta-card">
+              <h3>توضیحات حاکمیتی جدول (Approved Description)</h3>
+              <app-inline-desc-editor
+                [description]="selectedTable()!.approved_description"
+                placeholder="توضیحات جامع حاکمیتی جدول را اینجا وارد کنید..."
+                (saved)="onSaveTableDescription($event)"
+              ></app-inline-desc-editor>
+            </div>
+
+            <div class="meta-grid">
+              <div class="meta-item">
+                <span class="meta-label">نوع جدول:</span>
+                <span class="meta-val mono-font">{{ selectedTable()!.table_type }}</span>
+              </div>
+              <div class="meta-item">
+                <span class="meta-label">مالک داده (Owner):</span>
+                <span class="meta-val mono-font">{{ selectedTable()!.owner || 'تعیین نشده' }}</span>
+              </div>
+              <div class="meta-item">
+                <span class="meta-label">تخمین تعداد رکوردها:</span>
+                <span class="meta-val">{{ selectedTable()!.row_count_estimate.toLocaleString('fa-IR') }}</span>
+              </div>
+              <div class="meta-item">
+                <span class="meta-label">حجم فیزیکی داده:</span>
+                <span class="meta-val mono-font">{{ (selectedTable()!.size_bytes / 1024 / 1024).toFixed(2) }} MB</span>
+              </div>
+              <div class="meta-item">
+                <span class="meta-label">وضعیت چرخه حیات:</span>
+                <span class="badge badge-active">{{ selectedTable()!.status }}</span>
+              </div>
+              <div class="meta-item">
+                <span class="meta-label">دسته‌بندی‌های موضوعی:</span>
+                <span class="meta-val">{{ selectedTable()!.categories?.join(', ') || 'دسته‌بندی نشده' }}</span>
+              </div>
+            </div>
+
+            <div class="meta-card">
+              <h3>ویژگی‌های سفارشی (Custom Properties JSONB)</h3>
+              <pre class="json-box json-diff">{{ selectedTable()!.custom_properties | json }}</pre>
+            </div>
+          </div>
+        }
+
+        <!-- TAB 3: TABLE HISTORY & SCHEMA CHANGES -->
+        @if (activeInspectorTab() === 'history') {
+          <div class="history-tab-content">
+            <div class="history-timeline">
+              @for (log of tableHistory(); track log.id) {
+                <div class="timeline-item">
+                  <div class="timeline-badge" [class.badge-change]="true">
+                    {{ log.change_type }}
+                  </div>
+                  <div class="timeline-body">
+                    <div class="timeline-meta">
+                      <span class="timeline-user">توسط {{ log.actor_username || 'سیستم' }}</span>
+                      <span class="timeline-time mono-font">{{ log.created_at | date:'yyyy-MM-dd HH:mm:ss' }}</span>
+                    </div>
+                    @if (log.column_name) {
+                      <div class="timeline-col mono-font">فیلد: {{ log.column_name }}</div>
+                    }
+                    <div class="timeline-diff">
+                      @if (log.old_value) {
+                        <div class="diff-block diff-old">
+                          <span class="diff-title">مقدار قبلی:</span>
+                          <pre class="mono-font">{{ log.old_value | json }}</pre>
+                        </div>
+                      }
+                      @if (log.new_value) {
+                        <div class="diff-block diff-new">
+                          <span class="diff-title">مقدار جدید:</span>
+                          <pre class="mono-font">{{ log.new_value | json }}</pre>
+                        </div>
+                      }
+                    </div>
+                  </div>
+                </div>
+              } @empty {
+                <div class="empty-state">هنوز تغییری در اسکیما یا توضیحات این جدول ثبت نشده است.</div>
+              }
+            </div>
+          </div>
+        }
+      }
+    </div>
+  </aside>
+}
+
+<!-- ========================================================================= -->
+<!-- BULK INGESTION MODAL -->
+<!-- ========================================================================= -->
+@if (isIngestionModalOpen()) {
+  <div class="modal-backdrop" (click)="closeIngestionModal()">
+    <div class="modal-dialog" (click)="$event.stopPropagation()">
+      <div class="modal-header">
+        <h3 class="modal-title">بارگذاری دسته‌ای متادیتا (Bulk Metadata Ingestion)</h3>
+        <button class="btn-close" (click)="closeIngestionModal()">✕</button>
+      </div>
+      <div class="modal-body">
+        <p class="text-muted" style="margin-bottom: 14px;">
+          ساختار جداول و ستون‌ها را به صورت JSON وارد کنید. سیستم به صورت خودکار نسخه جدید اسکیما و لاگ تغییرات را ثبت می‌کند.
+        </p>
+
+        <div class="form-group">
+          <label class="form-label">اتصال پایگاه داده مقصد:</label>
+          <select class="form-select" [ngModel]="ingestConnectionId()" (ngModelChange)="ingestConnectionId.set($event)">
+            @for (conn of physicalTree(); track conn.id) {
+              <option [value]="conn.id">{{ conn.name }} ({{ conn.engine_type }})</option>
+            }
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">نام اسکیما:</label>
+          <input
+            type="text"
+            class="form-control mono-font"
+            [ngModel]="ingestSchemaName()"
+            (ngModelChange)="ingestSchemaName.set($event)"
+          />
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">محتوای متادیتا (JSON Tables Payload):</label>
+          <textarea
+            class="form-control mono-font"
+            rows="10"
+            [ngModel]="ingestJsonPayload()"
+            (ngModelChange)="ingestJsonPayload.set($event)"
+          ></textarea>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" (click)="closeIngestionModal()">انصراف</button>
+        <button class="btn btn-primary" (click)="executeBulkIngestion()">اجرای بارگذاری و ثبت نسخه</button>
+      </div>
+    </div>
+  </div>
+}
+
+<!-- ========================================================================= -->
+<!-- BULK TAGGING MODAL -->
+<!-- ========================================================================= -->
+@if (isBulkTagModalOpen()) {
+  <div class="modal-backdrop" (click)="closeBulkTagModal()">
+    <div class="modal-dialog" (click)="$event.stopPropagation()">
+      <div class="modal-header">
+        <h3 class="modal-title">تخصیص گروهی تگ به {{ selectedCount() }} جدول</h3>
+        <button class="btn-close" (click)="closeBulkTagModal()">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label class="form-label">نوع عملیات:</label>
+          <select class="form-select" [ngModel]="bulkTagAction()" (ngModelChange)="bulkTagAction.set($event)">
+            <option value="ASSIGN">افزودن و تخصیص تگ (ASSIGN)</option>
+            <option value="REMOVE">حذف تگ از جداول انتخاب شده (REMOVE)</option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">انتخاب تگ سازمانی:</label>
+          <select class="form-select" [ngModel]="selectedTagIdToAssign()" (ngModelChange)="selectedTagIdToAssign.set($event)">
+            @for (t of availableTags(); track t.id) {
+              <option [value]="t.id">{{ t.name }} ({{ t.description || 'بدون توضیح' }})</option>
+            }
+          </select>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" (click)="closeBulkTagModal()">انصراف</button>
+        <button class="btn btn-primary" (click)="executeBulkTag()">اعمال روی {{ selectedCount() }} جدول</button>
+      </div>
+    </div>
+  </div>
+}
+
+<!-- ========================================================================= -->
+<!-- COLUMN TAG MODAL -->
+<!-- ========================================================================= -->
+@if (isColumnTagModalOpen()) {
+  <div class="modal-backdrop" (click)="closeColumnTagModal()">
+    <div class="modal-dialog" (click)="$event.stopPropagation()">
+      <div class="modal-header">
+        <h3 class="modal-title">تخصیص تگ به فیلد {{ targetColumn()?.name }}</h3>
+        <button class="btn-close" (click)="closeColumnTagModal()">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label class="form-label">انتخاب تگ:</label>
+          <select class="form-select" [ngModel]="selectedTagForColumn()" (ngModelChange)="selectedTagForColumn.set($event)">
+            @for (t of availableTags(); track t.id) {
+              <option [value]="t.id">{{ t.name }}</option>
+            }
+          </select>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" (click)="closeColumnTagModal()">انصراف</button>
+        <button class="btn btn-primary" (click)="assignTagToColumn()">تخصیص تگ</button>
+      </div>
+    </div>
+  </div>
+}
+
+<!-- TOAST -->
+@if (toastMessage()) {
+  <div class="toast-container">
+    <div class="toast" [class.toast-success]="toastType() === 'success'" [class.toast-error]="toastType() === 'error'" [class.toast-info]="toastType() === 'info'">
+      {{ toastMessage() }}
+    </div>
+  </div>
+}

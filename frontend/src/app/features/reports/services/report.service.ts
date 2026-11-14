@@ -36,5 +36,14 @@ export class ReportService {
   refreshMaterializedViews(): Observable<ReportRefreshResponse> {
     return this.http.post<ReportRefreshResponse>(`${this.baseUrl}/refresh`, {});
   }
+
+  /**
+   * Exports executive reporting summary to JSON or CSV format.
+   */
+  exportReports(format: 'json' | 'csv'): Observable<Blob> {
+    return this.http.get(`${this.baseUrl}/export?format=${format}`, {
+      responseType: 'blob',
+    });
+  }
 }
 

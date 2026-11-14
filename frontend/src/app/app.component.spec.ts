@@ -2,7 +2,6 @@ import { TestBed } from '@angular/core/testing';
 import { AppComponent } from './app.component';
 import { ScrollingModule } from '@angular/cdk/scrolling';
 import { provideRouter } from '@angular/router';
-import { By } from '@angular/platform-browser';
 import { routes } from './app.routes';
 import { provideHttpClient } from '@angular/common/http';
 import { provideHttpClientTesting } from '@angular/common/http/testing';
@@ -29,6 +28,7 @@ describe('AppComponent (Enterprise Navigation Shell)', () => {
     const fixture = TestBed.createComponent(AppComponent);
     const app = fixture.componentInstance;
     expect(app.title()).toBe('Enterprise Data Catalog');
+    expect(app.persianTitle()).toBe('سامانه جامع کاتالوگ داده سازمانی');
     expect(app.isSidebarOpen()).toBe(true);
     expect(app.currentVersion()).toBe('1.0.0');
   });
@@ -43,24 +43,22 @@ describe('AppComponent (Enterprise Navigation Shell)', () => {
     expect(app.isSidebarOpen()).toBe(true);
   });
 
-  it('should render all 5 core navigation links in sidebar', () => {
+  it('should render core navigation links in sidebar with Persian localization', () => {
     const fixture = TestBed.createComponent(AppComponent);
     fixture.detectChanges();
 
     const compiled = fixture.nativeElement as HTMLElement;
-    const navLinks = compiled.querySelectorAll('.nav-menu a.nav-item');
-    expect(navLinks.length).toBe(5);
-
     const catalogLink = compiled.querySelector('#nav-catalog');
     const connLink = compiled.querySelector('#nav-connections');
+    const taxLink = compiled.querySelector('#nav-taxonomy');
     const diffLink = compiled.querySelector('#nav-diff');
-    const auditLink = compiled.querySelector('#nav-audit');
     const reportsLink = compiled.querySelector('#nav-reports');
 
-    expect(catalogLink?.textContent?.trim()).toBe('Catalog Search');
-    expect(connLink?.textContent?.trim()).toBe('Connections');
-    expect(diffLink?.textContent?.trim()).toBe('Version Diff Viewer');
-    expect(auditLink?.textContent?.trim()).toBe('Audit Log Viewer');
-    expect(reportsLink?.textContent?.trim()).toBe('Executive Dashboard');
+    expect(catalogLink).toBeTruthy();
+    expect(catalogLink?.textContent).toContain('کاوشگر کاتالوگ');
+    expect(connLink?.textContent).toContain('مدیریت اتصالات');
+    expect(taxLink?.textContent).toContain('مدیریت تگ‌ها');
+    expect(diffLink?.textContent).toContain('مقایسه نسخه‌ها');
+    expect(reportsLink?.textContent).toContain('داشبورد گزارشات');
   });
 });

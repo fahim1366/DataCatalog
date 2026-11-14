@@ -194,6 +194,7 @@ interface ConnectionForm {
               } @else if (form.controls.cron_expression.value && form.controls.cron_expression.valid) {
                 <div class="cron-valid-feedback">
                   ✓ Valid 5-part cron schedule
+                  <div class="cron-human-summary">{{ getCronHumanSummary(form.controls.cron_expression.value) }}</div>
                 </div>
               }
             </div>
@@ -332,6 +333,12 @@ interface ConnectionForm {
       color: #16a34a;
       font-weight: 500;
     }
+    .cron-human-summary {
+      font-size: 0.775rem;
+      color: #047857;
+      font-weight: 500;
+      margin-top: 0.25rem;
+    }
     .alert-error {
       padding: 0.75rem;
       background: #fef2f2;
@@ -447,6 +454,25 @@ export class ConnectionDialogComponent {
     if ((event.target as HTMLElement).classList.contains('modal-backdrop')) {
       this.cancel.emit();
     }
+  }
+
+  getCronHumanSummary(cron: string | null): string {
+    if (!cron) return '';
+    const trimmed = cron.trim();
+    if (trimmed === '0 2 * * *') return 'هر شب ساعت ۰۲:۰۰ بامداد (Daily at 02:00 AM)';
+    if (trimmed === '0 0 * * *') return 'هر روز ساعت ۱۲:۰۰ شب (Daily at midnight)';
+    if (trimmed === '0 4 * * *') return 'هر شب ساعت ۰۴:۰۰ بامداد (Daily at 04:00 AM)';
+    if (trimmed === '0 * * * *') return 'هر یک ساعت یک‌بار (Every hour)';
+    if (trimmed === '*/30 * * * *') return 'هر ۳۰ دقیقه یک‌بار (Every 30 minutes)';
+    if (trimmed === '*/15 * * * *') return 'هر ۱۵ دقیقه یک‌بار (Every 15 minutes)';
+    const parts = trimmed.split(/\s+/);
+    if (parts.length === 5) {
+      const [m, h] = parts;
+      if (!isNaN(Number(m)) && !isNaN(Number(h))) {
+        return `هر روز ساعت ${h.padStart(2, '0')}:${m.padStart(2, '0')} (Daily at ${h}:${m})`;
+      }
+    }
+    return 'برنامه همگام‌سازی زمان‌بندی شده (Custom Scheduled Sync)';
   }
 
   onSubmit(): void {

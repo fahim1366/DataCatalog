@@ -22,7 +22,7 @@ from backend.src.services.audit.audit_query_service import audit_query_service
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/audit-logs", tags=["Audit Logs"])
+router = APIRouter(tags=["Audit Logs"])
 
 
 async def require_view_audit_logs_permission(
@@ -73,10 +73,22 @@ async def require_view_audit_logs_permission(
 
 
 @router.get(
-    "",
+    "/audit-logs",
     response_model=AuditLogResponse,
     status_code=status.HTTP_200_OK,
     summary="Keyset-paginated immutable audit logs with multi-column filtering",
+)
+@router.get(
+    "/audit/logs",
+    response_model=AuditLogResponse,
+    status_code=status.HTTP_200_OK,
+    include_in_schema=False,
+)
+@router.get(
+    "/audit",
+    response_model=AuditLogResponse,
+    status_code=status.HTTP_200_OK,
+    include_in_schema=False,
 )
 async def list_audit_logs(
     entity_type: Optional[EntityType] = Query(

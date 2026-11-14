@@ -1,9 +1,9 @@
 <div class="connections-container">
   <header class="connections-header">
     <div class="header-left">
-      <h1 class="page-title">Database Connections</h1>
+      <h1 class="page-title">مدیریت اتصالات و زمان‌بندی همگام‌سازی (Database Connections)</h1>
       <p class="page-subtitle">
-        Manage database connection profiles with AES-256-GCM envelope encryption and automated cron synchronization.
+        مدیریت امن شناسنامه و پروفایل اتصالات دیتابیسی با رمزنگاری پاکتی متقارن AES-256-GCM و همگام‌سازی خودکار بر اساس زمان‌بندی Cron.
       </p>
     </div>
     <div class="header-actions">
@@ -12,7 +12,7 @@
         class="btn-primary btn-add-connection"
         (click)="openCreateDialog()"
       >
-        + Register Connection
+        + ثبت اتصال جدید (+ Register Connection)
       </button>
     </div>
   </header>
@@ -46,9 +46,9 @@
             </div>
             <div class="status-group">
               @if (conn.is_active) {
-                <span class="status-badge badge-active">Active</span>
+                <span class="status-badge badge-active">فعال (Active)</span>
               } @else {
-                <span class="status-badge badge-inactive">Inactive</span>
+                <span class="status-badge badge-inactive">غیرفعال (Inactive)</span>
               }
             </div>
           </div>
@@ -56,21 +56,21 @@
           <div class="card-body">
             <div class="property-grid">
               <div class="property-item">
-                <span class="property-label">Endpoint</span>
+                <span class="property-label">آدرس سرور (Endpoint)</span>
                 <span class="property-value font-mono">{{ conn.host }}:{{ conn.port }}</span>
               </div>
               <div class="property-item">
-                <span class="property-label">Database</span>
+                <span class="property-label">پایگاه داده (Database)</span>
                 <span class="property-value font-mono">{{ conn.database_name }}</span>
               </div>
               @if (conn.default_schema) {
                 <div class="property-item">
-                  <span class="property-label">Schema</span>
+                  <span class="property-label">اسکیما (Schema)</span>
                   <span class="property-value">{{ conn.default_schema }}</span>
                 </div>
               }
               <div class="property-item">
-                <span class="property-label">Owner</span>
+                <span class="property-label">مالک (Owner)</span>
                 <span class="property-value">{{ conn.owner }}</span>
               </div>
             </div>
@@ -78,7 +78,7 @@
             @if (conn.sync_schedule) {
               <div class="schedule-section">
                 <div class="schedule-header">
-                  <span class="schedule-title">Automated Sync Schedule</span>
+                  <span class="schedule-title">زمان‌بندی همگام‌سازی (Automated Sync Schedule)</span>
                   @if (conn.sync_schedule.last_run_status) {
                     <span
                       class="schedule-badge schedule-status-{{ conn.sync_schedule.last_run_status.toLowerCase() }}"

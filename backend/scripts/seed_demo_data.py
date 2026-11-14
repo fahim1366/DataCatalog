@@ -368,36 +368,36 @@ async def seed_all_demo_data() -> None:
                     {
                         "name": "dim_customers",
                         "type": TableType.TABLE,
-                        "source_desc": "Customer profile dimension from CRM sync",
-                        "approved_desc": "Master enterprise customer dimension with deduplicated identifiers",
+                        "source_desc": "شناسنامه اطلاعات مشتریان همگام شده از سامانه CRM / Customer profile dimension from CRM sync",
+                        "approved_desc": "بعد جامع و پالایش شده مشتریان سازمانی با شناسه‌های یکتا و اعتبارسنجی شده / Master enterprise customer dimension with deduplicated identifiers",
                         "owner": "analytics_steward",
                         "row_count": 850000,
                         "size_bytes": 128000000,
                         "tags": ["Gold-Tier", "Core-Entity"],
                         "category": "Customer Data",
                         "columns": [
-                            {"name": "customer_id", "pos": 1, "type": "BIGINT", "raw_type": "bigint", "pk": True, "fk": False, "null": False, "class": ClassificationLevel.INTERNAL, "s_desc": "Surrogate primary key", "a_desc": "Primary integer identifier", "tags": []},
-                            {"name": "email", "pos": 2, "type": "VARCHAR(255)", "raw_type": "varchar(255)", "pk": False, "fk": False, "null": False, "class": ClassificationLevel.CONFIDENTIAL, "s_desc": "Customer primary email", "a_desc": "Verified contact email address", "tags": ["PII"]},
-                            {"name": "full_name", "pos": 3, "type": "VARCHAR(255)", "raw_type": "varchar(255)", "pk": False, "fk": False, "null": False, "class": ClassificationLevel.CONFIDENTIAL, "s_desc": "Customer display name", "a_desc": "Legal full name", "tags": ["PII"]},
-                            {"name": "created_at", "pos": 4, "type": "TIMESTAMPTZ", "raw_type": "timestamptz", "pk": False, "fk": False, "null": False, "class": ClassificationLevel.INTERNAL, "s_desc": "Account creation timestamp", "a_desc": "UTC timestamp of user registration", "tags": []},
-                            {"name": "is_active", "pos": 5, "type": "BOOLEAN", "raw_type": "boolean", "pk": False, "fk": False, "null": False, "class": ClassificationLevel.PUBLIC, "s_desc": "Account active flag", "a_desc": "Active membership status", "tags": []},
+                            {"name": "customer_id", "pos": 1, "type": "BIGINT", "raw_type": "bigint", "pk": True, "fk": False, "null": False, "class": ClassificationLevel.INTERNAL, "s_desc": "کلید اصلی جایگزین / Surrogate primary key", "a_desc": "شناسه یکتای مشتری در انبار داده / Primary integer identifier", "tags": []},
+                            {"name": "email", "pos": 2, "type": "VARCHAR(255)", "raw_type": "varchar(255)", "pk": False, "fk": False, "null": False, "class": ClassificationLevel.CONFIDENTIAL, "s_desc": "ایمیل اصلی مشتری / Customer primary email", "a_desc": "پست الکترونیکی تایید شده مشتری / Verified contact email address", "tags": ["PII"]},
+                            {"name": "full_name", "pos": 3, "type": "VARCHAR(255)", "raw_type": "varchar(255)", "pk": False, "fk": False, "null": False, "class": ClassificationLevel.CONFIDENTIAL, "s_desc": "نام نمایشی مشتری / Customer display name", "a_desc": "نام و نام خانوادگی رسمی مشتری / Legal full name", "tags": ["PII"]},
+                            {"name": "created_at", "pos": 4, "type": "TIMESTAMPTZ", "raw_type": "timestamptz", "pk": False, "fk": False, "null": False, "class": ClassificationLevel.INTERNAL, "s_desc": "زمان ثبت حساب / Account creation timestamp", "a_desc": "زمان ثبت نام مشتری به وقت گرینویچ / UTC timestamp of user registration", "tags": []},
+                            {"name": "is_active", "pos": 5, "type": "BOOLEAN", "raw_type": "boolean", "pk": False, "fk": False, "null": False, "class": ClassificationLevel.PUBLIC, "s_desc": "نشانگر وضعیت فعال / Account active flag", "a_desc": "وضعیت فعال بودن عضویت مشتری / Active membership status", "tags": []},
                         ],
                     },
                     {
                         "name": "fact_daily_orders",
                         "type": TableType.TABLE,
-                        "source_desc": "Daily aggregated order transactions",
-                        "approved_desc": "Certified enterprise order transactions reconciled against Stripe and Adyen",
+                        "source_desc": "تراکنش‌های روزانه سفارشات ثبت شده در درگاه‌ها / Daily aggregated order transactions",
+                        "approved_desc": "تراکنش‌های تایید شده و مغایرت‌گیری شده مالی با درگاه‌های پرداخت / Certified enterprise order transactions reconciled against Stripe and Adyen",
                         "owner": "finance_team",
                         "row_count": 4200000,
                         "size_bytes": 940000000,
                         "tags": ["Gold-Tier", "Financial"],
                         "category": "Enterprise Core",
                         "columns": [
-                            {"name": "order_id", "pos": 1, "type": "BIGINT", "raw_type": "bigint", "pk": True, "fk": False, "null": False, "class": ClassificationLevel.INTERNAL, "s_desc": "Order unique identifier", "a_desc": "Global order ID", "tags": []},
-                            {"name": "customer_id", "pos": 2, "type": "BIGINT", "raw_type": "bigint", "pk": False, "fk": True, "null": False, "class": ClassificationLevel.INTERNAL, "s_desc": "Foreign key to dim_customers", "a_desc": "Purchasing customer ID", "tags": []},
-                            {"name": "order_total_cents", "pos": 3, "type": "NUMERIC(14,2)", "raw_type": "numeric(14,2)", "pk": False, "fk": False, "null": False, "class": ClassificationLevel.INTERNAL, "s_desc": "Gross order amount in cents", "a_desc": "Gross monetary total in USD cents", "tags": ["Financial"]},
-                            {"name": "order_date", "pos": 4, "type": "DATE", "raw_type": "date", "pk": False, "fk": False, "null": False, "class": ClassificationLevel.INTERNAL, "s_desc": "Transaction calendar date", "a_desc": "Reporting transaction date", "tags": []},
+                            {"name": "order_id", "pos": 1, "type": "BIGINT", "raw_type": "bigint", "pk": True, "fk": False, "null": False, "class": ClassificationLevel.INTERNAL, "s_desc": "شناسه سفارش / Order unique identifier", "a_desc": "شناسه یکتای جهانی سفارش / Global order ID", "tags": []},
+                            {"name": "customer_id", "pos": 2, "type": "BIGINT", "raw_type": "bigint", "pk": False, "fk": True, "null": False, "class": ClassificationLevel.INTERNAL, "s_desc": "کلید خارجی به مشتریان / Foreign key to dim_customers", "a_desc": "شناسه مشتری خریدار / Purchasing customer ID", "tags": []},
+                            {"name": "order_total_cents", "pos": 3, "type": "NUMERIC(14,2)", "raw_type": "numeric(14,2)", "pk": False, "fk": False, "null": False, "class": ClassificationLevel.INTERNAL, "s_desc": "مبلغ ناخالص به سنت / Gross order amount in cents", "a_desc": "مجموع مالی به سنت دلار / Gross monetary total in USD cents", "tags": ["Financial"]},
+                            {"name": "order_date", "pos": 4, "type": "DATE", "raw_type": "date", "pk": False, "fk": False, "null": False, "class": ClassificationLevel.INTERNAL, "s_desc": "تاریخ تقویمی تراکنش / Transaction calendar date", "a_desc": "تاریخ گزارش‌گیری تراکنش / Reporting transaction date", "tags": []},
                         ],
                     },
                 ],
@@ -410,18 +410,18 @@ async def seed_all_demo_data() -> None:
                     {
                         "name": "salary_records",
                         "type": TableType.TABLE,
-                        "source_desc": "Workday payroll sync",
-                        "approved_desc": "Confidential executive and employee payroll compensation records",
+                        "source_desc": "داده‌های حقوق و دستمزد پرسنل / Workday payroll sync",
+                        "approved_desc": "سوابق محرمانه حقوق و مزایای مدیران و پرسنل مشمول قوانین حاکمیتی / Confidential executive and employee payroll compensation records",
                         "owner": "hr_executive",
                         "row_count": 4500,
                         "size_bytes": 2400000,
                         "tags": ["PII", "Financial", "GDPR-Article-9"],
                         "category": "Financial & Payroll",
                         "columns": [
-                            {"name": "employee_id", "pos": 1, "type": "BIGINT", "raw_type": "bigint", "pk": True, "fk": False, "null": False, "class": ClassificationLevel.CONFIDENTIAL, "s_desc": "Employee badge identifier", "a_desc": "Unique corporate employee identifier", "tags": []},
-                            {"name": "base_salary_cents", "pos": 2, "type": "NUMERIC(14,2)", "raw_type": "numeric(14,2)", "pk": False, "fk": False, "null": False, "class": ClassificationLevel.CONFIDENTIAL, "s_desc": "Annual base compensation in cents", "a_desc": "Annualized base salary", "tags": ["Financial"]},
-                            {"name": "bonus_target_cents", "pos": 3, "type": "NUMERIC(14,2)", "raw_type": "numeric(14,2)", "pk": False, "fk": False, "null": True, "class": ClassificationLevel.CONFIDENTIAL, "s_desc": "Discretionary incentive target", "a_desc": "Target annual bonus", "tags": ["Financial"]},
-                            {"name": "currency", "pos": 4, "type": "VARCHAR(3)", "raw_type": "varchar(3)", "pk": False, "fk": False, "null": False, "class": ClassificationLevel.INTERNAL, "s_desc": "ISO currency symbol", "a_desc": "ISO 4217 3-letter currency code", "tags": []},
+                            {"name": "employee_id", "pos": 1, "type": "BIGINT", "raw_type": "bigint", "pk": True, "fk": False, "null": False, "class": ClassificationLevel.CONFIDENTIAL, "s_desc": "کد شناسایی پرسنلی / Employee badge identifier", "a_desc": "شناسه یکتای کارمند سازمانی / Unique corporate employee identifier", "tags": []},
+                            {"name": "base_salary_cents", "pos": 2, "type": "NUMERIC(14,2)", "raw_type": "numeric(14,2)", "pk": False, "fk": False, "null": False, "class": ClassificationLevel.CONFIDENTIAL, "s_desc": "حقوق پایه سالانه به سنت / Annual base compensation in cents", "a_desc": "حقوق پایه مصوب سالیانه / Annualized base salary", "tags": ["Financial"]},
+                            {"name": "bonus_target_cents", "pos": 3, "type": "NUMERIC(14,2)", "raw_type": "numeric(14,2)", "pk": False, "fk": False, "null": True, "class": ClassificationLevel.CONFIDENTIAL, "s_desc": "تارگت پاداش / Discretionary incentive target", "a_desc": "پاداش هدف سالانه مصوب / Target annual bonus", "tags": ["Financial"]},
+                            {"name": "currency", "pos": 4, "type": "VARCHAR(3)", "raw_type": "varchar(3)", "pk": False, "fk": False, "null": False, "class": ClassificationLevel.INTERNAL, "s_desc": "کد استاندارد ارز / ISO currency symbol", "a_desc": "کد ۳ حرفی استاندارد ارز ISO 4217 / ISO 4217 3-letter currency code", "tags": []},
                         ],
                     }
                 ],
@@ -435,17 +435,17 @@ async def seed_all_demo_data() -> None:
                     {
                         "name": "wire_transactions",
                         "type": TableType.TABLE,
-                        "source_desc": "SWIFT and Fedwire clearing transactions",
-                        "approved_desc": "Immutable bank ledger wire movements subject to federal audit",
+                        "source_desc": "تراکنش‌های تسویه بین بانکی ساتنا و پایا / SWIFT and Fedwire clearing transactions",
+                        "approved_desc": "تراکنش‌های قطعی و تغییرناپذیر دفترکل بانکی مشمول ممیزی / Immutable bank ledger wire movements subject to federal audit",
                         "owner": "compliance_lead",
                         "row_count": 1200000,
                         "size_bytes": 450000000,
                         "tags": ["PCI-DSS", "Financial", "Gold-Tier"],
                         "category": "Financial & Payroll",
                         "columns": [
-                            {"name": "wire_id", "pos": 1, "type": "UUID", "raw_type": "uuid", "pk": True, "fk": False, "null": False, "class": ClassificationLevel.CONFIDENTIAL, "s_desc": "SWIFT wire reference ID", "a_desc": "SWIFT message reference", "tags": []},
-                            {"name": "originating_account", "pos": 2, "type": "VARCHAR(34)", "raw_type": "varchar(34)", "pk": False, "fk": False, "null": False, "class": ClassificationLevel.CONFIDENTIAL, "s_desc": "Originating IBAN/account", "a_desc": "Sender IBAN number", "tags": ["PCI-DSS"]},
-                            {"name": "amount", "pos": 3, "type": "NUMERIC(18,2)", "raw_type": "numeric(18,2)", "pk": False, "fk": False, "null": False, "class": ClassificationLevel.CONFIDENTIAL, "s_desc": "Transfer amount in transaction currency", "a_desc": "Notional wire transaction amount", "tags": ["Financial"]},
+                            {"name": "wire_id", "pos": 1, "type": "UUID", "raw_type": "uuid", "pk": True, "fk": False, "null": False, "class": ClassificationLevel.CONFIDENTIAL, "s_desc": "کد رهگیری حواله بانکی / SWIFT wire reference ID", "a_desc": "کد مرجع پیام حواله بانکی / SWIFT message reference", "tags": []},
+                            {"name": "originating_account", "pos": 2, "type": "VARCHAR(34)", "raw_type": "varchar(34)", "pk": False, "fk": False, "null": False, "class": ClassificationLevel.CONFIDENTIAL, "s_desc": "شماره حساب یا شبا مبدا / Originating IBAN/account", "a_desc": "شماره شبای فرستنده / Sender IBAN number", "tags": ["PCI-DSS"]},
+                            {"name": "amount", "pos": 3, "type": "NUMERIC(18,2)", "raw_type": "numeric(18,2)", "pk": False, "fk": False, "null": False, "class": ClassificationLevel.CONFIDENTIAL, "s_desc": "مبلغ تراکنش حواله / Transfer amount in transaction currency", "a_desc": "مبلغ اسمی انتقال بانکی / Notional wire transaction amount", "tags": ["Financial"]},
                         ],
                     }
                 ],
@@ -731,6 +731,44 @@ async def seed_all_demo_data() -> None:
                         old_value=None,
                         new_value={"data_type": "TIMESTAMPTZ"},
                         actor_id=user_map["steward"].id,
+                    )
+                )
+
+            # Version 3
+            v3_stmt = select(TableVersion).where(
+                TableVersion.table_id == dim_cust.id, TableVersion.version_num == 3
+            )
+            v3_obj = (await session.execute(v3_stmt)).scalar_one_or_none()
+            if not v3_obj:
+                v3_obj = TableVersion(
+                    id=uuid.uuid4(),
+                    table_id=dim_cust.id,
+                    version_num=3,
+                    snapshot_jsonb={
+                        "columns": [
+                            {"name": "customer_id", "data_type": "BIGINT", "is_primary_key": True},
+                            {"name": "email", "data_type": "VARCHAR(255)", "is_primary_key": False},
+                            {"name": "full_name", "data_type": "VARCHAR(255)", "is_primary_key": False},
+                            {"name": "created_at", "data_type": "TIMESTAMPTZ", "is_primary_key": False},
+                            {"name": "is_active", "data_type": "BOOLEAN", "is_primary_key": False},
+                            {"name": "loyalty_tier", "data_type": "VARCHAR(50)", "is_primary_key": False},
+                        ]
+                    },
+                    created_by=user_map["admin"].id,
+                )
+                session.add(v3_obj)
+                await session.flush()
+
+                session.add(
+                    SchemaChangeLog(
+                        id=uuid.uuid4(),
+                        table_id=dim_cust.id,
+                        version_id=v3_obj.id,
+                        change_type=SchemaChangeType.COLUMN_ADDED,
+                        column_name="loyalty_tier",
+                        old_value=None,
+                        new_value={"data_type": "VARCHAR(50)"},
+                        actor_id=user_map["admin"].id,
                     )
                 )
         await session.flush()

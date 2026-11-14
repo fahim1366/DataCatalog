@@ -3,12 +3,32 @@
   <header class="dashboard-header">
     <div class="header-content">
       <div class="title-group">
-        <h1 class="dashboard-title">Executive Governance &amp; Reporting Dashboard</h1>
+        <h1 class="dashboard-title">داشبورد گزارشات مدیریتی و حاکمیت داده (Executive Governance Dashboard)</h1>
         <p class="dashboard-subtitle">
-          Sub-200ms real-time governance metrics and classification breakdown across all 800 connected databases powered by PostgreSQL Materialized Views.
+          پایش شاخص‌های برخط کیفیت متادیتا و توزیع سطوح محرمانگی مبتنی بر Materialized Views در کمتر از ۲۰۰ میلی‌ثانیه. Sub-200ms real-time governance metrics and classification breakdown across all connected databases.
         </p>
       </div>
       <div class="header-actions">
+        <button
+          *hasPermission="'EXPORT_REPORTS'"
+          type="button"
+          class="btn-export"
+          data-testid="export-json-btn"
+          [disabled]="isExporting() || isLoading()"
+          (click)="exportReport('json')"
+        >
+          📥 خروجی JSON
+        </button>
+        <button
+          *hasPermission="'EXPORT_REPORTS'"
+          type="button"
+          class="btn-export"
+          data-testid="export-csv-btn"
+          [disabled]="isExporting() || isLoading()"
+          (click)="exportReport('csv')"
+        >
+          📊 خروجی CSV
+        </button>
         <button
           type="button"
           class="btn-refresh"
@@ -17,7 +37,7 @@
           (click)="refreshViews()"
         >
           <span class="refresh-icon" [class.spinning]="isRefreshing()">↻</span>
-          {{ isRefreshing() ? 'Refreshing Views...' : 'Refresh Reports' }}
+          {{ isRefreshing() ? 'در حال بروزرسانی (Refreshing Views...)' : 'بروزرسانی همزمان گزارشات (Refresh Reports)' }}
         </button>
       </div>
     </div>

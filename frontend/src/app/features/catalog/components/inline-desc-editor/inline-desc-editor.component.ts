@@ -20,7 +20,7 @@ import { TagItem } from '../../models/catalog.models';
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class InlineDescEditorComponent {
-  readonly description = input<string | null>(null);
+  readonly description = input<string | null | undefined>(null);
   readonly placeholder = input<string>('No description provided. Click to add.');
   readonly canEdit = input<boolean>(true);
   readonly canManageTags = input<boolean>(false);

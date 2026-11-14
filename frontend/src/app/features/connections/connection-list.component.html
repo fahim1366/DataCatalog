@@ -10,6 +10,7 @@
       <button
         type="button"
         class="btn-primary btn-add-connection"
+        *hasPermission="'MANAGE_CONNECTIONS'"
         (click)="openCreateDialog()"
       >
         + ثبت اتصال جدید (+ Register Connection)
@@ -26,12 +27,12 @@
   @if (isLoading()) {
     <div class="loading-state">
       <div class="spinner"></div>
-      <p>Loading connection profiles...</p>
+      <p>در حال بارگذاری پروفایل‌های اتصال (Loading connection profiles)...</p>
     </div>
   } @else if (connections().length === 0) {
     <div class="empty-state">
-      <h3>No Database Connections Registered</h3>
-      <p>Click "Register Connection" above to configure your first database connection profile.</p>
+      <h3>هیچ اتصال پایگاه داده‌ای ثبت نشده است</h3>
+      <p>جهت تعریف اولین منبع داده‌ای، بر روی دکمه «ثبت اتصال جدید» کلیک نمایید.</p>
     </div>
   } @else {
     <div class="connections-grid">
@@ -141,6 +142,27 @@
                 <span>⚡ Test Connection</span>
               }
             </button>
+
+            <div class="management-actions">
+              <button
+                type="button"
+                class="btn-secondary btn-sm btn-edit-connection"
+                *hasPermission="'MANAGE_CONNECTIONS'"
+                (click)="openEditDialog(conn)"
+                title="ویرایش اتصال"
+              >
+                ✏️ ویرایش
+              </button>
+              <button
+                type="button"
+                class="btn-danger btn-sm btn-delete-connection"
+                *hasPermission="'MANAGE_CONNECTIONS'"
+                (click)="onDeleteConnection(conn.id)"
+                title="حذف اتصال"
+              >
+                🗑️ حذف
+              </button>
+            </div>
           </div>
         </div>
       }
@@ -149,9 +171,9 @@
 
   @if (showDialog()) {
     <app-connection-dialog
+      [connectionToEdit]="connectionToEdit()"
       (save)="onSaveConnection($event)"
       (cancel)="closeDialog()"
     ></app-connection-dialog>
   }
 </div>
-

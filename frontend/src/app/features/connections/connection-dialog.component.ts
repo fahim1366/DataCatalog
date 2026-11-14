@@ -2,6 +2,8 @@ import {
   ChangeDetectionStrategy,
   Component,
   EventEmitter,
+  Input,
+  OnInit,
   Output,
   inject,
   signal,
@@ -16,22 +18,10 @@ import {
 } from '@angular/forms';
 import {
   ConnectionCreateRequest,
+  DatabaseConnection,
   DatabaseEngine,
 } from './models/connection.models';
 import { cronValidator } from './validators/cron.validator';
-
-interface ConnectionForm {
-  name: FormControl<string>;
-  engine_type: FormControl<DatabaseEngine>;
-  host: FormControl<string>;
-  port: FormControl<number>;
-  database_name: FormControl<string>;
-  default_schema: FormControl<string | null>;
-  owner: FormControl<string>;
-  username: FormControl<string>;
-  password: FormControl<string>;
-  cron_expression: FormControl<string | null>;
-}
 
 @Component({
   selector: 'app-connection-dialog',
@@ -41,30 +31,32 @@ interface ConnectionForm {
     <div class="modal-backdrop" (click)="onBackdropClick($event)">
       <div class="modal-card" role="dialog" aria-labelledby="dialog-title" aria-modal="true">
         <header class="modal-header">
-          <h2 id="dialog-title">Register Database Connection</h2>
+          <h2 id="dialog-title">
+            {{ connectionToEdit ? 'ویرایش اتصال پایگاه‌داده (Edit Connection)' : 'ثبت اتصال پایگاه‌داده جدید (Register Connection)' }}
+          </h2>
           <button type="button" class="btn-close" (click)="cancel.emit()" aria-label="Close dialog">✕</button>
         </header>
 
         <form [formGroup]="form" (ngSubmit)="onSubmit()" class="connection-form">
           <div class="form-row">
             <div class="form-group col-span-2">
-              <label for="name">Connection Name <span class="required">*</span></label>
+              <label for="name">نام اتصال (Connection Name) <span class="required">*</span></label>
               <input
                 id="name"
                 type="text"
                 class="form-control"
                 formControlName="name"
-                placeholder="e.g. Production Analytics Warehouse"
+                placeholder="مثال: انبار داده تحلیلی سازمانی (Production Analytics Warehouse)"
               />
               @if (form.controls.name.touched && form.controls.name.invalid) {
-                <div class="field-error">Connection name is required.</div>
+                <div class="field-error">نام اتصال الزامی است (Connection name is required).</div>
               }
             </div>
           </div>
 
           <div class="form-row grid-3">
             <div class="form-group">
-              <label for="engine_type">Engine Dialect <span class="required">*</span></label>
+              <label for="engine_type">گویش / موتور دیتابیس (Engine Dialect) <span class="required">*</span></label>
               <select
                 id="engine_type"
                 class="form-control"
@@ -78,114 +70,118 @@ interface ConnectionForm {
             </div>
 
             <div class="form-group col-span-2">
-              <label for="host">Host / Address <span class="required">*</span></label>
+              <label for="host">آدرس سرور / هاست (Host / Address) <span class="required">*</span></label>
               <input
                 id="host"
                 type="text"
-                class="form-control"
+                class="form-control font-mono"
                 formControlName="host"
                 placeholder="hostname or IP"
               />
               @if (form.controls.host.touched && form.controls.host.invalid) {
-                <div class="field-error">Host is required.</div>
+                <div class="field-error">آدرس هاست الزامی است (Host is required).</div>
               }
             </div>
           </div>
 
           <div class="form-row grid-3">
             <div class="form-group">
-              <label for="port">Port <span class="required">*</span></label>
+              <label for="port">پورت اتصال (Port) <span class="required">*</span></label>
               <input
                 id="port"
                 type="number"
-                class="form-control"
+                class="form-control font-mono"
                 formControlName="port"
               />
               @if (form.controls.port.touched && form.controls.port.invalid) {
-                <div class="field-error">Valid port (1-65535) is required.</div>
+                <div class="field-error">پورت معتبر (۱ تا ۶۵۵۳۵) الزامی است (Valid port (1-65535) is required).</div>
               }
             </div>
 
             <div class="form-group">
-              <label for="database_name">Database Name <span class="required">*</span></label>
+              <label for="database_name">نام دیتابیس (Database Name) <span class="required">*</span></label>
               <input
                 id="database_name"
                 type="text"
-                class="form-control"
+                class="form-control font-mono"
                 formControlName="database_name"
                 placeholder="Target database/catalog"
               />
               @if (form.controls.database_name.touched && form.controls.database_name.invalid) {
-                <div class="field-error">Database name is required.</div>
+                <div class="field-error">نام پایگاه‌داده الزامی است (Database name is required).</div>
               }
             </div>
 
             <div class="form-group">
-              <label for="default_schema">Default Schema</label>
+              <label for="default_schema">اسکیمای پیش‌فرض (Default Schema)</label>
               <input
                 id="default_schema"
                 type="text"
-                class="form-control"
+                class="form-control font-mono"
                 formControlName="default_schema"
-                placeholder="e.g. public or dbo"
+                placeholder="مثال: public یا dbo"
               />
             </div>
           </div>
 
           <div class="form-row grid-2">
             <div class="form-group">
-              <label for="username">Username <span class="required">*</span></label>
+              <label for="username">نام کاربری اتصال (Username) <span class="required">*</span></label>
               <input
                 id="username"
                 type="text"
-                class="form-control"
+                class="form-control font-mono"
                 formControlName="username"
                 autocomplete="off"
               />
               @if (form.controls.username.touched && form.controls.username.invalid) {
-                <div class="field-error">Username is required.</div>
+                <div class="field-error">نام کاربری الزامی است (Username is required).</div>
               }
             </div>
 
             <div class="form-group">
-              <label for="password">Password <span class="required">*</span></label>
+              <label for="password">
+                {{ connectionToEdit ? 'رمز عبور جدید (اختیاری در ویرایش)' : 'رمز عبور (Password)' }}
+                @if (!connectionToEdit) { <span class="required">*</span> }
+              </label>
               <input
                 id="password"
                 type="password"
-                class="form-control"
+                class="form-control font-mono"
                 formControlName="password"
                 autocomplete="new-password"
+                [placeholder]="connectionToEdit ? 'در صورت عدم تغییر، خالی بگذارید' : 'رمز عبور امن دیتابیس'"
               />
               @if (form.controls.password.touched && form.controls.password.invalid) {
-                <div class="field-error">Password is required.</div>
+                <div class="field-error">رمز عبور الزامی است (Password is required).</div>
               }
             </div>
           </div>
 
           <div class="form-row">
             <div class="form-group col-span-2">
-              <label for="owner">Owner / Team</label>
+              <label for="owner">مالک / تیم فنی مسئول (Owner / Team)</label>
               <input
                 id="owner"
                 type="text"
                 class="form-control"
                 formControlName="owner"
-                placeholder="e.g. data-platform"
+                placeholder="مثال: data-platform یا bi-team"
               />
             </div>
           </div>
 
           <div class="form-row">
             <div class="form-group col-span-2">
-              <label for="cron_expression">Sync Schedule (5-part Cron)</label>
+              <label for="cron_expression">برنامه زمان‌بندی همگام‌سازی (Sync Schedule - 5-part Cron)</label>
               <input
                 id="cron_expression"
                 type="text"
                 class="form-control font-mono"
                 formControlName="cron_expression"
-                placeholder="e.g. 0 2 * * * (daily at 2am)"
+                placeholder="مثال: 0 2 * * * (هر شب ساعت ۲ بامداد)"
               />
-              <span class="cron-hint">Format: &lt;min&gt; &lt;hour&gt; &lt;day-of-month&gt; &lt;month&gt; &lt;day-of-week&gt;</span>
+              <span class="cron-hint">الگوی استاندارد کرون: &lt;دقیقه&gt; &lt;ساعت&gt; &lt;روز ماه&gt; &lt;ماه&gt; &lt;روز هفته&gt;</span>
 
               @if (form.controls.cron_expression.errors?.['invalidCron']) {
                 <div class="cron-error-feedback">
@@ -193,7 +189,7 @@ interface ConnectionForm {
                 </div>
               } @else if (form.controls.cron_expression.value && form.controls.cron_expression.valid) {
                 <div class="cron-valid-feedback">
-                  ✓ Valid 5-part cron schedule
+                  ✓ الگوی معتبر زمان‌بندی (Valid 5-part cron schedule)
                   <div class="cron-human-summary">{{ getCronHumanSummary(form.controls.cron_expression.value) }}</div>
                 </div>
               }
@@ -210,7 +206,7 @@ interface ConnectionForm {
               class="btn-secondary"
               (click)="cancel.emit()"
             >
-              Cancel
+              انصراف (Cancel)
             </button>
             <button
               type="submit"
@@ -218,9 +214,11 @@ interface ConnectionForm {
               [disabled]="form.invalid || isSubmitting()"
             >
               @if (isSubmitting()) {
-                <span>Encrypting & Saving...</span>
+                <span>در حال ذخیره و رمزنگاری (Encrypting & Saving...)...</span>
+              } @else if (connectionToEdit) {
+                <span>ذخیره تغییرات اتصال (Update Connection)</span>
               } @else {
-                <span>Register Connection</span>
+                <span>ثبت و ذخیره اتصال (Register Connection)</span>
               }
             </button>
           </footer>
@@ -239,6 +237,8 @@ interface ConnectionForm {
       justify-content: center;
       z-index: 1000;
       padding: 1rem;
+      direction: rtl;
+      font-family: var(--font-family-sans, 'Vazirmatn', sans-serif);
     }
     .modal-card {
       background: #ffffff;
@@ -260,91 +260,109 @@ interface ConnectionForm {
     }
     .modal-header h2 {
       margin: 0;
-      font-size: 1.25rem;
-      font-weight: 600;
+      font-size: 1.15rem;
+      font-weight: 700;
       color: #0f172a;
     }
     .btn-close {
-      background: transparent;
-      border: none;
-      font-size: 1.25rem;
+      background: none;
+      border: 1px solid #cbd5e1;
+      border-radius: 50%;
+      font-size: 1rem;
       cursor: pointer;
       color: #64748b;
+      width: 30px;
+      height: 30px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .btn-close:hover {
+      background: #f1f5f9;
+      color: #0f172a;
     }
     .connection-form {
       padding: 1.5rem;
       display: flex;
       flex-direction: column;
-      gap: 1rem;
+      gap: 1.25rem;
     }
     .form-row {
       display: grid;
+      grid-template-columns: repeat(2, 1fr);
       gap: 1rem;
     }
-    .grid-2 {
-      grid-template-columns: repeat(2, minmax(0, 1fr));
+    .form-row.grid-3 {
+      grid-template-columns: 1fr 1fr 1fr;
     }
-    .grid-3 {
-      grid-template-columns: repeat(3, minmax(0, 1fr));
+    .form-row.grid-2 {
+      grid-template-columns: 1fr 1fr;
     }
     .col-span-2 {
-      grid-column: span 2 / span 2;
+      grid-column: span 2;
     }
     .form-group {
       display: flex;
       flex-direction: column;
       gap: 0.35rem;
     }
-    label {
-      font-size: 0.85rem;
-      font-weight: 500;
+    .form-group label {
+      font-size: 0.82rem;
+      font-weight: 600;
       color: #334155;
     }
     .required {
-      color: #dc2626;
+      color: #ef4444;
     }
     .form-control {
       padding: 0.5rem 0.75rem;
       border: 1px solid #cbd5e1;
       border-radius: 6px;
-      font-size: 0.875rem;
-      color: #1e293b;
-      transition: border-color 0.15s ease;
+      font-size: 0.85rem;
+      color: #0f172a;
+      background: #ffffff;
+      outline: none;
+      transition: border-color 0.15s;
     }
     .form-control:focus {
-      outline: none;
       border-color: #2563eb;
-      box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.15);
+      box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.1);
     }
     .font-mono {
-      font-family: ui-monospace, monospace;
+      font-family: var(--font-family-mono, monospace);
+    }
+    .field-error {
+      color: #ef4444;
+      font-size: 0.75rem;
     }
     .cron-hint {
-      font-size: 0.75rem;
       color: #64748b;
+      font-size: 0.75rem;
     }
-    .cron-error-feedback, .field-error {
-      font-size: 0.775rem;
+    .cron-error-feedback {
       color: #dc2626;
-      font-weight: 500;
-    }
-    .cron-valid-feedback {
-      font-size: 0.775rem;
-      color: #16a34a;
-      font-weight: 500;
-    }
-    .cron-human-summary {
-      font-size: 0.775rem;
-      color: #047857;
+      font-size: 0.75rem;
       font-weight: 500;
       margin-top: 0.25rem;
     }
+    .cron-valid-feedback {
+      color: #16a34a;
+      font-size: 0.75rem;
+      font-weight: 500;
+      margin-top: 0.25rem;
+    }
+    .cron-human-summary {
+      color: #0f172a;
+      font-size: 0.75rem;
+      font-weight: 600;
+      margin-top: 0.15rem;
+    }
     .alert-error {
-      padding: 0.75rem;
+      padding: 0.75rem 1rem;
       background: #fef2f2;
       border: 1px solid #fecaca;
       border-radius: 6px;
-      color: #b91c1c;
+      color: #991b1b;
       font-size: 0.85rem;
     }
     .modal-footer {
@@ -362,6 +380,7 @@ interface ConnectionForm {
       border-radius: 6px;
       cursor: pointer;
       font-weight: 500;
+      font-family: inherit;
     }
     .btn-primary {
       padding: 0.5rem 1.25rem;
@@ -371,6 +390,7 @@ interface ConnectionForm {
       border-radius: 6px;
       cursor: pointer;
       font-weight: 500;
+      font-family: inherit;
     }
     .btn-primary:disabled {
       opacity: 0.5;
@@ -379,9 +399,10 @@ interface ConnectionForm {
   `],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class ConnectionDialogComponent {
+export class ConnectionDialogComponent implements OnInit {
   private readonly fb = inject(FormBuilder);
 
+  @Input() connectionToEdit: DatabaseConnection | null = null;
   @Output() readonly save = new EventEmitter<ConnectionCreateRequest>();
   @Output() readonly cancel = new EventEmitter<void>();
 
@@ -443,6 +464,27 @@ export class ConnectionDialogComponent {
     }),
   });
 
+  ngOnInit(): void {
+    if (this.connectionToEdit) {
+      const conn = this.connectionToEdit;
+      this.form.patchValue({
+        name: conn.name,
+        engine_type: conn.engine_type,
+        host: conn.host,
+        port: conn.port,
+        database_name: conn.database_name,
+        default_schema: conn.default_schema || '',
+        owner: conn.owner,
+        username: conn.masked_credentials?.['username'] || 'admin',
+        password: '',
+        cron_expression: conn.sync_schedule?.cron_expression || '',
+      });
+      // In edit mode, password is optional
+      this.form.controls.password.clearValidators();
+      this.form.controls.password.updateValueAndValidity();
+    }
+  }
+
   onEngineChange(): void {
     const engine = this.form.controls.engine_type.value;
     if (engine && this.defaultPorts[engine]) {
@@ -482,6 +524,13 @@ export class ConnectionDialogComponent {
     }
 
     const val = this.form.getRawValue();
+    const creds: Record<string, unknown> = {
+      username: val.username,
+    };
+    if (val.password && val.password.trim()) {
+      creds['password'] = val.password;
+    }
+
     const request: ConnectionCreateRequest = {
       name: val.name,
       engine_type: val.engine_type,
@@ -490,10 +539,7 @@ export class ConnectionDialogComponent {
       database_name: val.database_name,
       default_schema: val.default_schema?.trim() || undefined,
       owner: val.owner,
-      credentials: {
-        username: val.username,
-        password: val.password,
-      },
+      credentials: creds,
       custom_params: {},
       cron_expression: val.cron_expression?.trim() || undefined,
     };
@@ -501,4 +547,3 @@ export class ConnectionDialogComponent {
     this.save.emit(request);
   }
 }
-

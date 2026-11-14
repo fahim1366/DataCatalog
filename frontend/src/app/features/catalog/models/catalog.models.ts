@@ -124,11 +124,21 @@ export interface CategoryTreeNode {
   name: string;
   description?: string | null;
   parent_id?: string | null;
+  status?: 'ACTIVE' | 'INACTIVE';
+  assigned_tables_count?: number;
   tables: {
     id: string;
     name: string;
-    row_count_estimate: number;
-    column_count: number;
+    schema_name?: string;
+    database_name?: string;
+    row_count_estimate?: number;
+    column_count?: number;
+  }[];
+  databases?: {
+    id: string;
+    name: string;
+    engine_type?: string;
+    database_name?: string;
   }[];
   children: CategoryTreeNode[];
 }

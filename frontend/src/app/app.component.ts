@@ -59,6 +59,11 @@ export class AppComponent {
         this.isSwitchingRole.set(false);
         // Refresh catalog store to immediately reflect RBAC filter
         this.catalogStore.search('', true).catch(() => {});
+        // Reload current active route so Trees, Connections, IAM, Audit Logs, and Reports refresh immediately
+        const currentUrl = this.router.url;
+        this.router.navigateByUrl('/', { skipLocationChange: true }).then(() => {
+          this.router.navigateByUrl(currentUrl);
+        });
       },
       error: () => {
         this.isSwitchingRole.set(false);

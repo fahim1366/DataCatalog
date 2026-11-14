@@ -49,7 +49,7 @@ from backend.src.models.catalog import (
     TagAssignment,
 )
 from backend.src.models.connections import DatabaseConnection, DatabaseEngine, SyncSchedule
-from backend.src.models.identity import Role, User, UserRole, UserStatus
+from backend.src.models.identity import Group, GroupRole, Role, User, UserGroup, UserRole, UserStatus
 from backend.src.models.rbac import (
     Category,
     CategoryAssignment,
@@ -127,24 +127,45 @@ async def seed_all_demo_data() -> None:
             {
                 "username": "admin",
                 "email": "admin@company.internal",
-                "full_name": "Chief Data Administrator",
+                "full_name": "مدیر ارشد سامانه (Chief Administrator)",
                 "password": "Admin#2026",
+                "phone": "09121000001",
                 "is_superadmin": True,
                 "role_names": ["SuperAdmin"],
             },
             {
                 "username": "steward",
                 "email": "steward@company.internal",
-                "full_name": "Senior Data Steward",
+                "full_name": "راهبر و متولی داده (Senior Data Steward)",
                 "password": "Steward#2026",
+                "phone": "09121000002",
                 "is_superadmin": False,
                 "role_names": ["DataSteward"],
             },
             {
                 "username": "analyst",
                 "email": "analyst@company.internal",
-                "full_name": "BI Insights Analyst",
+                "full_name": "تحلیل‌گر داده و هوش تجاری (BI Analyst)",
                 "password": "Analyst#2026",
+                "phone": "09121000003",
+                "is_superadmin": False,
+                "role_names": ["DataAnalyst"],
+            },
+            {
+                "username": "developer",
+                "email": "developer@company.internal",
+                "full_name": "مهندس ارشد زیرساخت و داده (DataOps & Pipelines)",
+                "password": "Developer#2026",
+                "phone": "09121000004",
+                "is_superadmin": False,
+                "role_names": ["DataSteward"],
+            },
+            {
+                "username": "viewer",
+                "email": "viewer@company.internal",
+                "full_name": "تحلیل‌گر مهمان (Guest Analyst)",
+                "password": "Viewer#2026",
+                "phone": "09121000005",
                 "is_superadmin": False,
                 "role_names": ["DataAnalyst"],
             },
@@ -156,6 +177,7 @@ async def seed_all_demo_data() -> None:
             if existing_user:
                 existing_user.full_name = u_spec["full_name"]
                 existing_user.email = u_spec["email"]
+                existing_user.phone = u_spec["phone"]
                 existing_user.is_superadmin = u_spec["is_superadmin"]
                 existing_user.hashed_password = auth_service.hash_password(u_spec["password"])
                 user_map[u_spec["username"]] = existing_user
@@ -165,6 +187,7 @@ async def seed_all_demo_data() -> None:
                     username=u_spec["username"],
                     email=u_spec["email"],
                     full_name=u_spec["full_name"],
+                    phone=u_spec["phone"],
                     hashed_password=auth_service.hash_password(u_spec["password"]),
                     status=UserStatus.ACTIVE,
                     is_superadmin=u_spec["is_superadmin"],
@@ -184,6 +207,64 @@ async def seed_all_demo_data() -> None:
                 existing_ur = (await session.execute(ur_stmt)).scalar_one_or_none()
                 if not existing_ur:
                     session.add(UserRole(user_id=u_obj.id, role_id=r_obj.id))
+        await session.flush()
+
+        # =====================================================================
+        # 2.5. GROUPS & GROUP MEMBERSHIPS
+        # =====================================================================
+        logger.info("Seeding enterprise groups...")
+        groups_config = [
+            {
+                "name": "تیم مهندسی داده (Data Engineering)",
+                "description": "تیم مسئول خطوط داده، پایپ‌لاین‌های بلع و معماری ذخیره‌سازی داده‌های سازمانی",
+                "roles": ["DataSteward"],
+                "members": ["steward", "developer"],
+            },
+            {
+                "name": "تیم هوش تجاری و تحلیل (BI & Analytics)",
+                "description": "تیم تحلیل‌گران، دانشمندان داده و توسعه‌دهندگان داشبوردهای مدیریتی",
+                "roles": ["DataAnalyst"],
+                "members": ["analyst", "viewer"],
+            },
+            {
+                "name": "راهبری و حاکمیت داده (Governance & Security)",
+                "description": "کمیته ارشد امنیت اطلاعات، تدوین استانداردها و طبقه‌بندی محرمانگی داده‌ها",
+                "roles": ["DataSteward"],
+                "members": ["steward", "admin"],
+            },
+        ]
+        group_map: dict[str, Group] = {}
+        for g_spec in groups_config:
+            stmt = select(Group).where(Group.name == g_spec["name"])
+            existing_grp = (await session.execute(stmt)).scalar_one_or_none()
+            if existing_grp:
+                existing_grp.description = g_spec["description"]
+                group_map[g_spec["name"]] = existing_grp
+            else:
+                new_grp = Group(
+                    id=uuid.uuid4(),
+                    name=g_spec["name"],
+                    description=g_spec["description"],
+                    is_active=True,
+                )
+                session.add(new_grp)
+                group_map[g_spec["name"]] = new_grp
+        await session.flush()
+
+        # Group roles and members
+        for g_spec in groups_config:
+            g_obj = group_map[g_spec["name"]]
+            for r_name in g_spec["roles"]:
+                r_obj = role_map[r_name]
+                gr_stmt = select(GroupRole).where(GroupRole.group_id == g_obj.id, GroupRole.role_id == r_obj.id)
+                if not (await session.execute(gr_stmt)).scalar_one_or_none():
+                    session.add(GroupRole(group_id=g_obj.id, role_id=r_obj.id, assigned_by=user_map["admin"].id))
+
+            for m_username in g_spec["members"]:
+                m_user = user_map[m_username]
+                ug_stmt = select(UserGroup).where(UserGroup.group_id == g_obj.id, UserGroup.user_id == m_user.id)
+                if not (await session.execute(ug_stmt)).scalar_one_or_none():
+                    session.add(UserGroup(group_id=g_obj.id, user_id=m_user.id, assigned_by=user_map["admin"].id))
         await session.flush()
 
         # =====================================================================
@@ -328,6 +409,7 @@ async def seed_all_demo_data() -> None:
                 name="Enterprise Core",
                 description="Governed mission-critical enterprise data domains",
                 parent_id=None,
+                status="ACTIVE",
             )
             session.add(root_cat)
             await session.flush()
@@ -349,6 +431,7 @@ async def seed_all_demo_data() -> None:
                     name=c_spec["name"],
                     description=c_spec["description"],
                     parent_id=root_cat.id,
+                    status="ACTIVE",
                 )
                 session.add(new_child)
                 cat_map[c_spec["name"]] = new_child
@@ -379,14 +462,14 @@ async def seed_all_demo_data() -> None:
                             {"name": "customer_id", "pos": 1, "type": "BIGINT", "raw_type": "bigint", "pk": True, "fk": False, "null": False, "class": ClassificationLevel.INTERNAL, "s_desc": "کلید اصلی جایگزین / Surrogate primary key", "a_desc": "شناسه یکتای مشتری در انبار داده / Primary integer identifier", "tags": []},
                             {"name": "email", "pos": 2, "type": "VARCHAR(255)", "raw_type": "varchar(255)", "pk": False, "fk": False, "null": False, "class": ClassificationLevel.CONFIDENTIAL, "s_desc": "ایمیل اصلی مشتری / Customer primary email", "a_desc": "پست الکترونیکی تایید شده مشتری / Verified contact email address", "tags": ["PII"]},
                             {"name": "full_name", "pos": 3, "type": "VARCHAR(255)", "raw_type": "varchar(255)", "pk": False, "fk": False, "null": False, "class": ClassificationLevel.CONFIDENTIAL, "s_desc": "نام نمایشی مشتری / Customer display name", "a_desc": "نام و نام خانوادگی رسمی مشتری / Legal full name", "tags": ["PII"]},
-                            {"name": "created_at", "pos": 4, "type": "TIMESTAMPTZ", "raw_type": "timestamptz", "pk": False, "fk": False, "null": False, "class": ClassificationLevel.INTERNAL, "s_desc": "زمان ثبت حساب / Account creation timestamp", "a_desc": "زمان ثبت نام مشتری به وقت گرینویچ / UTC timestamp of user registration", "tags": []},
+                            {"name": "created_at", "pos": 4, "type": "TIMESTAMPTZ", "raw_type": "timestamptz", "pk": False, "fk": False, "null": False, "class": ClassificationLevel.INTERNAL, "s_desc": None, "a_desc": "زمان ثبت نام مشتری به وقت گرینویچ / UTC timestamp of user registration", "tags": []},
                             {"name": "is_active", "pos": 5, "type": "BOOLEAN", "raw_type": "boolean", "pk": False, "fk": False, "null": False, "class": ClassificationLevel.PUBLIC, "s_desc": "نشانگر وضعیت فعال / Account active flag", "a_desc": "وضعیت فعال بودن عضویت مشتری / Active membership status", "tags": []},
                         ],
                     },
                     {
                         "name": "fact_daily_orders",
                         "type": TableType.TABLE,
-                        "source_desc": "تراکنش‌های روزانه سفارشات ثبت شده در درگاه‌ها / Daily aggregated order transactions",
+                        "source_desc": None,
                         "approved_desc": "تراکنش‌های تایید شده و مغایرت‌گیری شده مالی با درگاه‌های پرداخت / Certified enterprise order transactions reconciled against Stripe and Adyen",
                         "owner": "finance_team",
                         "row_count": 4200000,
@@ -667,6 +750,50 @@ async def seed_all_demo_data() -> None:
                         effect=PermissionEffect.DENY,
                     )
                 )
+
+        # 4. Group Permission: BI & Analytics Group ALLOW VIEW_METADATA on Customer 360 Lakehouse
+        lake_conn = connection_map.get("Customer 360 Lakehouse")
+        bi_grp = group_map.get("تیم هوش تجاری و تحلیل (BI & Analytics)")
+        if lake_conn and bi_grp:
+            grp_rule_stmt = select(PermissionRule).where(
+                PermissionRule.group_id == bi_grp.id,
+                PermissionRule.resource_type == ResourceType.DATABASE,
+                PermissionRule.resource_id == lake_conn.id,
+                PermissionRule.action == PermissionAction.VIEW_METADATA,
+            )
+            if not (await session.execute(grp_rule_stmt)).scalar_one_or_none():
+                session.add(
+                    PermissionRule(
+                        id=uuid.uuid4(),
+                        group_id=bi_grp.id,
+                        resource_type=ResourceType.DATABASE,
+                        resource_id=lake_conn.id,
+                        action=PermissionAction.VIEW_METADATA,
+                        effect=PermissionEffect.ALLOW,
+                    )
+                )
+
+        # 5. Direct User Permission: developer user ALLOW EDIT_DESCRIPTION on dim_customers table
+        dev_user = user_map.get("developer")
+        dim_cust_tbl = table_map.get("dim_customers")
+        if dev_user and dim_cust_tbl:
+            dev_rule_stmt = select(PermissionRule).where(
+                PermissionRule.user_id == dev_user.id,
+                PermissionRule.resource_type == ResourceType.TABLE,
+                PermissionRule.resource_id == dim_cust_tbl.id,
+                PermissionRule.action == PermissionAction.EDIT_DESCRIPTION,
+            )
+            if not (await session.execute(dev_rule_stmt)).scalar_one_or_none():
+                session.add(
+                    PermissionRule(
+                        id=uuid.uuid4(),
+                        user_id=dev_user.id,
+                        resource_type=ResourceType.TABLE,
+                        resource_id=dim_cust_tbl.id,
+                        action=PermissionAction.EDIT_DESCRIPTION,
+                        effect=PermissionEffect.ALLOW,
+                    )
+                )
         await session.flush()
 
         # =====================================================================
@@ -675,6 +802,83 @@ async def seed_all_demo_data() -> None:
         logger.info("Seeding historical table snapshot versions...")
         dim_cust = table_map.get("dim_customers")
         if dim_cust:
+            v1_cols = [
+                {
+                    "name": "customer_id",
+                    "ordinal_position": 1,
+                    "data_type": "BIGINT",
+                    "raw_data_type": "bigint",
+                    "is_nullable": False,
+                    "is_primary_key": True,
+                    "is_foreign_key": False,
+                    "default_value": None,
+                    "classification_level": "INTERNAL",
+                },
+                {
+                    "name": "email",
+                    "ordinal_position": 2,
+                    "data_type": "VARCHAR(255)",
+                    "raw_data_type": "varchar(255)",
+                    "is_nullable": False,
+                    "is_primary_key": False,
+                    "is_foreign_key": False,
+                    "default_value": None,
+                    "classification_level": "CONFIDENTIAL",
+                },
+                {
+                    "name": "full_name",
+                    "ordinal_position": 3,
+                    "data_type": "VARCHAR(255)",
+                    "raw_data_type": "varchar(255)",
+                    "is_nullable": False,
+                    "is_primary_key": False,
+                    "is_foreign_key": False,
+                    "default_value": None,
+                    "classification_level": "CONFIDENTIAL",
+                },
+            ]
+
+            v2_cols = [
+                *v1_cols,
+                {
+                    "name": "created_at",
+                    "ordinal_position": 4,
+                    "data_type": "TIMESTAMPTZ",
+                    "raw_data_type": "timestamptz",
+                    "is_nullable": False,
+                    "is_primary_key": False,
+                    "is_foreign_key": False,
+                    "default_value": "now()",
+                    "classification_level": "INTERNAL",
+                },
+                {
+                    "name": "is_active",
+                    "ordinal_position": 5,
+                    "data_type": "BOOLEAN",
+                    "raw_data_type": "boolean",
+                    "is_nullable": False,
+                    "is_primary_key": False,
+                    "is_foreign_key": False,
+                    "default_value": "true",
+                    "classification_level": "PUBLIC",
+                },
+            ]
+
+            v3_cols = [
+                *v2_cols,
+                {
+                    "name": "loyalty_tier",
+                    "ordinal_position": 6,
+                    "data_type": "VARCHAR(50)",
+                    "raw_data_type": "varchar(50)",
+                    "is_nullable": True,
+                    "is_primary_key": False,
+                    "is_foreign_key": False,
+                    "default_value": "'BRONZE'",
+                    "classification_level": "INTERNAL",
+                },
+            ]
+
             # Check if version 1 exists
             v1_stmt = select(TableVersion).where(
                 TableVersion.table_id == dim_cust.id, TableVersion.version_num == 1
@@ -685,17 +889,13 @@ async def seed_all_demo_data() -> None:
                     id=uuid.uuid4(),
                     table_id=dim_cust.id,
                     version_num=1,
-                    snapshot_jsonb={
-                        "columns": [
-                            {"name": "customer_id", "data_type": "BIGINT", "is_primary_key": True},
-                            {"name": "email", "data_type": "VARCHAR(255)", "is_primary_key": False},
-                            {"name": "full_name", "data_type": "VARCHAR(255)", "is_primary_key": False},
-                        ]
-                    },
+                    snapshot_jsonb={"columns": v1_cols},
                     created_by=user_map["admin"].id,
                 )
                 session.add(v1_obj)
-                await session.flush()
+            else:
+                v1_obj.snapshot_jsonb = {"columns": v1_cols}
+            await session.flush()
 
             # Version 2
             v2_stmt = select(TableVersion).where(
@@ -707,15 +907,7 @@ async def seed_all_demo_data() -> None:
                     id=uuid.uuid4(),
                     table_id=dim_cust.id,
                     version_num=2,
-                    snapshot_jsonb={
-                        "columns": [
-                            {"name": "customer_id", "data_type": "BIGINT", "is_primary_key": True},
-                            {"name": "email", "data_type": "VARCHAR(255)", "is_primary_key": False},
-                            {"name": "full_name", "data_type": "VARCHAR(255)", "is_primary_key": False},
-                            {"name": "created_at", "data_type": "TIMESTAMPTZ", "is_primary_key": False},
-                            {"name": "is_active", "data_type": "BOOLEAN", "is_primary_key": False},
-                        ]
-                    },
+                    snapshot_jsonb={"columns": v2_cols},
                     created_by=user_map["steward"].id,
                 )
                 session.add(v2_obj)
@@ -733,6 +925,9 @@ async def seed_all_demo_data() -> None:
                         actor_id=user_map["steward"].id,
                     )
                 )
+            else:
+                v2_obj.snapshot_jsonb = {"columns": v2_cols}
+            await session.flush()
 
             # Version 3
             v3_stmt = select(TableVersion).where(
@@ -744,16 +939,7 @@ async def seed_all_demo_data() -> None:
                     id=uuid.uuid4(),
                     table_id=dim_cust.id,
                     version_num=3,
-                    snapshot_jsonb={
-                        "columns": [
-                            {"name": "customer_id", "data_type": "BIGINT", "is_primary_key": True},
-                            {"name": "email", "data_type": "VARCHAR(255)", "is_primary_key": False},
-                            {"name": "full_name", "data_type": "VARCHAR(255)", "is_primary_key": False},
-                            {"name": "created_at", "data_type": "TIMESTAMPTZ", "is_primary_key": False},
-                            {"name": "is_active", "data_type": "BOOLEAN", "is_primary_key": False},
-                            {"name": "loyalty_tier", "data_type": "VARCHAR(50)", "is_primary_key": False},
-                        ]
-                    },
+                    snapshot_jsonb={"columns": v3_cols},
                     created_by=user_map["admin"].id,
                 )
                 session.add(v3_obj)
@@ -771,6 +957,9 @@ async def seed_all_demo_data() -> None:
                         actor_id=user_map["admin"].id,
                     )
                 )
+            else:
+                v3_obj.snapshot_jsonb = {"columns": v3_cols}
+            await session.flush()
         await session.flush()
 
         # =====================================================================

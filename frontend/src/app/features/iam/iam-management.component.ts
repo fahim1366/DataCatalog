@@ -403,7 +403,7 @@ interface PermissionRuleItem {
 
             <div class="form-group">
               <label class="form-label">سطح منبع (Resource Scope):</label>
-              <select class="form-select" [(ngModel)]="ruleResourceType">
+              <select class="form-select" [(ngModel)]="ruleResourceType" (change)="onResourceTypeChange()">
                 <option value="GLOBAL">سراسری (GLOBAL)</option>
                 <option value="DATABASE">پایگاه داده (DATABASE)</option>
                 <option value="SCHEMA">اسکیما (SCHEMA)</option>
@@ -413,8 +413,40 @@ interface PermissionRuleItem {
             </div>
 
             <div class="form-group">
-              <label class="form-label">شناسه منبع (اختیاری برای GLOBAL):</label>
-              <input type="text" class="form-control mono-font" [(ngModel)]="ruleResourceId" placeholder="UUID منبع (مثال: جدول یا دسته‌بندی)" />
+              <label class="form-label">منبع هدف (Resource Target):</label>
+              @if (ruleResourceType === 'GLOBAL') {
+                <div class="info-alert">
+                  <span>🌐 قانون به صورت سراسری (بر روی تمام منابع) اعمال خواهد شد.</span>
+                </div>
+              } @else if (ruleResourceType === 'DATABASE') {
+                <select class="form-select mono-font" [(ngModel)]="ruleResourceId">
+                  <option value="">-- لطفاً یک پایگاه داده انتخاب نمایید --</option>
+                  @for (db of resourceDatabases(); track db.id) {
+                    <option [value]="db.id">{{ db.name }} ({{ db.database_name }}) — {{ db.id }}</option>
+                  }
+                </select>
+              } @else if (ruleResourceType === 'SCHEMA') {
+                <select class="form-select mono-font" [(ngModel)]="ruleResourceId">
+                  <option value="">-- لطفاً یک اسکیما انتخاب نمایید --</option>
+                  @for (sch of resourceSchemas(); track sch.id) {
+                    <option [value]="sch.id">{{ sch.name }} (اتصال: {{ sch.connection_name }}) — {{ sch.id }}</option>
+                  }
+                </select>
+              } @else if (ruleResourceType === 'TABLE') {
+                <select class="form-select mono-font" [(ngModel)]="ruleResourceId">
+                  <option value="">-- لطفاً یک جدول کاتالوگ انتخاب نمایید --</option>
+                  @for (tbl of resourceTables(); track tbl.id) {
+                    <option [value]="tbl.id">{{ tbl.name }} (اسکیما: {{ tbl.schema_name }}) — {{ tbl.id }}</option>
+                  }
+                </select>
+              } @else if (ruleResourceType === 'CATEGORY') {
+                <select class="form-select mono-font" [(ngModel)]="ruleResourceId">
+                  <option value="">-- لطفاً یک حوزه موضوعی انتخاب نمایید --</option>
+                  @for (cat of resourceCategories(); track cat.id) {
+                    <option [value]="cat.id">{{ cat.name }} — {{ cat.id }}</option>
+                  }
+                </select>
+              }
             </div>
 
             <div class="form-group">
@@ -582,6 +614,15 @@ interface PermissionRuleItem {
       height: 28px;
       cursor: pointer;
     }
+
+    .info-alert {
+      padding: 10px 14px;
+      background-color: #f1f5f9;
+      border: 1px solid #cbd5e1;
+      border-radius: var(--radius-md);
+      color: var(--slate-600);
+      font-size: 0.85rem;
+    }
   `],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
@@ -619,6 +660,12 @@ export class IamManagementComponent implements OnInit {
   ruleResourceId = '';
   ruleAction = 'VIEW_METADATA';
   ruleEffect: 'ALLOW' | 'DENY' = 'ALLOW';
+
+  // Resource options for dynamic dropdowns
+  readonly resourceDatabases = signal<Array<{ id: string; name: string; database_name?: string }>>([]);
+  readonly resourceSchemas = signal<Array<{ id: string; name: string; connection_name?: string }>>([]);
+  readonly resourceTables = signal<Array<{ id: string; name: string; schema_name?: string }>>([]);
+  readonly resourceCategories = signal<Array<{ id: string; name: string; description?: string }>>([]);
 
   readonly toastMessage = signal<string | null>(null);
   readonly toastType = signal<'success' | 'error'>('success');
@@ -784,7 +831,76 @@ export class IamManagementComponent implements OnInit {
     this.ruleResourceType = 'GLOBAL';
     this.ruleAction = 'VIEW_METADATA';
     this.ruleEffect = 'ALLOW';
+    if (this.roles().length > 0 && !this.ruleRoleId) {
+      this.ruleRoleId = this.roles()[0].id;
+    }
+    this.loadResourceOptions();
     this.isRuleModalOpen.set(true);
+  }
+
+  onResourceTypeChange(): void {
+    this.ruleResourceId = '';
+  }
+
+  loadResourceOptions(): void {
+    // 1. Databases from /api/v1/connections
+    this.http.get<any[]>('/api/v1/connections').subscribe({
+      next: (conns) => {
+        this.resourceDatabases.set(
+          (conns || []).map((c) => ({
+            id: c.id,
+            name: c.name,
+            database_name: c.database_name,
+          }))
+        );
+      },
+      error: () => {},
+    });
+
+    // 2. Schemas from physical tree /api/v1/tables/tree/physical
+    this.http.get<any[]>('/api/v1/tables/tree/physical').subscribe({
+      next: (tree) => {
+        const schemas: Array<{ id: string; name: string; connection_name?: string }> = [];
+        (tree || []).forEach((conn: any) => {
+          (conn.schemas || []).forEach((sch: any) => {
+            schemas.push({
+              id: sch.id,
+              name: sch.name,
+              connection_name: conn.name,
+            });
+          });
+        });
+        this.resourceSchemas.set(schemas);
+      },
+      error: () => {},
+    });
+
+    // 3. Tables from /api/v1/search?limit=100
+    this.http.get<any>('/api/v1/search?limit=100').subscribe({
+      next: (res) => {
+        const tables = (res?.items || []).map((t: any) => ({
+          id: t.id,
+          name: t.name,
+          schema_name: t.schema_name,
+        }));
+        this.resourceTables.set(tables);
+      },
+      error: () => {},
+    });
+
+    // 4. Categories from /api/v1/categories
+    this.http.get<any[]>('/api/v1/categories').subscribe({
+      next: (cats) => {
+        this.resourceCategories.set(
+          (cats || []).map((c) => ({
+            id: c.id,
+            name: c.name,
+            description: c.description,
+          }))
+        );
+      },
+      error: () => {},
+    });
   }
 
   saveRule(): void {

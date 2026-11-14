@@ -6,7 +6,7 @@ from typing import List, Optional, Set
 from sqlalchemy import text, select, and_, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.src.api.dependencies.rbac import UserContext
+from backend.src.api.dependencies.rbac import UserContext, user_rule_matches
 from backend.src.models.catalog import CatalogTable, DatabaseSchema, Tag, TagAssignment
 from backend.src.models.rbac import (
     Category,
@@ -104,7 +104,78 @@ class CategoryService:
         if user_ctx.is_superadmin:
             return PermissionEffect.ALLOW
 
-        if not user_ctx.role_ids:
+        if entity_type == EntityType.DATABASE:
+            # 1. Check DENY
+            deny_stmt = select(PermissionRule.id).where(
+                user_rule_matches(user_ctx),
+                PermissionRule.action == action,
+                PermissionRule.effect == PermissionEffect.DENY,
+                PermissionRule.resource_type == ResourceType.DATABASE,
+                PermissionRule.resource_id == entity_id,
+            )
+            if (await session.execute(deny_stmt)).first() is not None:
+                return PermissionEffect.DENY
+
+            # 2. Check ALLOW
+            allow_stmt = select(PermissionRule.id).where(
+                user_rule_matches(user_ctx),
+                PermissionRule.action == action,
+                PermissionRule.effect == PermissionEffect.ALLOW,
+                or_(
+                    PermissionRule.resource_type == ResourceType.GLOBAL,
+                    and_(
+                        PermissionRule.resource_type == ResourceType.DATABASE,
+                        PermissionRule.resource_id == entity_id,
+                    ),
+                ),
+            )
+            if (await session.execute(allow_stmt)).first() is not None:
+                return PermissionEffect.ALLOW
+            return PermissionEffect.DENY
+
+        if entity_type == EntityType.SCHEMA:
+            schema = await session.get(DatabaseSchema, entity_id)
+            if not schema:
+                return PermissionEffect.DENY
+
+            # 1. Check DENY
+            deny_stmt = select(PermissionRule.id).where(
+                user_rule_matches(user_ctx),
+                PermissionRule.action == action,
+                PermissionRule.effect == PermissionEffect.DENY,
+                or_(
+                    and_(
+                        PermissionRule.resource_type == ResourceType.DATABASE,
+                        PermissionRule.resource_id == schema.connection_id,
+                    ),
+                    and_(
+                        PermissionRule.resource_type == ResourceType.SCHEMA,
+                        PermissionRule.resource_id == entity_id,
+                    ),
+                ),
+            )
+            if (await session.execute(deny_stmt)).first() is not None:
+                return PermissionEffect.DENY
+
+            # 2. Check ALLOW
+            allow_stmt = select(PermissionRule.id).where(
+                user_rule_matches(user_ctx),
+                PermissionRule.action == action,
+                PermissionRule.effect == PermissionEffect.ALLOW,
+                or_(
+                    PermissionRule.resource_type == ResourceType.GLOBAL,
+                    and_(
+                        PermissionRule.resource_type == ResourceType.DATABASE,
+                        PermissionRule.resource_id == schema.connection_id,
+                    ),
+                    and_(
+                        PermissionRule.resource_type == ResourceType.SCHEMA,
+                        PermissionRule.resource_id == entity_id,
+                    ),
+                ),
+            )
+            if (await session.execute(allow_stmt)).first() is not None:
+                return PermissionEffect.ALLOW
             return PermissionEffect.DENY
 
         if entity_type == EntityType.TABLE:
@@ -124,38 +195,63 @@ class CategoryService:
             schema_id = schema.id
             table_id = table.id
 
-            # 2. Check for explicit DENY rules (Database, Schema, Table)
+            # 2. Gather table category assignments and all ancestor category UUIDs
+            cat_assign_stmt = select(CategoryAssignment.category_id).where(
+                CategoryAssignment.entity_type == EntityType.TABLE,
+                CategoryAssignment.entity_id == table_id,
+            )
+            cat_assign_res = await session.execute(cat_assign_stmt)
+            assigned_cat_ids = list(cat_assign_res.scalars().all())
+
+            all_ancestor_ids: Set[uuid.UUID] = set()
+            for cat_id in assigned_cat_ids:
+                ancestors = await CategoryService.get_ancestor_category_ids(
+                    session, cat_id
+                )
+                all_ancestor_ids.update(ancestors)
+
+            # 3. Check for explicit DENY rules (Database, Schema, Table, Category)
+            # Child/Table DENY and inherited Category DENY take absolute priority over ALLOW.
+            deny_conditions = [
+                and_(
+                    PermissionRule.resource_type == ResourceType.DATABASE,
+                    PermissionRule.resource_id == connection_id,
+                ),
+                and_(
+                    PermissionRule.resource_type == ResourceType.SCHEMA,
+                    PermissionRule.resource_id == schema_id,
+                ),
+                and_(
+                    PermissionRule.resource_type == ResourceType.TABLE,
+                    PermissionRule.resource_id == table_id,
+                ),
+            ]
+            if all_ancestor_ids:
+                deny_conditions.append(
+                    and_(
+                        PermissionRule.resource_type == ResourceType.CATEGORY,
+                        PermissionRule.resource_id.in_(list(all_ancestor_ids)),
+                    )
+                )
+
             deny_stmt = (
                 select(PermissionRule.id)
                 .where(
-                    PermissionRule.role_id.in_(user_ctx.role_ids),
+                    user_rule_matches(user_ctx),
                     PermissionRule.action == action,
                     PermissionRule.effect == PermissionEffect.DENY,
-                    or_(
-                        and_(
-                            PermissionRule.resource_type == ResourceType.DATABASE,
-                            PermissionRule.resource_id == connection_id,
-                        ),
-                        and_(
-                            PermissionRule.resource_type == ResourceType.SCHEMA,
-                            PermissionRule.resource_id == schema_id,
-                        ),
-                        and_(
-                            PermissionRule.resource_type == ResourceType.TABLE,
-                            PermissionRule.resource_id == table_id,
-                        ),
-                    ),
+                    or_(*deny_conditions),
                 )
             )
             deny_res = await session.execute(deny_stmt)
             if deny_res.first() is not None:
                 return PermissionEffect.DENY
 
-            # 3. Check for direct ALLOW rules (GLOBAL, DATABASE, SCHEMA, TABLE)
+            # 4. Check for direct ALLOW rules (GLOBAL, DATABASE, SCHEMA, TABLE)
             direct_allow_stmt = (
                 select(PermissionRule.id)
                 .where(
-                    PermissionRule.role_id.in_(user_ctx.role_ids),
+                    user_rule_matches(user_ctx),
                     PermissionRule.action == action,
                     PermissionRule.effect == PermissionEffect.ALLOW,
                     or_(
@@ -178,41 +274,23 @@ class CategoryService:
             direct_allow_res = await session.execute(direct_allow_stmt)
             has_allow = direct_allow_res.first() is not None
 
-            # 4. Check for Category Sub-Tree ALLOW rules if not already allowed
-            if not has_allow:
-                # Fetch categories assigned to this table
-                cat_assign_stmt = select(CategoryAssignment.category_id).where(
-                    CategoryAssignment.entity_type == EntityType.TABLE,
-                    CategoryAssignment.entity_id == table_id,
+            # 5. Check for Category Sub-Tree ALLOW rules if not already allowed
+            if not has_allow and all_ancestor_ids:
+                cat_rule_stmt = select(PermissionRule.id).where(
+                    user_rule_matches(user_ctx),
+                    PermissionRule.action == action,
+                    PermissionRule.effect == PermissionEffect.ALLOW,
+                    PermissionRule.resource_type == ResourceType.CATEGORY,
+                    PermissionRule.resource_id.in_(list(all_ancestor_ids)),
                 )
-                cat_assign_res = await session.execute(cat_assign_stmt)
-                assigned_cat_ids = list(cat_assign_res.scalars().all())
-
-                if assigned_cat_ids:
-                    # Collect all ancestor categories for these assignments
-                    all_ancestor_ids: Set[uuid.UUID] = set()
-                    for cat_id in assigned_cat_ids:
-                        ancestors = await CategoryService.get_ancestor_category_ids(
-                            session, cat_id
-                        )
-                        all_ancestor_ids.update(ancestors)
-
-                    if all_ancestor_ids:
-                        cat_rule_stmt = select(PermissionRule.id).where(
-                            PermissionRule.role_id.in_(user_ctx.role_ids),
-                            PermissionRule.action == action,
-                            PermissionRule.effect == PermissionEffect.ALLOW,
-                            PermissionRule.resource_type == ResourceType.CATEGORY,
-                            PermissionRule.resource_id.in_(list(all_ancestor_ids)),
-                        )
-                        cat_rule_res = await session.execute(cat_rule_stmt)
-                        if cat_rule_res.first() is not None:
-                            has_allow = True
+                cat_rule_res = await session.execute(cat_rule_stmt)
+                if cat_rule_res.first() is not None:
+                    has_allow = True
 
             if not has_allow:
                 return PermissionEffect.DENY
 
-            # 5. Check PII Tag restrictions
+            # 6. Check PII Tag restrictions
             pii_stmt = (
                 select(TagAssignment.id)
                 .join(Tag, Tag.id == TagAssignment.tag_id)
@@ -224,15 +302,32 @@ class CategoryService:
             )
             pii_res = await session.execute(pii_stmt)
             if pii_res.first() is not None:
-                # Requires GLOBAL permission rule
-                global_stmt = select(PermissionRule.id).where(
-                    PermissionRule.role_id.in_(user_ctx.role_ids),
-                    PermissionRule.action == PermissionAction.VIEW_METADATA,
-                    PermissionRule.resource_type == ResourceType.GLOBAL,
+                # Allowed if user has GLOBAL VIEW_METADATA, EDIT_DESCRIPTION, MANAGE_TAGS,
+                # or explicit table/category ALLOW rule
+                pii_bypass_stmt = select(PermissionRule.id).where(
+                    user_rule_matches(user_ctx),
                     PermissionRule.effect == PermissionEffect.ALLOW,
+                    or_(
+                        and_(
+                            PermissionRule.action == PermissionAction.VIEW_METADATA,
+                            PermissionRule.resource_type == ResourceType.GLOBAL,
+                        ),
+                        PermissionRule.action.in_([
+                            PermissionAction.EDIT_DESCRIPTION,
+                            PermissionAction.MANAGE_TAGS,
+                        ]),
+                        and_(
+                            PermissionRule.resource_type == ResourceType.TABLE,
+                            PermissionRule.resource_id == table_id,
+                        ),
+                        and_(
+                            PermissionRule.resource_type == ResourceType.CATEGORY,
+                            PermissionRule.resource_id.in_(list(all_ancestor_ids)) if all_ancestor_ids else text("1=0"),
+                        ),
+                    ),
                 )
-                global_res = await session.execute(global_stmt)
-                if global_res.first() is None:
+                pii_bypass_res = await session.execute(pii_bypass_stmt)
+                if pii_bypass_res.first() is None:
                     return PermissionEffect.DENY
 
             return PermissionEffect.ALLOW

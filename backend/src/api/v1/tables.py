@@ -411,6 +411,27 @@ async def update_column_classification(
             detail=f"Column {column_id} not found",
         )
 
+    if not user_ctx.is_superadmin:
+        effect_edit = await CategoryService.resolve_effective_permission(
+            session=db,
+            user_ctx=user_ctx,
+            entity_type=EntityType.TABLE,
+            entity_id=column.table_id,
+            action=PermissionAction.EDIT_DESCRIPTION,
+        )
+        effect_tags = await CategoryService.resolve_effective_permission(
+            session=db,
+            user_ctx=user_ctx,
+            entity_type=EntityType.TABLE,
+            entity_id=column.table_id,
+            action=PermissionAction.MANAGE_TAGS,
+        )
+        if effect_edit != PermissionEffect.ALLOW and effect_tags != PermissionEffect.ALLOW:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Forbidden: User lacks EDIT_DESCRIPTION or MANAGE_TAGS permission for column {column_id}",
+            )
+
     old_level = column.classification_level.value
     column.classification_level = ClassificationLevel(payload.classification_level)
 

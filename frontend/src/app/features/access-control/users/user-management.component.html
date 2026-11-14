@@ -1,0 +1,996 @@
+<div class="user-management-container" dir="rtl">
+  <!-- Notifications -->
+  @if (successMessage()) {
+    <div class="alert alert-success animate-fade">
+      <span class="alert-icon">✓</span>
+      <span>{{ successMessage() }}</span>
+      <button class="alert-close" (click)="successMessage.set(null)">×</button>
+    </div>
+  }
+  @if (errorMessage()) {
+    <div class="alert alert-danger animate-fade">
+      <span class="alert-icon">⚠</span>
+      <span>{{ errorMessage() }}</span>
+      <button class="alert-close" (click)="errorMessage.set(null)">×</button>
+    </div>
+  }
+
+  <!-- Page Header -->
+  <header class="page-header">
+    <div class="header-titles">
+      <h1 class="page-title">
+        <span class="title-icon">👥</span>
+        مدیریت کاربران و سطوح دسترسی (User Access Management)
+      </h1>
+      <p class="page-subtitle">
+        پایش جامع کاربران سازمانی، کنترل سلسله‌مراتبی دسترسی پایگاه‌های داده و تحلیل ماتریس مجوزهای مؤثر
+      </p>
+    </div>
+    <div class="header-actions">
+      <button class="btn btn-primary" (click)="openCreateModal()">
+        <span>+ تعریف کاربر سازمانی جدید</span>
+      </button>
+    </div>
+  </header>
+
+  <!-- Filter & Search Toolbar -->
+  <div class="toolbar-card">
+    <div class="toolbar-grid">
+      <!-- Search Input -->
+      <div class="form-group search-group">
+        <label for="search-input">جستجوی کاربر</label>
+        <div class="input-with-icon">
+          <input
+            id="search-input"
+            type="text"
+            class="form-control"
+            placeholder="جستجو بر اساس نام، نام‌کاربری یا ایمیل..."
+            [ngModel]="searchQuery()"
+            (ngModelChange)="searchQuery.set($event)"
+            (keyup.enter)="onSearch()"
+          />
+          <button class="btn-search-icon" (click)="onSearch()" title="جستجو">🔍</button>
+        </div>
+      </div>
+
+      <!-- Role Filter -->
+      <div class="form-group">
+        <label for="filter-role">فیلتر بر اساس نقش</label>
+        <select
+          id="filter-role"
+          class="form-select"
+          [ngModel]="selectedRoleId()"
+          (ngModelChange)="selectedRoleId.set($event); onFilterChange()"
+        >
+          <option value="">همه نقش‌ها</option>
+          @for (r of allRoles(); track r.id) {
+            <option [value]="r.id">{{ r.name }}</option>
+          }
+        </select>
+      </div>
+
+      <!-- Group Filter -->
+      <div class="form-group">
+        <label for="filter-group">فیلتر بر اساس گروه</label>
+        <select
+          id="filter-group"
+          class="form-select"
+          [ngModel]="selectedGroupId()"
+          (ngModelChange)="selectedGroupId.set($event); onFilterChange()"
+        >
+          <option value="">همه گروه‌ها</option>
+          @for (g of allGroups(); track g.id) {
+            <option [value]="g.id">{{ g.name }}</option>
+          }
+        </select>
+      </div>
+
+      <!-- Status Filter -->
+      <div class="form-group">
+        <label for="filter-status">وضعیت حساب کاربری</label>
+        <select
+          id="filter-status"
+          class="form-select"
+          [ngModel]="selectedStatus()"
+          (ngModelChange)="selectedStatus.set($event); onFilterChange()"
+        >
+          <option value="">همه وضعیت‌ها</option>
+          <option value="ACTIVE">فعال (ACTIVE)</option>
+          <option value="SUSPENDED">معلق (SUSPENDED)</option>
+          <option value="DEACTIVATED">غیرفعال (DEACTIVATED)</option>
+        </select>
+      </div>
+
+      <!-- Actions -->
+      <div class="form-group toolbar-btn-group">
+        <button class="btn btn-secondary" (click)="loadUsers()" title="به‌روزرسانی داده‌ها">
+          <span>🔄 بازخوانی</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Users Data Grid -->
+  <div class="grid-card">
+    <div class="table-responsive">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th class="th-center" style="width: 50px;">ردیف</th>
+            <th>نام و نام خانوادگی</th>
+            <th>نام کاربری</th>
+            <th>ایمیل سازمانی</th>
+            <th>شماره تماس</th>
+            <th>نقش‌های تخصیص‌یافته</th>
+            <th>گروه‌های عضویت</th>
+            <th class="th-center">وضعیت</th>
+            <th>تاریخ ثبت‌نام</th>
+            <th>آخرین ورود</th>
+            <th class="th-center" style="width: 140px;">عملیات</th>
+          </tr>
+        </thead>
+        <tbody>
+          @if (isLoading()) {
+            <tr>
+              <td colspan="11" class="td-loading">
+                <div class="spinner"></div>
+                <span>در حال فراخوانی اطلاعات کاربران از پایگاه داده...</span>
+              </td>
+            </tr>
+          } @else if (users().length === 0) {
+            <tr>
+              <td colspan="11" class="td-empty">
+                <span>هیچ کاربری با مشخصات جستجو شده یافت نشد.</span>
+              </td>
+            </tr>
+          } @else {
+            @for (u of users(); track u.id; let idx = $index) {
+              <tr
+                [class.selected-row]="selectedUser()?.id === u.id"
+                (click)="selectUser(u)"
+                class="clickable-row"
+              >
+                <td class="td-center td-muted">
+                  {{ (currentPage() - 1) * pageSize() + idx + 1 }}
+                </td>
+                <td class="td-user">
+                  <div class="user-avatar" [class.avatar-admin]="u.is_superadmin">
+                    {{ u.full_name ? u.full_name.charAt(0) : 'U' }}
+                  </div>
+                  <div class="user-details-inline">
+                    <span class="user-name">{{ u.full_name }}</span>
+                    @if (u.is_superadmin) {
+                      <span class="badge badge-superadmin-mini">مدیر ارشد</span>
+                    }
+                  </div>
+                </td>
+                <td>
+                  <code class="username-code">{{ u.username }}</code>
+                </td>
+                <td>
+                  <span class="text-email">{{ u.email }}</span>
+                </td>
+                <td>
+                  <span class="text-phone">{{ u.phone || '—' }}</span>
+                </td>
+                <td>
+                  <div class="tags-container">
+                    @for (r of u.roles; track r) {
+                      <span class="badge badge-role">{{ r }}</span>
+                    }
+                    @if (u.roles.length === 0) {
+                      <span class="text-muted text-xs">بدون نقش</span>
+                    }
+                  </div>
+                </td>
+                <td>
+                  <div class="tags-container">
+                    @for (g of u.groups; track g) {
+                      <span class="badge badge-group">{{ g }}</span>
+                    }
+                    @if (u.groups.length === 0) {
+                      <span class="text-muted text-xs">بدون گروه</span>
+                    }
+                  </div>
+                </td>
+                <td class="td-center">
+                  @if (u.status === 'ACTIVE') {
+                    <span class="status-pill status-active">فعال</span>
+                  } @else if (u.status === 'SUSPENDED') {
+                    <span class="status-pill status-suspended">معلق</span>
+                  } @else {
+                    <span class="status-pill status-deactivated">غیرفعال</span>
+                  }
+                </td>
+                <td class="td-date">{{ formatDate(u.created_at) }}</td>
+                <td class="td-date">
+                  @if (u.last_login_at) {
+                    <span>{{ formatDate(u.last_login_at) }}</span>
+                  } @else {
+                    <span class="text-muted text-xs">هنوز وارد نشده</span>
+                  }
+                </td>
+                <td class="td-center td-actions" (click)="$event.stopPropagation()">
+                  <button
+                    class="btn-icon"
+                    (click)="openEditModal(u)"
+                    title="ویرایش مشخصات"
+                  >
+                    ✏️
+                  </button>
+                  <button
+                    class="btn-icon"
+                    (click)="openResetPasswordModal(u)"
+                    title="بازنشانی رمز عبور"
+                  >
+                    🔑
+                  </button>
+                  <button
+                    class="btn-icon"
+                    (click)="toggleStatus(u)"
+                    [title]="u.status === 'ACTIVE' ? 'تعلیق حساب' : 'فعال‌سازی'"
+                  >
+                    {{ u.status === 'ACTIVE' ? '⏸️' : '▶️' }}
+                  </button>
+                  <button
+                    class="btn-icon btn-danger-icon"
+                    (click)="deleteUser(u)"
+                    title="حذف حساب"
+                  >
+                    🗑️
+                  </button>
+                </td>
+              </tr>
+            }
+          }
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Pagination Footer -->
+    <div class="pagination-footer">
+      <div class="pagination-info">
+        <span>نمایش</span>
+        <strong>{{ (currentPage() - 1) * pageSize() + 1 }}</strong>
+        <span>تا</span>
+        <strong>{{ Math.min(currentPage() * pageSize(), totalUsers()) }}</strong>
+        <span>از مجموع</span>
+        <strong>{{ totalUsers() }}</strong>
+        <span>کاربر</span>
+      </div>
+
+      <div class="pagination-controls">
+        <button
+          class="btn-page"
+          [disabled]="currentPage() === 1"
+          (click)="goToPage(currentPage() - 1)"
+        >
+          قبلی
+        </button>
+        <span class="page-current">صفحه {{ currentPage() }} از {{ totalPages() }}</span>
+        <button
+          class="btn-page"
+          [disabled]="currentPage() >= totalPages()"
+          (click)="goToPage(currentPage() + 1)"
+        >
+          بعدی
+        </button>
+      </div>
+
+      <div class="pagination-size">
+        <span>تعداد در صفحه:</span>
+        <select
+          class="select-pagesize"
+          [ngModel]="pageSize()"
+          (ngModelChange)="pageSize.set($event); currentPage.set(1); loadUsers()"
+        >
+          <option [ngValue]="10">۱۰</option>
+          <option [ngValue]="25">۲۵</option>
+          <option [ngValue]="50">۵۰</option>
+        </select>
+      </div>
+    </div>
+  </div>
+
+  <!-- PERSISTENT DETAILS PANEL (6 TABS) -->
+  <section class="details-panel-card">
+    @if (!selectedUser()) {
+      <div class="panel-placeholder">
+        <div class="placeholder-icon">👆</div>
+        <h3>کاربری انتخاب نشده است</h3>
+        <p>لطفاً یک کاربر را از جدول بالا انتخاب نمایید تا جزئیات دسترسی و سوابق نمایش داده شود.</p>
+      </div>
+    } @else {
+      <!-- Panel Header -->
+      <div class="panel-header">
+        <div class="panel-user-identity">
+          <div class="user-avatar avatar-lg" [class.avatar-admin]="selectedUser()!.is_superadmin">
+            {{ selectedUser()!.full_name ? selectedUser()!.full_name.charAt(0) : 'U' }}
+          </div>
+          <div>
+            <h2 class="panel-user-name">{{ selectedUser()!.full_name }}</h2>
+            <div class="panel-user-meta">
+              <code>{{ selectedUser()!.username }}</code>
+              <span>•</span>
+              <span>{{ selectedUser()!.email }}</span>
+              <span>•</span>
+              <span class="status-pill status-active-mini">{{ selectedUser()!.status }}</span>
+              @if (selectedUser()!.is_superadmin) {
+                <span class="badge badge-superadmin-mini">مدیر ارشد سامانه</span>
+              }
+            </div>
+          </div>
+        </div>
+
+        <button class="btn btn-outline" (click)="selectedUser.set(null)">
+          بستن پنل ✕
+        </button>
+      </div>
+
+      <!-- Persistent Tabs Navigation -->
+      <nav class="panel-tabs-nav">
+        <button
+          class="tab-btn"
+          [class.active]="activeTab() === 'info'"
+          (click)="switchTab('info')"
+        >
+          ℹ️ اطلاعات کاربر
+        </button>
+        <button
+          class="tab-btn"
+          [class.active]="activeTab() === 'roles'"
+          (click)="switchTab('roles')"
+        >
+          🛡️ نقش‌ها ({{ selectedUser()!.roles.length }})
+        </button>
+        <button
+          class="tab-btn"
+          [class.active]="activeTab() === 'groups'"
+          (click)="switchTab('groups')"
+        >
+          🏢 گروه‌ها ({{ selectedUser()!.groups.length }})
+        </button>
+        <button
+          class="tab-btn"
+          [class.active]="activeTab() === 'databases'"
+          (click)="switchTab('databases')"
+        >
+          🗄️ دسترسی به پایگاه‌های داده
+        </button>
+        <button
+          class="tab-btn"
+          [class.active]="activeTab() === 'effective'"
+          (click)="switchTab('effective')"
+        >
+          🔍 مجوزهای مؤثر (Effective Permissions)
+        </button>
+        <button
+          class="tab-btn"
+          [class.active]="activeTab() === 'activity'"
+          (click)="switchTab('activity')"
+        >
+          📋 سوابق فعالیت
+        </button>
+      </nav>
+
+      <!-- TAB 1: اطلاعات کاربر -->
+      @if (activeTab() === 'info') {
+        <div class="tab-pane animate-fade">
+          <div class="info-grid">
+            <div class="info-card">
+              <h4>مشخصات هویتی و پرسنلی</h4>
+              <div class="info-rows">
+                <div class="info-row">
+                  <span class="info-label">شناسه یکتای سیستمی (UUID):</span>
+                  <code class="info-value">{{ selectedUser()!.id }}</code>
+                </div>
+                <div class="info-row">
+                  <span class="info-label">نام کاربری:</span>
+                  <span class="info-value font-bold">{{ selectedUser()!.username }}</span>
+                </div>
+                <div class="info-row">
+                  <span class="info-label">نام و نام خانوادگی:</span>
+                  <span class="info-value">{{ selectedUser()!.full_name }}</span>
+                </div>
+                <div class="info-row">
+                  <span class="info-label">پست الکترونیکی سازمانی:</span>
+                  <span class="info-value">{{ selectedUser()!.email }}</span>
+                </div>
+                <div class="info-row">
+                  <span class="info-label">شماره تلفن همراه:</span>
+                  <span class="info-value">{{ selectedUser()!.phone || 'ثبت نشده' }}</span>
+                </div>
+                <div class="info-row">
+                  <span class="info-label">وضعیت حساب:</span>
+                  <span class="info-value status-pill status-active-mini">{{ selectedUser()!.status }}</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="info-card">
+              <h4>خلاصه دسترسی‌ها و تاریخچه ورود</h4>
+              <div class="info-rows">
+                <div class="info-row">
+                  <span class="info-label">سطح دسترسی اصلی:</span>
+                  <span class="info-value">
+                    {{ selectedUser()!.is_superadmin ? 'مدیر ارشد (دسترسی تام)' : 'کاربر استاندارد سازمانی' }}
+                  </span>
+                </div>
+                <div class="info-row">
+                  <span class="info-label">تاریخ عضویت و ثبت در سیستم:</span>
+                  <span class="info-value">{{ formatDate(selectedUser()!.created_at) }}</span>
+                </div>
+                <div class="info-row">
+                  <span class="info-label">آخرین ورود موفق به کاتالوگ:</span>
+                  <span class="info-value">{{ formatDate(selectedUser()!.last_login_at) }}</span>
+                </div>
+                <div class="info-row">
+                  <span class="info-label">تعداد نقش‌های سازمانی مستقیم:</span>
+                  <span class="info-value font-bold">{{ selectedUser()!.roles.length }} نقش</span>
+                </div>
+                <div class="info-row">
+                  <span class="info-label">تعداد گروه‌های عضویت فعال:</span>
+                  <span class="info-value font-bold">{{ selectedUser()!.groups.length }} گروه</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      }
+
+      <!-- TAB 2: نقش‌ها -->
+      @if (activeTab() === 'roles') {
+        <div class="tab-pane animate-fade">
+          <div class="tab-actions-bar">
+            <div class="quick-assign-form">
+              <select class="form-select select-compact" [(ngModel)]="newRoleIdToAssign">
+                <option value="">-- انتخاب نقش جدید جهت انتساب --</option>
+                @for (r of allRoles(); track r.id) {
+                  @if (!selectedUser()!.role_ids.includes(r.id)) {
+                    <option [value]="r.id">{{ r.name }} ({{ r.description || 'بدون شرح' }})</option>
+                  }
+                }
+              </select>
+              <button
+                class="btn btn-primary btn-sm"
+                [disabled]="!newRoleIdToAssign"
+                (click)="assignRoleToUser()"
+              >
+                + افزودن نقش
+              </button>
+            </div>
+          </div>
+
+          <div class="roles-list-grid">
+            @for (r of userDetails()?.roles_detail || []; track r.id) {
+              <div class="role-card-item">
+                <div class="role-card-header">
+                  <span class="role-icon">🛡️</span>
+                  <div>
+                    <h4 class="role-name">{{ r.name }}</h4>
+                    <p class="role-desc">{{ r.description || 'بدون توضیحات' }}</p>
+                  </div>
+                </div>
+                <div class="role-card-footer">
+                  <span class="text-xs text-muted">انتساب: {{ formatDate(r.assigned_at) }}</span>
+                  <button
+                    class="btn btn-outline-danger btn-xs"
+                    (click)="removeRoleFromUser(r.id)"
+                  >
+                    حذف نقش
+                  </button>
+                </div>
+              </div>
+            }
+            @if (!userDetails()?.roles_detail?.length) {
+              <div class="empty-tab-hint">
+                <span>هیچ نقشی به صورت مستقیم به این کاربر تخصیص نیافته است.</span>
+              </div>
+            }
+          </div>
+        </div>
+      }
+
+      <!-- TAB 3: گروه‌ها -->
+      @if (activeTab() === 'groups') {
+        <div class="tab-pane animate-fade">
+          <div class="tab-actions-bar">
+            <div class="quick-assign-form">
+              <select class="form-select select-compact" [(ngModel)]="newGroupIdToAssign">
+                <option value="">-- انتخاب گروه جدید جهت عضویت --</option>
+                @for (g of allGroups(); track g.id) {
+                  @if (!selectedUser()!.group_ids.includes(g.id)) {
+                    <option [value]="g.id">{{ g.name }} ({{ g.description || 'بدون شرح' }})</option>
+                  }
+                }
+              </select>
+              <button
+                class="btn btn-primary btn-sm"
+                [disabled]="!newGroupIdToAssign"
+                (click)="assignGroupToUser()"
+              >
+                + عضویت در گروه
+              </button>
+            </div>
+          </div>
+
+          <div class="groups-list-grid">
+            @for (g of userDetails()?.groups_detail || []; track g.id) {
+              <div class="group-card-item">
+                <div class="group-card-header">
+                  <span class="group-icon">🏢</span>
+                  <div>
+                    <h4 class="group-name">{{ g.name }}</h4>
+                    <p class="group-desc">{{ g.description || 'بدون توضیحات' }}</p>
+                  </div>
+                </div>
+                <div class="group-card-footer">
+                  <span class="text-xs text-muted">تاریخ عضویت: {{ formatDate(g.assigned_at) }}</span>
+                  <button
+                    class="btn btn-outline-danger btn-xs"
+                    (click)="removeGroupFromUser(g.id)"
+                  >
+                    لغو عضویت
+                  </button>
+                </div>
+              </div>
+            }
+            @if (!userDetails()?.groups_detail?.length) {
+              <div class="empty-tab-hint">
+                <span>این کاربر در هیچ گروهی عضویت ندارد.</span>
+              </div>
+            }
+          </div>
+        </div>
+      }
+
+      <!-- TAB 4: دسترسی به پایگاه‌های داده (درخت فیزیکی با چک‌باکس‌ها) -->
+      @if (activeTab() === 'databases') {
+        <div class="tab-pane animate-fade">
+          <div class="tab-toolbar">
+            <div class="toolbar-hint">
+              <strong>💡 راهنما:</strong>
+              <span>
+                درخت فیزیکی زیر ساختار واقعی پایگاه‌های داده، اسکیماها و جداول را نمایش می‌دهد.
+                با فعال‌سازی چک‌باکس‌های دسترسی در هر سطح، دسترسی صریح به کاربر اعمال می‌گردد.
+                انتخاب دسترسی در سطح پایگاه داده یا اسکیما به صورت آبشاری به تمام زیرمجموعه‌ها ارث می‌رسد.
+              </span>
+            </div>
+
+            <button
+              class="btn btn-primary"
+              [disabled]="isSavingPermissions()"
+              (click)="saveDatabasePermissions()"
+            >
+              @if (isSavingPermissions()) {
+                <span>در حال ذخیره...</span>
+              } @else {
+                <span>💾 ذخیره تغییرات دسترسی</span>
+              }
+            </button>
+          </div>
+
+          <!-- Tree Hierarchy View -->
+          <div class="db-tree-container">
+            @for (conn of physicalTree(); track conn.id) {
+              <div class="tree-node tree-db">
+                <div class="node-row">
+                  <button
+                    class="btn-expand"
+                    (click)="toggleTreeNode('db:' + conn.id)"
+                  >
+                    {{ isNodeExpanded('db:' + conn.id) ? '▼' : '◀' }}
+                  </button>
+                  <span class="node-icon">🗄️</span>
+                  <span class="node-title">پایگاه داده: <strong>{{ conn.name }}</strong> ({{ conn.database_name }})</span>
+
+                  <!-- Permissions Checkboxes for Connection -->
+                  <div class="node-perms">
+                    @for (act of permissionActions; track act.key) {
+                      <label class="perm-checkbox-label">
+                        <input
+                          type="checkbox"
+                          [checked]="hasPermission('DATABASE', conn.id, act.key)"
+                          (change)="togglePermission('DATABASE', conn.id, act.key, $event)"
+                        />
+                        <span>{{ act.label }}</span>
+                      </label>
+                    }
+                  </div>
+                </div>
+
+                <!-- Schemas -->
+                @if (isNodeExpanded('db:' + conn.id)) {
+                  <div class="tree-children">
+                    @for (sch of conn.schemas; track sch.id) {
+                      <div class="tree-node tree-schema">
+                        <div class="node-row">
+                          <button
+                            class="btn-expand"
+                            (click)="toggleTreeNode('sch:' + sch.id)"
+                          >
+                            {{ isNodeExpanded('sch:' + sch.id) ? '▼' : '◀' }}
+                          </button>
+                          <span class="node-icon">📁</span>
+                          <span class="node-title">اسکیما: <strong>{{ sch.name }}</strong></span>
+
+                          <!-- Permissions Checkboxes for Schema -->
+                          <div class="node-perms">
+                            @for (act of permissionActions; track act.key) {
+                              <label class="perm-checkbox-label">
+                                <input
+                                  type="checkbox"
+                                  [checked]="hasPermission('SCHEMA', sch.id, act.key)"
+                                  (change)="togglePermission('SCHEMA', sch.id, act.key, $event)"
+                                />
+                                <span>{{ act.label }}</span>
+                              </label>
+                            }
+                          </div>
+                        </div>
+
+                        <!-- Tables -->
+                        @if (isNodeExpanded('sch:' + sch.id)) {
+                          <div class="tree-children">
+                            @for (tbl of sch.tables; track tbl.id) {
+                              <div class="tree-node tree-table">
+                                <div class="node-row">
+                                  <span class="node-leaf-indent">•</span>
+                                  <span class="node-icon">📄</span>
+                                  <span class="node-title">جدول: {{ tbl.name }}</span>
+
+                                  <!-- Permissions Checkboxes for Table -->
+                                  <div class="node-perms">
+                                    @for (act of permissionActions; track act.key) {
+                                      <label class="perm-checkbox-label">
+                                        <input
+                                          type="checkbox"
+                                          [checked]="hasPermission('TABLE', tbl.id, act.key)"
+                                          (change)="togglePermission('TABLE', tbl.id, act.key, $event)"
+                                        />
+                                        <span>{{ act.label }}</span>
+                                      </label>
+                                    }
+                                  </div>
+                                </div>
+                              </div>
+                            }
+                          </div>
+                        }
+                      </div>
+                    }
+                  </div>
+                }
+              </div>
+            }
+          </div>
+        </div>
+      }
+
+      <!-- TAB 5: مجوزهای مؤثر (Effective Permissions Matrix) -->
+      @if (activeTab() === 'effective') {
+        <div class="tab-pane animate-fade">
+          <div class="tab-filter-bar">
+            <div class="filter-field">
+              <input
+                type="text"
+                class="form-control select-compact"
+                placeholder="جستجوی منبع (دیتابیس، اسکیما، جدول)..."
+                [ngModel]="effSearch()"
+                (ngModelChange)="effSearch.set($event)"
+                (keyup.enter)="loadEffectivePermissions(selectedUser()!.id)"
+              />
+            </div>
+            <div class="filter-field">
+              <select
+                class="form-select select-compact"
+                [ngModel]="effAction()"
+                (ngModelChange)="effAction.set($event); loadEffectivePermissions(selectedUser()!.id)"
+              >
+                <option value="">همه مجوزها</option>
+                <option value="VIEW_METADATA">مشاهده متاداده (VIEW_METADATA)</option>
+                <option value="EDIT_DESCRIPTION">ویرایش توضیحات (EDIT_DESCRIPTION)</option>
+                <option value="MANAGE_TAGS">مدیریت برچسب‌ها (MANAGE_TAGS)</option>
+                <option value="MANAGE_CONNECTIONS">مدیریت اتصال (MANAGE_CONNECTIONS)</option>
+              </select>
+            </div>
+            <button
+              class="btn btn-secondary btn-sm"
+              (click)="loadEffectivePermissions(selectedUser()!.id)"
+            >
+              🔄 محاسبه مجدد
+            </button>
+          </div>
+
+          <div class="table-responsive">
+            <table class="data-table data-table-sm">
+              <thead>
+                <tr>
+                  <th>نام منبع داده</th>
+                  <th>سطح منبع</th>
+                  <th>عملیات / مجوز</th>
+                  <th class="th-center">نتیجه ارزیابی</th>
+                  <th>منبع انتساب (Source)</th>
+                  <th class="th-center">نوع وراثت</th>
+                  <th>علت و توضیح فنی (Explainability)</th>
+                </tr>
+              </thead>
+              <tbody>
+                @if (isLoadingEffective()) {
+                  <tr>
+                    <td colspan="7" class="td-loading">
+                      <div class="spinner"></div>
+                      <span>در حال ارزیابی ماتریس مجوزهای مؤثر و قوانین DENY...</span>
+                    </td>
+                  </tr>
+                } @else if (effectivePermissions().length === 0) {
+                  <tr>
+                    <td colspan="7" class="td-empty">
+                      <span>هیچ رکوردی یافت نشد.</span>
+                    </td>
+                  </tr>
+                } @else {
+                  @for (row of effectivePermissions(); track row.id) {
+                    <tr>
+                      <td class="font-bold">
+                        <span class="mr-1">
+                          @if (row.resource_type === 'DATABASE') { 🗄️ }
+                          @else if (row.resource_type === 'SCHEMA') { 📁 }
+                          @else { 📄 }
+                        </span>
+                        {{ row.resource_name }}
+                      </td>
+                      <td>
+                        <span class="badge badge-outline">{{ row.resource_type }}</span>
+                      </td>
+                      <td>
+                        <code class="action-code">{{ row.permission }}</code>
+                      </td>
+                      <td class="td-center">
+                        @if (row.result === 'ALLOW') {
+                          <span class="status-pill status-allow">مجاز (ALLOW)</span>
+                        } @else {
+                          <span class="status-pill status-deny">ممنوع (DENY)</span>
+                        }
+                      </td>
+                      <td>
+                        <span class="badge" [ngClass]="getSourceBadgeClass(row.source_type)">
+                          {{ row.source_name }}
+                        </span>
+                      </td>
+                      <td class="td-center">
+                        @if (row.is_inherited) {
+                          <span class="badge badge-inherited">موروثی ↳</span>
+                        } @else {
+                          <span class="badge badge-direct">صریح ⦿</span>
+                        }
+                      </td>
+                      <td class="text-xs text-muted">{{ row.explanation }}</td>
+                    </tr>
+                  }
+                }
+              </tbody>
+            </table>
+          </div>
+        </div>
+      }
+
+      <!-- TAB 6: سوابق فعالیت (User Audit Log) -->
+      @if (activeTab() === 'activity') {
+        <div class="tab-pane animate-fade">
+          <div class="tab-filter-bar">
+            <span>تاریخچه آخرین وقایع ثبت‌شده در لاگ حسابرسی سامانه:</span>
+            <button
+              class="btn btn-secondary btn-sm"
+              (click)="loadUserActivity(selectedUser()!.id)"
+            >
+              🔄 به‌روزرسانی سوابق
+            </button>
+          </div>
+
+          <div class="activity-timeline">
+            @if (isLoadingActivity()) {
+              <div class="td-loading">
+                <div class="spinner"></div>
+                <span>در حال بارگذاری لاگ حسابرسی...</span>
+              </div>
+            } @else if (userActivities().length === 0) {
+              <div class="empty-tab-hint">
+                <span>هیچ رویداد فعالیتی برای این کاربر ثبت نگردیده است.</span>
+              </div>
+            } @else {
+              @for (act of userActivities(); track act.id) {
+                <div class="activity-item">
+                  <div class="activity-marker"></div>
+                  <div class="activity-content">
+                    <div class="activity-header">
+                      <span class="activity-action">{{ act.action }}</span>
+                      <span class="activity-date">{{ formatDate(act.created_at) }}</span>
+                    </div>
+                    <div class="activity-meta">
+                      <span>انجام شده توسط: <strong>{{ act.actor_username }}</strong></span>
+                      @if (act.ip_address) {
+                        <span>• آی‌پی: {{ act.ip_address }}</span>
+                      }
+                    </div>
+                    @if (act.diff_jsonb && Object.keys(act.diff_jsonb).length > 0) {
+                      <pre class="activity-diff">{{ act.diff_jsonb | json }}</pre>
+                    }
+                  </div>
+                </div>
+              }
+            }
+          </div>
+        </div>
+      }
+    }
+  </section>
+
+  <!-- MODAL: CREATE USER -->
+  @if (showCreateModal()) {
+    <div class="modal-backdrop animate-fade">
+      <div class="modal-card">
+        <div class="modal-header">
+          <h3>+ تعریف کاربر سازمانی جدید</h3>
+          <button class="modal-close" (click)="closeCreateModal()">✕</button>
+        </div>
+        <div class="modal-body">
+          <div class="form-grid-2">
+            <div class="form-group">
+              <label>نام کاربری (الزامی) *</label>
+              <input
+                type="text"
+                class="form-control"
+                placeholder="مانند: j_doe"
+                [(ngModel)]="newUser.username"
+              />
+            </div>
+            <div class="form-group">
+              <label>نام و نام خانوادگی *</label>
+              <input
+                type="text"
+                class="form-control"
+                placeholder="مانند: علی محمدی"
+                [(ngModel)]="newUser.full_name"
+              />
+            </div>
+            <div class="form-group">
+              <label>پست الکترونیکی سازمانی *</label>
+              <input
+                type="email"
+                class="form-control"
+                placeholder="ali@company.internal"
+                [(ngModel)]="newUser.email"
+              />
+            </div>
+            <div class="form-group">
+              <label>شماره تماس</label>
+              <input
+                type="text"
+                class="form-control"
+                placeholder="09121234567"
+                [(ngModel)]="newUser.phone"
+              />
+            </div>
+            <div class="form-group">
+              <label>کلمه عبور اولیه (حداقل ۸ کاراکتر) *</label>
+              <input
+                type="password"
+                class="form-control"
+                placeholder="••••••••"
+                [(ngModel)]="newUser.password"
+              />
+            </div>
+            <div class="form-group checkbox-group-inline">
+              <label class="perm-checkbox-label">
+                <input type="checkbox" [(ngModel)]="newUser.is_superadmin" />
+                <span>دسترسی مدیر ارشد سامانه (SuperAdmin)</span>
+              </label>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-secondary" (click)="closeCreateModal()">انصراف</button>
+          <button class="btn btn-primary" (click)="submitCreateUser()">ذخیره کاربر</button>
+        </div>
+      </div>
+    </div>
+  }
+
+  <!-- MODAL: EDIT USER -->
+  @if (showEditModal()) {
+    <div class="modal-backdrop animate-fade">
+      <div class="modal-card">
+        <div class="modal-header">
+          <h3>ویرایش مشخصات کاربر: {{ selectedUser()?.username }}</h3>
+          <button class="modal-close" (click)="closeEditModal()">✕</button>
+        </div>
+        <div class="modal-body">
+          <div class="form-grid-2">
+            <div class="form-group">
+              <label>نام و نام خانوادگی</label>
+              <input
+                type="text"
+                class="form-control"
+                [(ngModel)]="editUserDto.full_name"
+              />
+            </div>
+            <div class="form-group">
+              <label>پست الکترونیکی سازمانی</label>
+              <input
+                type="email"
+                class="form-control"
+                [(ngModel)]="editUserDto.email"
+              />
+            </div>
+            <div class="form-group">
+              <label>شماره تماس</label>
+              <input
+                type="text"
+                class="form-control"
+                [(ngModel)]="editUserDto.phone"
+              />
+            </div>
+            <div class="form-group">
+              <label>وضعیت حساب</label>
+              <select class="form-select" [(ngModel)]="editUserDto.status">
+                <option value="ACTIVE">فعال (ACTIVE)</option>
+                <option value="SUSPENDED">معلق (SUSPENDED)</option>
+                <option value="DEACTIVATED">غیرفعال (DEACTIVATED)</option>
+              </select>
+            </div>
+            <div class="form-group checkbox-group-inline">
+              <label class="perm-checkbox-label">
+                <input type="checkbox" [(ngModel)]="editUserDto.is_superadmin" />
+                <span>دسترسی مدیر ارشد سامانه (SuperAdmin)</span>
+              </label>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-secondary" (click)="closeEditModal()">انصراف</button>
+          <button class="btn btn-primary" (click)="submitEditUser()">ثبت تغییرات</button>
+        </div>
+      </div>
+    </div>
+  }
+
+  <!-- MODAL: RESET PASSWORD -->
+  @if (showResetPasswordModal()) {
+    <div class="modal-backdrop animate-fade">
+      <div class="modal-card modal-sm">
+        <div class="modal-header">
+          <h3>🔑 بازنشانی رمز عبور: {{ selectedUser()?.username }}</h3>
+          <button class="modal-close" (click)="closeResetPasswordModal()">✕</button>
+        </div>
+        <div class="modal-body">
+          @if (passwordError) {
+            <div class="alert alert-danger mb-3">{{ passwordError }}</div>
+          }
+          <div class="form-group">
+            <label>کلمه عبور جدید (حداقل ۸ کاراکتر)</label>
+            <input
+              type="password"
+              class="form-control"
+              placeholder="••••••••"
+              [(ngModel)]="newPassword"
+            />
+          </div>
+          <div class="form-group">
+            <label>تکرار کلمه عبور جدید</label>
+            <input
+              type="password"
+              class="form-control"
+              placeholder="••••••••"
+              [(ngModel)]="confirmPassword"
+            />
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-secondary" (click)="closeResetPasswordModal()">انصراف</button>
+          <button class="btn btn-primary" (click)="submitResetPassword()">تغییر رمز عبور</button>
+        </div>
+      </div>
+    </div>
+  }
+</div>

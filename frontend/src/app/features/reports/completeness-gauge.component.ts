@@ -33,6 +33,8 @@ echarts.use([GaugeChart, CanvasRenderer, TitleComponent, TooltipComponent]);
         box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
         height: 100%;
         box-sizing: border-box;
+        direction: rtl;
+        font-family: var(--font-family-sans, 'Vazirmatn', sans-serif);
       }
       .gauge-header {
         margin-bottom: 0.5rem;
@@ -54,7 +56,7 @@ echarts.use([GaugeChart, CanvasRenderer, TitleComponent, TooltipComponent]);
 })
 export class CompletenessGaugeComponent {
   readonly score = input<number>(0);
-  readonly title = input<string>('Metadata Completeness');
+  readonly title = input<string>('تکمیل متادیتا (Metadata Completeness)');
 
   readonly chartOptions = computed<echarts.EChartsCoreOption>(() => {
     const value = Math.round(this.score() * 100) / 100;

@@ -1,110 +1,112 @@
 <div class="app-layout">
   <!-- Top Header Bar -->
-  <header class="app-header">
-    <div class="header-right">
-      <button class="toggle-btn" (click)="toggleSidebar()" aria-label="تغییر وضعیت نوار ناوبری">
-        ☰
-      </button>
-
-      <div class="brand-group">
-        <div class="brand-icon">
-          <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2">
-            <ellipse cx="12" cy="5" rx="9" ry="3"></ellipse>
-            <path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"></path>
-            <path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"></path>
-          </svg>
-        </div>
-        <span class="brand-title">{{ persianTitle() }}</span>
-      </div>
-    </div>
-
-    <!-- Header Left Actions (Live Role Switcher & User Profile) -->
-    <div class="header-left">
-      <!-- Live Role Switcher Dropdown -->
-      <div class="role-switcher-container">
-        <button
-          type="button"
-          class="role-switcher-btn"
-          (click)="toggleRoleDropdown()"
-          [disabled]="isSwitchingRole()"
-        >
-          <span class="role-indicator-dot"></span>
-          <span class="role-label">
-            @if (isSwitchingRole()) {
-              <span>در حال تغییر نقش...</span>
-            } @else {
-              <span>کاربر جاری: <strong class="mono-font">{{ authService.currentUser()?.username || 'ناشناس' }}</strong></span>
-            }
-          </span>
-          <span class="role-badge">
-            @if (authService.currentUser()?.is_superadmin) {
-              مدیر ارشد
-            } @else if (authService.currentUser()?.roles?.includes('DataSteward')) {
-              راهبر داده
-            } @else {
-              تحلیلگر داده
-            }
-          </span>
-          <span class="arrow-down">▼</span>
+  @if (authService.isAuthenticated()) {
+    <header class="app-header">
+      <div class="header-right">
+        <button class="toggle-btn" (click)="toggleSidebar()" aria-label="تغییر وضعیت نوار ناوبری">
+          ☰
         </button>
 
-        @if (isRoleDropdownOpen()) {
-          <div class="role-dropdown-menu" (click)="$event.stopPropagation()">
-            <div class="dropdown-header">تغییر زنده نقش و بازبینی ماتریس RBAC:</div>
-
-            <button
-              class="role-option"
-              [class.active]="authService.currentUser()?.username === 'admin'"
-              (click)="switchRole('admin')"
-            >
-              <div class="role-tag tag-admin">SuperAdmin</div>
-              <div class="role-info">
-                <strong>مدیر ارشد سامانه (admin)</strong>
-                <small>دسترسی نامحدود به تمامی جداول، ویرایش، تگ و لاگ</small>
-              </div>
-            </button>
-
-            <button
-              class="role-option"
-              [class.active]="authService.currentUser()?.username === 'steward'"
-              (click)="switchRole('steward')"
-            >
-              <div class="role-tag tag-steward">Data Steward</div>
-              <div class="role-info">
-                <strong>راهبر داده (steward)</strong>
-                <small>ویرایش توضیحات، مدیریت تگ‌ها و دسته‌بندی‌ها</small>
-              </div>
-            </button>
-
-            <button
-              class="role-option"
-              [class.active]="authService.currentUser()?.username === 'analyst'"
-              (click)="switchRole('analyst')"
-            >
-              <div class="role-tag tag-analyst">Data Analyst</div>
-              <div class="role-info">
-                <strong>تحلیلگر داده (analyst - فقط خواندنی)</strong>
-                <small>عدم نمایش جداول محرمانه حقوق (DENY) و عدم امکان ویرایش</small>
-              </div>
-            </button>
+        <div class="brand-group">
+          <div class="brand-icon">
+            <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2">
+              <ellipse cx="12" cy="5" rx="9" ry="3"></ellipse>
+              <path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"></path>
+              <path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"></path>
+            </svg>
           </div>
-        }
+          <span class="brand-title">{{ persianTitle() }}</span>
+        </div>
       </div>
 
-      <!-- Auth Action -->
-      @if (authService.isAuthenticated()) {
-        <button class="btn btn-secondary btn-sm" (click)="logout()">خروج</button>
-      } @else {
-        <a class="btn btn-primary btn-sm" routerLink="/login">ورود</a>
-      }
+      <!-- Header Left Actions (Live Role Switcher & User Profile) -->
+      <div class="header-left">
+        <!-- Live Role Switcher Dropdown -->
+        <div class="role-switcher-container">
+          <button
+            type="button"
+            class="role-switcher-btn"
+            (click)="toggleRoleDropdown()"
+            [disabled]="isSwitchingRole()"
+          >
+            <span class="role-indicator-dot"></span>
+            <span class="role-label">
+              @if (isSwitchingRole()) {
+                <span>در حال تغییر نقش...</span>
+              } @else {
+                <span>کاربر جاری: <strong class="mono-font">{{ authService.currentUser()?.username || 'ناشناس' }}</strong></span>
+              }
+            </span>
+            <span class="role-badge">
+              @if (authService.currentUser()?.is_superadmin) {
+                مدیر ارشد
+              } @else if (authService.currentUser()?.roles?.includes('DataSteward')) {
+                راهبر داده
+              } @else {
+                تحلیلگر داده
+              }
+            </span>
+            <span class="arrow-down">▼</span>
+          </button>
 
-      <span class="version-badge mono-font">v{{ currentVersion() }}</span>
-    </div>
-  </header>
+          @if (isRoleDropdownOpen()) {
+            <div class="role-dropdown-menu" (click)="$event.stopPropagation()">
+              <div class="dropdown-header">تغییر زنده نقش و بازبینی ماتریس RBAC:</div>
+
+              <button
+                class="role-option"
+                [class.active]="authService.currentUser()?.username === 'admin'"
+                (click)="switchRole('admin')"
+              >
+                <div class="role-tag tag-admin">SuperAdmin</div>
+                <div class="role-info">
+                  <strong>مدیر ارشد سامانه (admin)</strong>
+                  <small>دسترسی نامحدود به تمامی جداول، ویرایش، تگ و لاگ</small>
+                </div>
+              </button>
+
+              <button
+                class="role-option"
+                [class.active]="authService.currentUser()?.username === 'steward'"
+                (click)="switchRole('steward')"
+              >
+                <div class="role-tag tag-steward">Data Steward</div>
+                <div class="role-info">
+                  <strong>راهبر داده (steward)</strong>
+                  <small>ویرایش توضیحات، مدیریت تگ‌ها و دسته‌بندی‌ها</small>
+                </div>
+              </button>
+
+              <button
+                class="role-option"
+                [class.active]="authService.currentUser()?.username === 'analyst'"
+                (click)="switchRole('analyst')"
+              >
+                <div class="role-tag tag-analyst">Data Analyst</div>
+                <div class="role-info">
+                  <strong>تحلیلگر داده (analyst - فقط خواندنی)</strong>
+                  <small>عدم نمایش جداول محرمانه حقوق (DENY) و عدم امکان ویرایش</small>
+                </div>
+              </button>
+            </div>
+          }
+        </div>
+
+        <!-- Auth Action -->
+        @if (authService.isAuthenticated()) {
+          <button class="btn btn-secondary btn-sm" (click)="logout()">خروج</button>
+        } @else {
+          <a class="btn btn-primary btn-sm" routerLink="/login">ورود</a>
+        }
+
+        <span class="version-badge mono-font">v{{ currentVersion() }}</span>
+      </div>
+    </header>
+  }
 
   <!-- Application Body: Sidebar + Main Router Outlet -->
-  <div class="app-body">
-    @if (isSidebarOpen()) {
+  <div class="app-body" [class.unauthenticated]="!authService.isAuthenticated()">
+    @if (authService.isAuthenticated() && isSidebarOpen()) {
       <aside class="app-sidebar">
         <nav class="nav-menu">
           <a class="nav-item" routerLink="/catalog" routerLinkActive="active" id="nav-catalog">
@@ -129,13 +131,46 @@
 
           <a
             class="nav-item"
+            routerLink="/admin/users"
+            routerLinkActive="active"
+            id="nav-users"
+            *hasPermission="'MANAGE_CONNECTIONS'"
+          >
+            <span class="nav-icon">👥</span>
+            <span class="nav-text">مدیریت کاربران و دسترسی‌ها (Users)</span>
+          </a>
+
+          <a
+            class="nav-item"
+            routerLink="/admin/groups"
+            routerLinkActive="active"
+            id="nav-groups"
+            *hasPermission="'MANAGE_CONNECTIONS'"
+          >
+            <span class="nav-icon">🏢</span>
+            <span class="nav-text">گروه‌های سازمانی (Groups)</span>
+          </a>
+
+          <a
+            class="nav-item"
+            routerLink="/admin/roles"
+            routerLinkActive="active"
+            id="nav-roles"
+            *hasPermission="'MANAGE_CONNECTIONS'"
+          >
+            <span class="nav-icon">🛡️</span>
+            <span class="nav-text">نقش‌ها و سطوح دسترسی (Roles)</span>
+          </a>
+
+          <a
+            class="nav-item"
             routerLink="/admin/iam"
             routerLinkActive="active"
             id="nav-iam"
             *hasPermission="'MANAGE_CONNECTIONS'"
           >
-            <span class="nav-icon">🛡️</span>
-            <span class="nav-text">مدیریت کاربران، نقش‌ها و سطوح دسترسی (RBAC)</span>
+            <span class="nav-icon">⚙️</span>
+            <span class="nav-text">مدیریت جامع قوانین IAM & RBAC</span>
           </a>
 
           <a

@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.src.api.dependencies.rbac import UserContext, get_current_user
 from backend.src.core.database import get_db_session
-from backend.src.models.identity import Role
+from backend.src.models.identity import Group, Role, User
 from backend.src.models.rbac import (
     EntityType,
     PermissionAction,
@@ -29,7 +29,9 @@ router = APIRouter(prefix="/permissions", tags=["Permissions"])
 
 
 class PermissionRuleCreateRequest(BaseModel):
-    role_id: uuid.UUID
+    role_id: Optional[uuid.UUID] = None
+    user_id: Optional[uuid.UUID] = None
+    group_id: Optional[uuid.UUID] = None
     resource_type: ResourceType
     resource_id: Optional[uuid.UUID] = None
     action: PermissionAction
@@ -38,7 +40,9 @@ class PermissionRuleCreateRequest(BaseModel):
 
 class PermissionRuleResponse(BaseModel):
     id: uuid.UUID
-    role_id: uuid.UUID
+    role_id: Optional[uuid.UUID] = None
+    user_id: Optional[uuid.UUID] = None
+    group_id: Optional[uuid.UUID] = None
     resource_type: ResourceType
     resource_id: Optional[uuid.UUID] = None
     action: PermissionAction
@@ -59,7 +63,7 @@ class EffectivePermissionCheckResponse(BaseModel):
     "",
     response_model=PermissionRuleResponse,
     status_code=status.HTTP_201_CREATED,
-    summary="Grant a permission rule to a role",
+    summary="Grant a permission rule to a role, user, or group",
 )
 async def grant_permission_rule(
     payload: PermissionRuleCreateRequest,
@@ -67,21 +71,44 @@ async def grant_permission_rule(
     db: AsyncSession = Depends(get_db_session),
 ) -> PermissionRuleResponse:
     """
-    Grants a fine-grained permission rule (ALLOW or DENY) to a role across
+    Grants a fine-grained permission rule (ALLOW or DENY) to a role, user, or group across
     Global, Database, Schema, Table, Column, or Category resources.
     Atomically records an immutable AuditLog event in the current transaction.
     """
-    # Verify that target role exists
-    role = await db.get(Role, payload.role_id)
-    if not role:
+    if not payload.role_id and not payload.user_id and not payload.group_id:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Role '{payload.role_id}' not found.",
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="At least one of role_id, user_id, or group_id must be provided.",
         )
+
+    # Verify target existence
+    if payload.role_id:
+        role = await db.get(Role, payload.role_id)
+        if not role:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Role '{payload.role_id}' not found.",
+            )
+    if payload.user_id:
+        user = await db.get(User, payload.user_id)
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"User '{payload.user_id}' not found.",
+            )
+    if payload.group_id:
+        group = await db.get(Group, payload.group_id)
+        if not group:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Group '{payload.group_id}' not found.",
+            )
 
     rule = PermissionRule(
         id=uuid.uuid4(),
         role_id=payload.role_id,
+        user_id=payload.user_id,
+        group_id=payload.group_id,
         resource_type=payload.resource_type,
         resource_id=payload.resource_id,
         action=payload.action,
@@ -102,20 +129,24 @@ async def grant_permission_rule(
         audit_entity_type = EntityType.DATABASE
 
     audit_entity_id = (
-        payload.resource_id if payload.resource_id is not None else payload.role_id
+        payload.resource_id
+        if payload.resource_id is not None
+        else (payload.role_id or payload.user_id or payload.group_id)
     )
 
     # Atomically record audit log
     await record_audit_event(
         session=db,
         actor_username=user_ctx.user.username,
-        actor_id=user_ctx.user.id,
+        actor_id=user_ctx.user_id,
         action="GRANT_PERMISSION",
         entity_type=audit_entity_type,
         entity_id=audit_entity_id,
         diff_jsonb={
             "rule_id": str(rule.id),
-            "role_id": str(rule.role_id),
+            "role_id": str(rule.role_id) if rule.role_id else None,
+            "user_id": str(rule.user_id) if rule.user_id else None,
+            "group_id": str(rule.group_id) if rule.group_id else None,
             "resource_type": rule.resource_type.value,
             "resource_id": str(rule.resource_id) if rule.resource_id else None,
             "action": rule.action.value,
@@ -134,6 +165,8 @@ async def grant_permission_rule(
 )
 async def list_permissions(
     role_id: Optional[uuid.UUID] = Query(None, description="Filter by assigned role ID"),
+    user_id: Optional[uuid.UUID] = Query(None, description="Filter by assigned user ID"),
+    group_id: Optional[uuid.UUID] = Query(None, description="Filter by assigned group ID"),
     resource_type: Optional[ResourceType] = Query(None, description="Filter by resource type"),
     resource_id: Optional[uuid.UUID] = Query(None, description="Filter by resource ID"),
     action: Optional[PermissionAction] = Query(None, description="Filter by permission action"),
@@ -148,6 +181,10 @@ async def list_permissions(
 
     if role_id is not None:
         stmt = stmt.where(PermissionRule.role_id == role_id)
+    if user_id is not None:
+        stmt = stmt.where(PermissionRule.user_id == user_id)
+    if group_id is not None:
+        stmt = stmt.where(PermissionRule.group_id == group_id)
     if resource_type is not None:
         stmt = stmt.where(PermissionRule.resource_type == resource_type)
     if resource_id is not None:
@@ -225,20 +262,24 @@ async def revoke_permission_rule(
         audit_entity_type = EntityType.DATABASE
 
     audit_entity_id = (
-        rule.resource_id if rule.resource_id is not None else rule.role_id
+        rule.resource_id
+        if rule.resource_id is not None
+        else (rule.role_id or rule.user_id or rule.group_id)
     )
 
     # Atomically record audit log
     await record_audit_event(
         session=db,
         actor_username=user_ctx.user.username,
-        actor_id=user_ctx.user.id,
+        actor_id=user_ctx.user_id,
         action="REVOKE_PERMISSION",
         entity_type=audit_entity_type,
         entity_id=audit_entity_id,
         diff_jsonb={
             "revoked_rule_id": str(rule.id),
-            "role_id": str(rule.role_id),
+            "role_id": str(rule.role_id) if rule.role_id else None,
+            "user_id": str(rule.user_id) if rule.user_id else None,
+            "group_id": str(rule.group_id) if rule.group_id else None,
             "resource_type": rule.resource_type.value,
             "resource_id": str(rule.resource_id) if rule.resource_id else None,
             "action": rule.action.value,
@@ -283,4 +324,3 @@ async def check_effective_permission(
         action=action,
         effect=effect,
     )
-

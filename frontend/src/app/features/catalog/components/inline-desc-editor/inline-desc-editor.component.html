@@ -18,10 +18,10 @@
           type="button"
           class="btn-edit"
           (click)="$event.stopPropagation(); startEdit()"
-          aria-label="Edit description"
-          title="Edit description"
+          aria-label="ویرایش توضیحات"
+          title="ویرایش توضیحات"
         >
-          ✏️ Edit
+          ✏️ ویرایش
         </button>
       }
     </div>
@@ -32,7 +32,7 @@
         [value]="editValue()"
         (input)="onInputChange($event)"
         (keydown.escape)="cancelEdit()"
-        placeholder="Enter curated description..."
+        placeholder="ثبت توضیحات تایید شده کارشناسی..."
         rows="3"
         [disabled]="isLoading()"
       ></textarea>
@@ -49,9 +49,9 @@
           [disabled]="isLoading()"
         >
           @if (isLoading()) {
-            Saving...
+            در حال ذخیره...
           } @else {
-            Save
+            ذخیره
           }
         </button>
         <button
@@ -60,7 +60,7 @@
           (click)="cancelEdit()"
           [disabled]="isLoading()"
         >
-          Cancel
+          انصراف
         </button>
       </div>
     </div>

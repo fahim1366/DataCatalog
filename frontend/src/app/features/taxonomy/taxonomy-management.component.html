@@ -1,0 +1,734 @@
+<div class="taxonomy-page">
+  <!-- PAGE HEADER -->
+  <header class="page-header">
+    <div>
+      <h1 class="page-title">
+        <i class="pi pi-sitemap" style="color: #2563eb;"></i>
+        <span>مدیریت ساختار و درخت دسته‌بندی‌های کسب‌وکار (Business Taxonomy)</span>
+      </h1>
+      <p class="page-subtitle">
+        تعریف ساختار سلسله‌مراتبی موضوعی سازمان، واژه‌نامه داده‌ها، و تخصیص هوشمند جداول کاتالوگ
+      </p>
+    </div>
+
+    <div class="header-actions">
+      @if (activeTab() === 'categories') {
+        <button
+          type="button"
+          class="btn-primary-prominent"
+          (click)="openAddRootModal()"
+          title="ایجاد یک دسته‌بندی اصلی جدید در سطح ریشه"
+        >
+          <i class="pi pi-plus"></i>
+          <span>+ ایجاد دسته‌بندی اصلی</span>
+        </button>
+      } @else {
+        <button
+          type="button"
+          class="btn-primary-prominent"
+          (click)="openCreateTagModal()"
+        >
+          <i class="pi pi-tag"></i>
+          <span>+ ثبت برچسب سازمانی جدید</span>
+        </button>
+      }
+    </div>
+  </header>
+
+  <!-- NAVIGATION TABS -->
+  <nav class="tabs-navigation" aria-label="بخش‌های مدیریت تاکسونومی">
+    <button
+      type="button"
+      class="tab-btn"
+      [class.active]="activeTab() === 'categories'"
+      (click)="activeTab.set('categories')"
+    >
+      <i class="pi pi-folder"></i>
+      <span>درخت دسته‌بندی‌های موضوعی (Category Hierarchy)</span>
+    </button>
+    <button
+      type="button"
+      class="tab-btn"
+      [class.active]="activeTab() === 'tags'"
+      (click)="activeTab.set('tags')"
+    >
+      <i class="pi pi-tags"></i>
+      <span>برچسب‌ها و تگ‌های حاکمیتی (Governed Tags)</span>
+    </button>
+  </nav>
+
+  <!-- TAB 1: CATEGORY TREE (PRIMENG 20 TREETABLE) -->
+  @if (activeTab() === 'categories') {
+    <div class="tree-card">
+      <!-- Toolbar: Search, Filters & Quick Actions -->
+      <div class="tree-toolbar">
+        <div class="toolbar-filters">
+          <!-- Search by Category Name -->
+          <div class="search-input-wrapper">
+            <i class="pi pi-search search-icon"></i>
+            <input
+              type="text"
+              class="search-input"
+              placeholder="جستجو در عنوان یا شرح دسته‌بندی..."
+              [ngModel]="searchTerm()"
+              (ngModelChange)="searchTerm.set($event)"
+            />
+            @if (searchTerm()) {
+              <button
+                type="button"
+                class="clear-search-btn"
+                (click)="searchTerm.set('')"
+                title="پاکسازی جستجو"
+              >
+                ✕
+              </button>
+            }
+          </div>
+
+          <!-- Status Filter -->
+          <select
+            class="status-filter-select"
+            [ngModel]="statusFilter()"
+            (ngModelChange)="statusFilter.set($event)"
+          >
+            <option value="ALL">همه وضعیت‌ها (Active & Inactive)</option>
+            <option value="ACTIVE">فقط دسته‌های فعال (Active)</option>
+            <option value="INACTIVE">فقط دسته‌های غیرفعال (Inactive)</option>
+          </select>
+
+          <!-- Expansion Controls -->
+          <div class="toolbar-controls">
+            <button
+              type="button"
+              class="btn-icon-outline"
+              (click)="expandAll()"
+              title="گسترش تمام شاخه‌ها"
+            >
+              <i class="pi pi-angle-double-down"></i>
+              <span>گسترش همه</span>
+            </button>
+            <button
+              type="button"
+              class="btn-icon-outline"
+              (click)="collapseAll()"
+              title="جمع کردن تمام شاخه‌ها"
+            >
+              <i class="pi pi-angle-double-up"></i>
+              <span>جمع کردن همه</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Toolbar Stats Pills -->
+        <div class="toolbar-stats">
+          <span class="stat-pill">
+            <i class="pi pi-folder"></i>
+            <span>تعداد کل دسته‌بندی‌ها:</span>
+            <strong>{{ totalCategoriesCount() }}</strong>
+          </span>
+          <span class="stat-pill">
+            <i class="pi pi-table"></i>
+            <span>مجموع جداول متصل:</span>
+            <strong>{{ totalAssignedTablesCount() }}</strong>
+          </span>
+        </div>
+      </div>
+
+      <!-- PrimeNG 20 TreeTable Component -->
+      <p-treetable
+        [value]="filteredTreeNodes()"
+        [loading]="isLoadingTree()"
+        (onNodeExpand)="onNodeToggle($event)"
+        (onNodeCollapse)="onNodeToggle($event)"
+        styleClass="p-treetable-sm modern-treetable"
+        [scrollable]="true"
+      >
+        <ng-template #header>
+          <tr>
+            <th style="min-width: 320px;">عنوان دسته‌بندی</th>
+            <th style="min-width: 250px;">توضیحات</th>
+            <th style="width: 130px; text-align: center;">تعداد جداول</th>
+            <th style="width: 110px; text-align: center;">وضعیت</th>
+            <th style="width: 330px; text-align: center;">عملیات</th>
+          </tr>
+        </ng-template>
+
+        <ng-template #body let-rowNode let-rowData="rowData">
+          <tr [ttRow]="rowNode">
+            <!-- 1. Category Name & Hierarchy -->
+            <td>
+              <p-treeTableToggler [rowNode]="rowNode" />
+              <span class="category-title-cell">
+                <i
+                  class="pi node-icon"
+                  [ngClass]="
+                    rowNode.node.children && rowNode.node.children.length
+                      ? rowNode.node.expanded
+                        ? 'pi-folder-open'
+                        : 'pi-folder'
+                      : 'pi-file'
+                  "
+                ></i>
+                <span class="cat-name-text">{{ rowData.name }}</span>
+              </span>
+            </td>
+
+            <!-- 2. Description -->
+            <td>
+              <span class="cat-desc-text" [title]="rowData.description || ''">
+                {{ rowData.description || '—' }}
+              </span>
+            </td>
+
+            <!-- 3. Assigned Tables Count -->
+            <td style="text-align: center;">
+              <span
+                class="table-count-badge"
+                [class.has-tables]="rowData.assigned_tables_count > 0"
+              >
+                <i class="pi pi-table"></i>
+                <span>{{ rowData.assigned_tables_count || 0 }} جدول</span>
+              </span>
+            </td>
+
+            <!-- 4. Status (Active / Inactive) -->
+            <td style="text-align: center;">
+              <span
+                class="status-pill"
+                [class.active]="rowData.status === 'ACTIVE'"
+                [class.inactive]="rowData.status === 'INACTIVE'"
+              >
+                <span class="status-dot"></span>
+                <span>{{ rowData.status === 'ACTIVE' ? 'فعال' : 'غیرفعال' }}</span>
+              </span>
+            </td>
+
+            <!-- 5. Operations: Add Child (+), Assign Tables, Edit, Delete -->
+            <td style="text-align: center;">
+              <div class="row-operations">
+                <!-- + Add Subcategory Button (Always visible on every row) -->
+                <button
+                  type="button"
+                  class="action-btn action-btn-add"
+                  (click)="openAddSubcategoryModal(rowData)"
+                  title="افزودن زیردسته به این دسته‌بندی"
+                >
+                  <i class="pi pi-plus"></i>
+                  <span>+ افزودن زیردسته</span>
+                </button>
+
+                <!-- Assign Tables Button -->
+                <button
+                  type="button"
+                  class="action-btn action-btn-assign"
+                  (click)="openAssignTablesModal(rowData)"
+                  title="اختصاص جداول کاتالوگ به این دسته‌بندی"
+                >
+                  <i class="pi pi-link"></i>
+                  <span>اختصاص جداول</span>
+                </button>
+
+                <!-- Edit Button -->
+                <button
+                  type="button"
+                  class="action-btn action-btn-edit"
+                  (click)="openEditCategoryModal(rowData)"
+                  title="ویرایش مشخصات دسته‌بندی"
+                >
+                  <i class="pi pi-pencil"></i>
+                  <span>ویرایش</span>
+                </button>
+
+                <!-- Delete Button -->
+                <button
+                  type="button"
+                  class="action-btn action-btn-delete"
+                  (click)="confirmDeleteCategory(rowData)"
+                  title="حذف دسته‌بندی"
+                >
+                  <i class="pi pi-trash"></i>
+                  <span>حذف</span>
+                </button>
+              </div>
+            </td>
+          </tr>
+        </ng-template>
+
+        <!-- Empty State -->
+        <ng-template #emptymessage>
+          <tr>
+            <td colspan="5" class="empty-state-cell">
+              <div class="empty-state-box">
+                <i class="pi pi-sitemap empty-state-icon"></i>
+                <p class="empty-title">دسته‌بندی موضوعی یافت نشد</p>
+                <p class="empty-desc">
+                  @if (searchTerm() || statusFilter() !== 'ALL') {
+                    هیچ دسته‌بندی با معیارهای فیلتر فعلی مطابقت ندارد.
+                  } @else {
+                    هیچ دسته‌بندی کسب‌وکاری هنوز ثبت نشده است. برای شروع، اولین دسته‌بندی اصلی را ایجاد نمایید.
+                  }
+                </p>
+                <button
+                  type="button"
+                  class="btn-primary-prominent"
+                  (click)="openAddRootModal()"
+                >
+                  <i class="pi pi-plus"></i>
+                  <span>+ ایجاد دسته‌بندی اصلی</span>
+                </button>
+              </div>
+            </td>
+          </tr>
+        </ng-template>
+      </p-treetable>
+    </div>
+  }
+
+  <!-- TAB 2: GOVERNED TAGS (PRESERVED) -->
+  @if (activeTab() === 'tags') {
+    <div class="tree-card">
+      <div class="tree-toolbar">
+        <div>
+          <h2 style="font-size: 1rem; font-weight: 700; color: #1e293b; margin: 0;">
+            فهرست برچسب‌های سازمانی ({{ tags().length }})
+          </h2>
+          <span style="font-size: 0.85rem; color: #64748b;">
+            برچسب‌های استاندارد جهت رده‌بندی امنیتی، مالکیت و نیازمندی‌های حاکمیتی متادیتا
+          </span>
+        </div>
+      </div>
+
+      <table class="table-compact" style="padding: 1rem;">
+        <thead>
+          <tr>
+            <th style="padding: 0.75rem 1rem;">نمایش برچسب</th>
+            <th>نام تگ</th>
+            <th>رنگ شناسه</th>
+            <th>توضیحات حاکمیتی</th>
+            <th>تعداد موجودیت‌های متصل</th>
+            <th style="text-align: center;">عملیات</th>
+          </tr>
+        </thead>
+        <tbody>
+          @for (tag of tags(); track tag.id) {
+            <tr>
+              <td style="padding: 0.75rem 1rem;">
+                <app-tag-chip [tag]="tag" [removable]="false"></app-tag-chip>
+              </td>
+              <td class="mono-font" style="font-weight: 700;">{{ tag.name }}</td>
+              <td>
+                <span class="mono-font">{{ tag.color }}</span>
+              </td>
+              <td>{{ tag.description || 'بدون توضیح' }}</td>
+              <td>
+                <span class="stat-pill">{{ tag.assignment_count || 0 }} مورد</span>
+              </td>
+              <td style="text-align: center;">
+                <div class="row-operations">
+                  <button type="button" class="action-btn action-btn-edit" (click)="openEditTagModal(tag)">ویرایش</button>
+                  <button type="button" class="action-btn action-btn-delete" (click)="deleteTag(tag)">حذف</button>
+                </div>
+              </td>
+            </tr>
+          } @empty {
+            <tr>
+              <td colspan="6" class="empty-state-cell">هیچ تگ حاکمیتی ثبت نشده است.</td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    </div>
+  }
+</div>
+
+<!-- ======================================================== -->
+<!-- MODAL: CREATE ROOT / ADD SUBCATEGORY / EDIT CATEGORY -->
+<!-- ======================================================== -->
+@if (isCategoryModalOpen()) {
+  <div class="modal-backdrop" (click)="closeCategoryModal()">
+    <div class="modal-card" (click)="$event.stopPropagation()">
+      <header class="modal-header">
+        <h3 class="modal-title">
+          @if (categoryModalMode() === 'create-root') {
+            <i class="pi pi-folder-plus" style="color: #2563eb;"></i>
+            <span>+ ایجاد دسته‌بندی اصلی جدید</span>
+          } @else if (categoryModalMode() === 'create-child') {
+            <i class="pi pi-plus-circle" style="color: #059669;"></i>
+            <span>+ افزودن زیردسته جدید</span>
+          } @else {
+            <i class="pi pi-pencil" style="color: #475569;"></i>
+            <span>ویرایش دسته‌بندی</span>
+          }
+        </h3>
+        <button type="button" class="btn-close" (click)="closeCategoryModal()" title="بستن پنجره">✕</button>
+      </header>
+
+      <form [formGroup]="categoryForm" (ngSubmit)="submitCategoryForm()">
+        <div class="modal-body">
+          <!-- Parent Category Display (when creating child) -->
+          @if (categoryModalMode() === 'create-child' && selectedParentCategory()) {
+            <div class="form-group">
+              <label class="form-label">دسته‌بندی والد (Parent Category):</label>
+              <div class="parent-info-box">
+                <span class="parent-info-text">
+                  <i class="pi pi-folder" style="color: #f59e0b;"></i>
+                  <span>{{ selectedParentCategory()?.name }}</span>
+                </span>
+                <span class="parent-lock-badge">
+                  <i class="pi pi-lock"></i> غیرقابل تغییر
+                </span>
+              </div>
+            </div>
+          }
+
+          @if (categoryModalMode() === 'create-root') {
+            <div class="form-group">
+              <label class="form-label">موقعیت در درختواره:</label>
+              <div class="parent-info-box">
+                <span class="parent-info-text">
+                  <i class="pi pi-sitemap" style="color: #2563eb;"></i>
+                  <span>دسته‌بندی سطح ریشه (Root - بدون والد)</span>
+                </span>
+              </div>
+            </div>
+          }
+
+          <!-- Category Name -->
+          <div class="form-group">
+            <label class="form-label" for="categoryName">
+              عنوان دسته‌بندی <span class="required">*</span>:
+            </label>
+            <input
+              id="categoryName"
+              type="text"
+              class="form-input"
+              [class.is-invalid]="categoryForm.controls.name.invalid && categoryForm.controls.name.touched"
+              formControlName="name"
+              placeholder="مثال: امور مالی و حسابداری، خدمات شهروندی، منابع انسانی..."
+            />
+            @if (categoryForm.controls.name.invalid && categoryForm.controls.name.touched) {
+              <span class="field-error">
+                وارد کردن عنوان دسته‌بندی الزامی است (حداقل ۱ حرف).
+              </span>
+            }
+          </div>
+
+          <!-- Description -->
+          <div class="form-group">
+            <label class="form-label" for="categoryDescription">توضیحات و شرح حوزه کسب‌وکار:</label>
+            <textarea
+              id="categoryDescription"
+              class="form-textarea"
+              rows="3"
+              formControlName="description"
+              placeholder="توضیحات پیرامون دامنه معنایی، استانداردهای داده‌ای و حاکمیت این حوزه..."
+            ></textarea>
+          </div>
+
+          <!-- Status -->
+          <div class="form-group">
+            <label class="form-label" for="categoryStatus">وضعیت دسته‌بندی <span class="required">*</span>:</label>
+            <select id="categoryStatus" class="form-select" formControlName="status">
+              <option value="ACTIVE">فعال (Active)</option>
+              <option value="INACTIVE">غیرفعال (Inactive)</option>
+            </select>
+          </div>
+        </div>
+
+        <footer class="modal-footer">
+          <button type="button" class="btn-cancel" (click)="closeCategoryModal()">انصراف</button>
+          <button
+            type="submit"
+            class="btn-submit"
+            [disabled]="categoryForm.invalid || isSavingCategory()"
+          >
+            @if (isSavingCategory()) {
+              <i class="pi pi-spin pi-spinner"></i> در حال ذخیره...
+            } @else {
+              ذخیره دسته‌بندی
+            }
+          </button>
+        </footer>
+      </form>
+    </div>
+  </div>
+}
+
+<!-- ======================================================== -->
+<!-- MODAL: ASSIGN TABLES (`اختصاص جداول`) -->
+<!-- ======================================================== -->
+@if (isAssignModalOpen() && targetCategoryForAssign()) {
+  <div class="modal-backdrop" (click)="closeAssignModal()">
+    <div class="modal-card modal-card-lg" (click)="$event.stopPropagation()">
+      <header class="modal-header">
+        <h3 class="modal-title">
+          <i class="pi pi-link" style="color: #2563eb;"></i>
+          <span>اختصاص جداول کاتالوگ به «{{ targetCategoryForAssign()?.name }}»</span>
+        </h3>
+        <button type="button" class="btn-close" (click)="closeAssignModal()" title="بستن">✕</button>
+      </header>
+
+      <div class="modal-body">
+        <div class="assign-modal-layout">
+          <!-- SECTION 1: Currently Assigned Tables -->
+          <div class="assigned-section">
+            <div class="section-header">
+              <h4 class="section-title">
+                <i class="pi pi-check-circle" style="color: #059669;"></i>
+                <span>جداول اختصاص‌یافته فعلی ({{ currentAssignedTables().length }})</span>
+              </h4>
+            </div>
+
+            <div class="assigned-table-list">
+              @if (currentAssignedTables().length > 0) {
+                <table class="table-compact">
+                  <thead>
+                    <tr>
+                      <th>نام جدول</th>
+                      <th>اسکیما</th>
+                      <th>پایگاه‌داده</th>
+                      <th style="width: 90px; text-align: center;">عملیات</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    @for (item of currentAssignedTables(); track item.id) {
+                      <tr>
+                        <td class="mono-font" style="font-weight: 700;">{{ item.table_name || item.entity_id }}</td>
+                        <td>{{ item.schema_name || '—' }}</td>
+                        <td>{{ item.database_name || '—' }}</td>
+                        <td style="text-align: center;">
+                          <button
+                            type="button"
+                            class="btn-unassign"
+                            (click)="unassignTableFromCurrentCategory(item)"
+                            title="لغو تخصیص این جدول"
+                          >
+                            لغو تخصیص
+                          </button>
+                        </td>
+                      </tr>
+                    }
+                  </tbody>
+                </table>
+              } @else {
+                <div class="empty-list-notice">
+                  هنوز هیچ جدولی به این دسته‌بندی اختصاص نیافته است.
+                </div>
+              }
+            </div>
+          </div>
+
+          <!-- SECTION 2: Search and Assign from Real Catalog Tables -->
+          <div class="available-section">
+            <div class="section-header">
+              <h4 class="section-title">
+                <i class="pi pi-database" style="color: #2563eb;"></i>
+                <span>انتخاب جدول جدید از کاتالوگ داده</span>
+              </h4>
+            </div>
+
+            <div class="search-available-box">
+              <input
+                type="text"
+                class="form-input"
+                placeholder="جستجوی جدول بر اساس نام جدول، اسکیما یا نام پایگاه‌داده..."
+                [value]="tableSearchQuery()"
+                (input)="onTableSearchInput($event)"
+              />
+            </div>
+
+            <div class="assigned-table-list">
+              @if (isLoadingAvailableTables()) {
+                <div class="empty-list-notice">
+                  <i class="pi pi-spin pi-spinner"></i> در حال بارگذاری جداول کاتالوگ...
+                </div>
+              } @else if (availableCatalogTables().length > 0) {
+                <table class="table-compact">
+                  <thead>
+                    <tr>
+                      <th>نام جدول کاتالوگ</th>
+                      <th>اسکیما</th>
+                      <th>پایگاه‌داده</th>
+                      <th>تخمین سطرها</th>
+                      <th style="width: 120px; text-align: center;">عملیات</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    @for (t of availableCatalogTables(); track t.id) {
+                      <tr>
+                        <td class="mono-font" style="font-weight: 700;">{{ t.name }}</td>
+                        <td>{{ t.schema_name }}</td>
+                        <td>{{ t.database_name }}</td>
+                        <td class="mono-font">{{ t.row_count_estimate ? (t.row_count_estimate | number) : '—' }}</td>
+                        <td style="text-align: center;">
+                          @if (isTableAssigned(t.id)) {
+                            <span class="already-assigned-pill">
+                              <i class="pi pi-check"></i> اختصاص‌یافته
+                            </span>
+                          } @else {
+                            <button
+                              type="button"
+                              class="btn-assign-action"
+                              (click)="assignTableToCurrentCategory(t)"
+                              title="تخصیص به این دسته‌بندی"
+                            >
+                              + تخصیص
+                            </button>
+                          }
+                        </td>
+                      </tr>
+                    }
+                  </tbody>
+                </table>
+              } @else {
+                <div class="empty-list-notice">
+                  جدولی با این عنوان در کاتالوگ داده یافت نشد.
+                </div>
+              }
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <footer class="modal-footer">
+        <button type="button" class="btn-cancel" (click)="closeAssignModal()">بستن پنجره</button>
+      </footer>
+    </div>
+  </div>
+}
+
+<!-- ======================================================== -->
+<!-- MODAL: SAFE DELETION CONFIRMATION -->
+<!-- ======================================================== -->
+@if (isDeleteModalOpen() && categoryToDelete()) {
+  <div class="modal-backdrop" (click)="closeDeleteModal()">
+    <div class="modal-card" (click)="$event.stopPropagation()">
+      <header class="modal-header">
+        <h3 class="modal-title">
+          <i class="pi pi-exclamation-triangle" style="color: #dc2626;"></i>
+          <span>حذف دسته‌بندی موضوعی</span>
+        </h3>
+        <button type="button" class="btn-close" (click)="closeDeleteModal()">✕</button>
+      </header>
+
+      <div class="modal-body">
+        <!-- Business Rule 1: Child categories prevention -->
+        @if (deleteSubcategoryCount() > 0) {
+          <div class="delete-warning-box">
+            <i class="pi pi-ban delete-warning-icon"></i>
+            <p class="delete-warning-text">
+              <strong>امکان حذف این دسته‌بندی وجود ندارد!</strong><br />
+              دسته‌بندی «{{ categoryToDelete()?.name }}» دارای <strong>{{ deleteSubcategoryCount() }} زیردسته</strong> می‌باشد.
+              بر اساس قوانین حاکمیتی کاتالوگ داده، حذف دسته‌های دارای زیردسته ممنوع است. لطفاً ابتدا زیردسته‌ها را حذف یا جابجا فرمایید.
+            </p>
+          </div>
+        }
+
+        <!-- Business Rule 2: Assigned tables prevention -->
+        @if (deleteTableCount() > 0) {
+          <div class="delete-warning-box">
+            <i class="pi pi-ban delete-warning-icon"></i>
+            <p class="delete-warning-text">
+              <strong>امکان حذف این دسته‌بندی وجود ندارد!</strong><br />
+              این دسته‌بندی دارای <strong>{{ deleteTableCount() }} جدول اختصاص‌یافته</strong> از کاتالوگ است.
+              جهت حفظ یکپارچگی حاکمیت داده، حذف مستقیم مجاز نیست. لطفاً ابتدا از دکمه «اختصاص جداول»، تخصیص‌ها را لغو نمایید.
+            </p>
+          </div>
+        }
+
+        <!-- Safe Leaf Category Deletion Confirmation -->
+        @if (deleteSubcategoryCount() === 0 && deleteTableCount() === 0) {
+          <p style="font-size: 0.95rem; color: #1e293b; line-height: 1.6; margin: 0;">
+            آیا از حذف دسته‌بندی <strong>«{{ categoryToDelete()?.name }}»</strong> اطمینان کامل دارید؟<br />
+            <span style="color: #64748b; font-size: 0.85rem;">این عملیات در لاگ‌های ممیزی ثبت شده و غیرقابل بازگشت خواهد بود.</span>
+          </p>
+        }
+      </div>
+
+      <footer class="modal-footer">
+        <button type="button" class="btn-cancel" (click)="closeDeleteModal()">انصراف</button>
+        <button
+          type="button"
+          class="btn-submit btn-submit-danger"
+          [disabled]="deleteSubcategoryCount() > 0 || deleteTableCount() > 0"
+          (click)="executeDeleteCategory()"
+        >
+          حذف قطعی دسته‌بندی
+        </button>
+      </footer>
+    </div>
+  </div>
+}
+
+<!-- ======================================================== -->
+<!-- MODAL: GOVERNED TAG (Preserved) -->
+<!-- ======================================================== -->
+@if (isTagModalOpen()) {
+  <div class="modal-backdrop" (click)="closeTagModal()">
+    <div class="modal-card" (click)="$event.stopPropagation()">
+      <header class="modal-header">
+        <h3 class="modal-title">
+          {{ editingTagId() ? 'ویرایش برچسب سازمانی' : 'ایجاد برچسب جدید' }}
+        </h3>
+        <button type="button" class="btn-close" (click)="closeTagModal()">✕</button>
+      </header>
+
+      <div class="modal-body">
+        <div class="form-group">
+          <label class="form-label">نام برچسب (انگلیسی یا فارسی):</label>
+          <input
+            type="text"
+            class="form-input"
+            [(ngModel)]="tagFormName"
+            placeholder="مثال: PII یا Financial"
+          />
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">رنگ نشانگر:</label>
+          <div style="display: flex; gap: 0.4rem; flex-wrap: wrap; margin-bottom: 0.5rem;">
+            @for (c of colorPresets; track c) {
+              <button
+                type="button"
+                style="width: 24px; height: 24px; border-radius: 50%; border: 2px solid white; box-shadow: 0 0 0 1px #cbd5e1; cursor: pointer;"
+                [style.background-color]="c"
+                (click)="tagFormColor = c"
+              ></button>
+            }
+          </div>
+          <input type="text" class="form-input mono-font" [(ngModel)]="tagFormColor" />
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">شرح حاکمیتی برچسب:</label>
+          <textarea class="form-textarea" rows="3" [(ngModel)]="tagFormDescription"></textarea>
+        </div>
+      </div>
+
+      <footer class="modal-footer">
+        <button type="button" class="btn-cancel" (click)="closeTagModal()">انصراف</button>
+        <button type="button" class="btn-submit" (click)="saveTag()">ذخیره برچسب</button>
+      </footer>
+    </div>
+  </div>
+}
+
+<!-- ======================================================== -->
+<!-- TOAST NOTIFICATIONS -->
+<!-- ======================================================== -->
+@if (toastMessage()) {
+  <div class="toast-container" role="alert">
+    <div
+      class="toast"
+      [class.toast-success]="toastType() === 'success'"
+      [class.toast-error]="toastType() === 'error'"
+    >
+      <i
+        class="pi"
+        [ngClass]="toastType() === 'success' ? 'pi-check-circle' : 'pi-exclamation-circle'"
+      ></i>
+      <span>{{ toastMessage() }}</span>
+      <button type="button" class="toast-close-btn" (click)="closeToast()">✕</button>
+    </div>
+  </div>
+}

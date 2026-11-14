@@ -43,6 +43,12 @@
 .test-result-success{background:#ecfdf5;border:1px solid #a7f3d0;color:#065f46}
 .test-result-failure{background:#fff1f2;border:1px solid #fecdd3;color:#9f1239}
 .diagnostic-code{font-family:ui-monospace,monospace;font-size:.75rem;background:rgba(0,0,0,.04);padding:.25rem;margin-top:.25rem;border-radius:4px;word-break:break-all}
-.card-footer{padding:.75rem 1.25rem;border-top:1px solid #f1f5f9;background:#fcfcfd;display:flex;justify-content:flex-end}
+.card-footer{padding:.75rem 1.25rem;border-top:1px solid #f1f5f9;background:#fcfcfd;display:flex;justify-content:space-between;align-items:center;gap:.75rem}
+.management-actions{display:flex;gap:.5rem;align-items:center}
+.btn-sm{padding:.35rem .75rem;font-size:.8rem;border-radius:6px;cursor:pointer;font-weight:600}
+.btn-secondary{background:#f1f5f9;color:#334155;border:1px solid #cbd5e1}
+.btn-secondary:hover{background:#e2e8f0}
+.btn-danger{background:#fee2e2;color:#dc2626;border:1px solid #fecaca}
+.btn-danger:hover{background:#fecaca}
 .btn-test-connection{padding:.45rem .9rem;background:#f1f5f9;color:#1e293b;border:1px solid #cbd5e1;border-radius:6px;font-size:.825rem;font-weight:600;cursor:pointer}
 .btn-test-connection:disabled{opacity:.6;cursor:wait}

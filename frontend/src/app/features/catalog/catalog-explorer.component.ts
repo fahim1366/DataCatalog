@@ -52,6 +52,7 @@ export class CatalogExplorerComponent implements OnInit {
   selectedClassification = '';
   selectedStatus = '';
   selectedTag = '';
+  selectedCategory = '';
 
   // Trees State
   activeTreeTab = signal<'physical' | 'category'>('physical');
@@ -127,6 +128,7 @@ export class CatalogExplorerComponent implements OnInit {
       classification: this.selectedClassification || undefined,
       status: this.selectedStatus || undefined,
       tag: this.selectedTag || undefined,
+      category: this.selectedCategory || undefined,
     };
     this.store.search(this.searchQuery, true, filters).catch(() => {
       this.showToast('خطا در برقراری ارتباط با سرور متادیتا', 'error');
@@ -140,6 +142,7 @@ export class CatalogExplorerComponent implements OnInit {
     this.selectedClassification = '';
     this.selectedStatus = '';
     this.selectedTag = '';
+    this.selectedCategory = '';
     this.executeSearch();
   }
 
@@ -184,9 +187,8 @@ export class CatalogExplorerComponent implements OnInit {
     this.executeSearch();
   }
 
-  filterByCategory(categoryName: string): void {
-    // Filter by searching category keyword
-    this.searchQuery = categoryName;
+  filterByCategory(categoryIdentifier: string): void {
+    this.selectedCategory = categoryIdentifier;
     this.executeSearch();
   }
 

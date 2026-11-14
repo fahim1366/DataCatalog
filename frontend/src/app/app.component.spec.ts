@@ -5,6 +5,7 @@ import { provideRouter } from '@angular/router';
 import { routes } from './app.routes';
 import { provideHttpClient } from '@angular/common/http';
 import { provideHttpClientTesting } from '@angular/common/http/testing';
+import { AuthService } from './core/auth/auth.service';
 
 describe('AppComponent (Enterprise Navigation Shell)', () => {
   beforeEach(async () => {
@@ -16,6 +17,23 @@ describe('AppComponent (Enterprise Navigation Shell)', () => {
         provideHttpClientTesting(),
       ],
     }).compileComponents();
+
+    const authService = TestBed.inject(AuthService);
+    const validClaims = {
+      sub: '11111111-1111-1111-1111-111111111111',
+      username: 'test_admin',
+      roles: ['SUPERADMIN'],
+      is_superadmin: true,
+      iat: Math.floor(Date.now() / 1000) - 60,
+      exp: Math.floor(Date.now() / 1000) + 3600,
+    };
+    const b64 = (obj: unknown) =>
+      btoa(JSON.stringify(obj))
+        .replace(/=/g, '')
+        .replace(/\+/g, '-')
+        .replace(/\//g, '_');
+    const token = `${b64({ alg: 'HS256', typ: 'JWT' })}.${b64(validClaims)}.sig`;
+    authService.setToken(token);
   });
 
   it('should create the root enterprise catalog application component', () => {

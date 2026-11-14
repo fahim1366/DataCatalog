@@ -11,7 +11,7 @@ from backend.src.models.catalog import (
     TagAssignment,
 )
 from backend.src.models.connections import DatabaseConnection, DatabaseEngine, SyncSchedule
-from backend.src.models.identity import Role, User, UserRole, UserStatus
+from backend.src.models.identity import Group, GroupRole, Role, User, UserGroup, UserRole, UserStatus
 from backend.src.models.rbac import (
     Category,
     CategoryAssignment,
@@ -33,6 +33,9 @@ __all__ = [
     "User",
     "Role",
     "UserRole",
+    "Group",
+    "UserGroup",
+    "GroupRole",
     "UserStatus",
     # RBAC
     "PermissionRule",

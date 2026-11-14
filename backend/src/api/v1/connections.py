@@ -9,14 +9,19 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from backend.src.api.dependencies.rbac import UserContext, get_current_user
+from backend.src.api.dependencies.rbac import (
+    UserContext,
+    get_current_user,
+    require_permission,
+)
 from backend.src.core.database import get_db_session
 from backend.src.models.connections import DatabaseConnection, SyncSchedule
-from backend.src.models.rbac import EntityType
+from backend.src.models.rbac import EntityType, PermissionAction
 from backend.src.schemas.connections import (
     ConnectionCreateRequest,
     ConnectionResponse,
     ConnectionTestResponse,
+    ConnectionUpdateRequest,
 )
 from backend.src.services.audit.audit_service import record_audit_event
 from backend.src.services.connections.connection_service import connection_service
@@ -35,7 +40,7 @@ router = APIRouter(prefix="/connections", tags=["Connections"])
 )
 async def create_connection(
     payload: ConnectionCreateRequest,
-    user_ctx: UserContext = Depends(get_current_user),
+    user_ctx: UserContext = Depends(require_permission(PermissionAction.MANAGE_CONNECTIONS)),
     db: AsyncSession = Depends(get_db_session),
 ) -> ConnectionResponse:
     """
@@ -104,12 +109,13 @@ async def get_connection(
 )
 async def update_connection(
     connection_id: uuid.UUID,
-    payload: ConnectionCreateRequest,
-    user_ctx: UserContext = Depends(get_current_user),
+    payload: ConnectionUpdateRequest,
+    user_ctx: UserContext = Depends(require_permission(PermissionAction.MANAGE_CONNECTIONS)),
     db: AsyncSession = Depends(get_db_session),
 ) -> ConnectionResponse:
     """
     Updates connection profile attributes and schedule.
+    Allows optional credentials on update so editing host/cron does not require re-typing passwords.
     """
     stmt = (
         select(DatabaseConnection)
@@ -124,13 +130,24 @@ async def update_connection(
             detail=f"Connection '{connection_id}' not found.",
         )
 
-    conn.name = payload.name
-    conn.engine_type = payload.engine_type
-    conn.host = payload.host
-    conn.port = payload.port
-    conn.database_name = payload.database_name
-    conn.default_schema = payload.default_schema
-    conn.owner = payload.owner
+    if payload.name is not None:
+        conn.name = payload.name
+    if payload.engine_type is not None:
+        conn.engine_type = payload.engine_type
+    if payload.host is not None:
+        conn.host = payload.host
+    if payload.port is not None:
+        conn.port = payload.port
+    if payload.database_name is not None:
+        conn.database_name = payload.database_name
+    if payload.default_schema is not None:
+        conn.default_schema = payload.default_schema
+    if payload.owner is not None:
+        conn.owner = payload.owner
+    if payload.custom_params is not None:
+        conn.custom_params = payload.custom_params
+    if payload.is_active is not None:
+        conn.is_active = payload.is_active
 
     # If new credentials provided, re-encrypt
     if payload.credentials:
@@ -138,21 +155,26 @@ async def update_connection(
         conn.encrypted_dek = enc_dek
         conn.encrypted_credentials = enc_creds
 
-    # Update SyncSchedule if provided
-    if payload.sync_schedule is not None:
-        validate_cron_expression(payload.sync_schedule.cron_expression)
-        if conn.sync_schedule:
-            conn.sync_schedule.cron_expression = payload.sync_schedule.cron_expression
-            conn.sync_schedule.is_enabled = payload.sync_schedule.is_enabled
+    # Update SyncSchedule if cron_expression is provided
+    if payload.cron_expression is not None:
+        cron_expr = payload.cron_expression.strip()
+        if cron_expr:
+            validate_cron_expression(cron_expr)
+            if conn.sync_schedule:
+                conn.sync_schedule.cron_expression = cron_expr
+                conn.sync_schedule.is_enabled = True
+            else:
+                sched = SyncSchedule(
+                    id=uuid.uuid4(),
+                    connection_id=conn.id,
+                    cron_expression=cron_expr,
+                    is_enabled=True,
+                )
+                db.add(sched)
+                conn.sync_schedule = sched
         else:
-            sched = SyncSchedule(
-                id=uuid.uuid4(),
-                connection_id=conn.id,
-                cron_expression=payload.sync_schedule.cron_expression,
-                is_enabled=payload.sync_schedule.is_enabled,
-            )
-            db.add(sched)
-            conn.sync_schedule = sched
+            if conn.sync_schedule:
+                conn.sync_schedule.is_enabled = False
 
     await record_audit_event(
         session=db,
@@ -176,7 +198,7 @@ async def update_connection(
 )
 async def delete_connection(
     connection_id: uuid.UUID,
-    user_ctx: UserContext = Depends(get_current_user),
+    user_ctx: UserContext = Depends(require_permission(PermissionAction.MANAGE_CONNECTIONS)),
     db: AsyncSession = Depends(get_db_session),
 ) -> None:
     conn = await db.get(DatabaseConnection, connection_id)

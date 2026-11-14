@@ -3,7 +3,7 @@ from __future__ import annotations
 import enum
 import uuid
 from datetime import datetime
-from typing import List, Optional
+from typing import TYPE_CHECKING, List, Optional
 
 from sqlalchemy import (
     DateTime,
@@ -19,6 +19,9 @@ from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from backend.src.models.base import Base
+
+if TYPE_CHECKING:
+    from backend.src.models.identity import Group, Role, User
 
 
 class PermissionAction(str, enum.Enum):
@@ -57,10 +60,20 @@ class PermissionRule(Base):
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
-    role_id: Mapped[uuid.UUID] = mapped_column(
+    role_id: Mapped[Optional[uuid.UUID]] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("roles.id", ondelete="CASCADE"),
-        nullable=False,
+        nullable=True,
+    )
+    user_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=True,
+    )
+    group_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("groups.id", ondelete="CASCADE"),
+        nullable=True,
     )
     resource_type: Mapped[ResourceType] = mapped_column(
         Enum(ResourceType, name="resource_type_enum"), nullable=False
@@ -80,12 +93,30 @@ class PermissionRule(Base):
         DateTime(timezone=True), server_default=text("clock_timestamp()")
     )
 
-    role: Mapped["Role"] = relationship("Role", back_populates="permission_rules")
+    role: Mapped[Optional["Role"]] = relationship("Role", back_populates="permission_rules", foreign_keys=[role_id])
+    user: Mapped[Optional["User"]] = relationship("User", back_populates="permission_rules", foreign_keys=[user_id])
+    group: Mapped[Optional["Group"]] = relationship("Group", back_populates="permission_rules", foreign_keys=[group_id])
 
     __table_args__ = (
         Index(
             "idx_perm_rules_eval",
             "role_id",
+            "action",
+            "effect",
+            "resource_type",
+            "resource_id",
+        ),
+        Index(
+            "idx_perm_rules_user_eval",
+            "user_id",
+            "action",
+            "effect",
+            "resource_type",
+            "resource_id",
+        ),
+        Index(
+            "idx_perm_rules_group_eval",
+            "group_id",
             "action",
             "effect",
             "resource_type",
@@ -106,6 +137,9 @@ class Category(Base):
         UUID(as_uuid=True),
         ForeignKey("categories.id", ondelete="CASCADE"),
         nullable=True,
+    )
+    status: Mapped[str] = mapped_column(
+        String(50), nullable=False, default="ACTIVE", server_default="ACTIVE"
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=text("clock_timestamp()")

@@ -62,62 +62,62 @@
   @if (isLoading() && !completenessReport()) {
     <div class="loading-state">
       <div class="spinner"></div>
-      <p>Loading executive governance data...</p>
+      <p>در حال بارگذاری شاخص‌های حاکمیت داده (Loading executive governance data...)</p>
     </div>
   } @else {
     <!-- Executive KPI Metrics Grid -->
     <section class="kpi-grid">
       <div class="kpi-card card-highlight">
         <div class="kpi-header">
-          <span class="kpi-label">Overall Completeness</span>
+          <span class="kpi-label">نرخ کلی تکمیل متادیتا (Overall Completeness)</span>
           <span class="kpi-tag" [class.tag-good]="overallScore() >= 80" [class.tag-warning]="overallScore() < 80">
-            {{ overallScore() >= 80 ? 'Target Met' : 'Action Required' }}
+            {{ overallScore() >= 80 ? 'منطبق با هدف (Target Met)' : 'نیازمند اقدام (Action Required)' }}
           </span>
         </div>
         <div class="kpi-value-row">
           <span class="kpi-value">{{ overallScore() }}%</span>
         </div>
-        <p class="kpi-subtext">Catalog assets with approved descriptions &amp; owners</p>
+        <p class="kpi-subtext">دارایی‌های کاتالوگ با شرح تایید شده و مالک مشخص (Catalog assets with approved descriptions &amp; owners)</p>
       </div>
 
       <div class="kpi-card">
         <div class="kpi-header">
-          <span class="kpi-label">Connected Databases</span>
+          <span class="kpi-label">پایگاه‌های داده متصل (Connected Databases)</span>
         </div>
         <div class="kpi-value-row">
           <span class="kpi-value">{{ totalDatabases() | number }}</span>
         </div>
-        <p class="kpi-subtext">Enterprise database sources</p>
+        <p class="kpi-subtext">منابع داده‌ای متصل سازمانی (Enterprise database sources)</p>
       </div>
 
       <div class="kpi-card">
         <div class="kpi-header">
-          <span class="kpi-label">Catalog Tables</span>
+          <span class="kpi-label">جداول کاتالوگ (Catalog Tables)</span>
         </div>
         <div class="kpi-value-row">
           <span class="kpi-value">{{ totalTables() | number }}</span>
         </div>
-        <p class="kpi-subtext">Total cataloged tables</p>
+        <p class="kpi-subtext">مجموع جداول شناسنامه‌دار (Total cataloged tables)</p>
       </div>
 
       <div class="kpi-card">
         <div class="kpi-header">
-          <span class="kpi-label">Catalog Columns</span>
+          <span class="kpi-label">فیلدها و ستون‌ها (Catalog Columns)</span>
         </div>
         <div class="kpi-value-row">
           <span class="kpi-value">{{ totalColumns() | number }}</span>
         </div>
-        <p class="kpi-subtext">Monitored enterprise columns</p>
+        <p class="kpi-subtext">ستون‌های پایش‌شده سازمانی (Monitored enterprise columns)</p>
       </div>
 
       <div class="kpi-card">
         <div class="kpi-header">
-          <span class="kpi-label">Classified Columns</span>
+          <span class="kpi-label">فیلدهای طبقه‌بندی‌شده (Classified Columns)</span>
         </div>
         <div class="kpi-value-row">
           <span class="kpi-value">{{ totalClassified() | number }}</span>
         </div>
-        <p class="kpi-subtext">Public, Internal, Confidential, Restricted</p>
+        <p class="kpi-subtext">عمومی، داخلی، محرمانه و با دسترسی محدود (Public, Internal, Confidential, Restricted)</p>
       </div>
     </section>
 
@@ -135,18 +135,18 @@
     <section class="breakdown-section">
       <div class="breakdown-card">
         <div class="breakdown-card-header">
-          <h2 class="breakdown-title">Database Completeness Breakdown</h2>
-          <span class="breakdown-count">{{ databaseBreakdown().length }} Databases</span>
+          <h2 class="breakdown-title">تفکیک نرخ تکمیل متادیتا به ازای هر پایگاه داده (Database Completeness Breakdown)</h2>
+          <span class="breakdown-count">{{ databaseBreakdown().length }} پایگاه‌داده (Databases)</span>
         </div>
         <div class="table-wrapper">
           <table class="data-table">
             <thead>
               <tr>
-                <th>Database</th>
-                <th>Total Tables</th>
-                <th>With Description</th>
-                <th>With Owner</th>
-                <th>Completeness</th>
+                <th>پایگاه داده (Database)</th>
+                <th>تعداد کل جداول (Total Tables)</th>
+                <th>دارای شرح مصوب (With Description)</th>
+                <th>دارای مالک مشخص (With Owner)</th>
+                <th>نرخ تکمیل (Completeness)</th>
               </tr>
             </thead>
             <tbody>
@@ -175,7 +175,7 @@
                 </tr>
               } @empty {
                 <tr>
-                  <td colspan="5" class="empty-cell">No database completeness records available.</td>
+                  <td colspan="5" class="empty-cell">هیچ رکوردی برای نرخ تکمیل پایگاه‌های داده یافت نشد (No database completeness records available).</td>
                 </tr>
               }
             </tbody>
@@ -185,4 +185,3 @@
     </section>
   }
 </div>
-

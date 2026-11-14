@@ -27,6 +27,7 @@ async def search_catalog(
     classification: Optional[str] = Query(None, description="Filter by classification level"),
     status: Optional[str] = Query(None, description="Filter by lifecycle status"),
     tag: Optional[str] = Query(None, description="Filter by tag name"),
+    category: Optional[str] = Query(None, description="Filter by category UUID or name"),
     user_ctx: UserContext = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session),
 ) -> SearchResponse:
@@ -47,5 +48,6 @@ async def search_catalog(
         classification_level=classification,
         lifecycle_status=status,
         tag_name=tag,
+        category=category,
     )
     return SearchResponse(items=items, page_info=page_info)

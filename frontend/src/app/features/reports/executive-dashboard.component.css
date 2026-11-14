@@ -5,6 +5,8 @@
   padding: 1.5rem;
   max-width: 1440px;
   margin: 0 auto;
+  direction: rtl;
+  font-family: var(--font-family-sans, 'Vazirmatn', sans-serif);
 }
 
 .dashboard-header {

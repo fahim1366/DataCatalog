@@ -465,7 +465,11 @@
                       <div class="dual-desc-container">
                         @if (col.source_description) {
                           <div class="source-desc-hint">
-                            <span class="label-muted">مبدا:</span> {{ col.source_description }}
+                            <span class="label-muted">مبدا (اولویت اول):</span> {{ col.source_description }}
+                          </div>
+                        } @else {
+                          <div class="source-desc-hint empty">
+                            <span class="label-muted">مبدا:</span> <span class="fallback-text">(خالی - جایگزین با توضیحات مصوب)</span>
                           </div>
                         }
                         <app-inline-desc-editor
@@ -486,7 +490,24 @@
         @if (activeInspectorTab() === 'metadata') {
           <div class="metadata-tab-content">
             <div class="meta-card">
-              <h3>توضیحات حاکمیتی جدول (Approved Description)</h3>
+              <div class="desc-header-row">
+                <h3>توضیحات استخراج شده از مبدا (Source Description)</h3>
+                <span class="priority-hint-badge">اولویت مبدا (در صورت وجود)</span>
+              </div>
+              <div class="source-desc-box">
+                @if (selectedTable()!.source_description) {
+                  <p class="source-desc-text">{{ selectedTable()!.source_description }}</p>
+                } @else {
+                  <p class="source-desc-text empty-hint">بدون توضیحات در دیتابیس مبدا (استفاده خودکار از توضیحات حاکمیتی مصوب)</p>
+                }
+              </div>
+            </div>
+
+            <div class="meta-card">
+              <div class="desc-header-row">
+                <h3>توضیحات مصوب حاکمیتی جدول (Approved Description)</h3>
+                <span class="fallback-hint-badge">جایگزین در صورت خالی بودن مبدا</span>
+              </div>
               <app-inline-desc-editor
                 [description]="selectedTable()!.approved_description"
                 placeholder="توضیحات جامع حاکمیتی جدول را اینجا وارد کنید..."

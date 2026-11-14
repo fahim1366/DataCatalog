@@ -3,7 +3,8 @@
   flex-direction: column;
   gap: 1.25rem;
   width: 100%;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  font-family: var(--font-family-sans, 'Vazirmatn', sans-serif);
+  direction: rtl;
   color: #1e293b;
   box-sizing: border-box;
 }

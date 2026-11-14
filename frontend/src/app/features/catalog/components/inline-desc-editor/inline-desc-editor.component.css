@@ -12,8 +12,8 @@
   gap: 0.75rem;
   padding: 0.5rem 0.75rem;
   border-radius: 6px;
-  background-color: rgba(255, 255, 255, 0.02);
-  border: 1px solid transparent;
+  background-color: #f8fafc;
+  border: 1px solid #e2e8f0;
   transition: all 0.2s ease;
 }
 
@@ -22,8 +22,8 @@
 }
 
 .desc-container.editable:hover {
-  background-color: rgba(255, 255, 255, 0.06);
-  border-color: rgba(255, 255, 255, 0.15);
+  background-color: #f1f5f9;
+  border-color: #cbd5e1;
 }
 
 .desc-content {
@@ -34,31 +34,33 @@
   margin: 0;
   font-size: 0.9rem;
   line-height: 1.5;
-  color: #e2e8f0;
+  color: #1e293b;
   white-space: pre-wrap;
   word-break: break-word;
 }
 
 .desc-display-text.placeholder {
-  color: #94a3b8;
+  color: #64748b;
   font-style: italic;
 }
 
 .btn-edit {
-  background: rgba(255, 255, 255, 0.08);
-  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: #ffffff;
+  border: 1px solid #cbd5e1;
   border-radius: 4px;
-  padding: 0.25rem 0.5rem;
+  padding: 0.25rem 0.6rem;
   font-size: 0.8rem;
-  color: #cbd5e1;
+  color: #334155;
+  font-weight: 500;
   cursor: pointer;
   transition: all 0.15s ease;
   white-space: nowrap;
 }
 
 .btn-edit:hover {
-  background: rgba(255, 255, 255, 0.16);
-  color: #ffffff;
+  background: #f1f5f9;
+  color: #0f172a;
+  border-color: #94a3b8;
 }
 
 .desc-edit-form {

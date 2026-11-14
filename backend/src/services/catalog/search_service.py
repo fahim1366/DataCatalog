@@ -27,6 +27,7 @@ from backend.src.models.catalog import (
 )
 from backend.src.models.connections import DatabaseConnection
 from backend.src.models.rbac import Category, CategoryAssignment, EntityType, PermissionAction
+from backend.src.services.rbac.category_service import CategoryService
 
 
 def encode_cursor(sort_val: str, row_id: uuid.UUID) -> str:
@@ -61,6 +62,7 @@ class SearchService:
         classification_level: Optional[str] = None,
         lifecycle_status: Optional[str] = None,
         tag_name: Optional[str] = None,
+        category: Optional[str] = None,
     ) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
         """
         Executes keyset-paginated search across catalog tables filtered directly in SQL by RBAC.
@@ -127,6 +129,29 @@ class SearchService:
                 )
             )
             stmt = stmt.where(tag_subq.exists())
+
+        if category:
+            cat_id: Optional[uuid.UUID] = None
+            try:
+                cat_id = uuid.UUID(category)
+            except ValueError:
+                cat_lookup_stmt = select(Category.id).where(Category.name.ilike(category.strip()))
+                cat_lookup_res = await session.execute(cat_lookup_stmt)
+                cat_id = cat_lookup_res.scalar_one_or_none()
+
+            if cat_id:
+                descendant_cat_ids = await CategoryService.get_descendant_category_ids(session, cat_id)
+                cat_subq = (
+                    select(1)
+                    .where(
+                        CategoryAssignment.entity_type == EntityType.TABLE,
+                        CategoryAssignment.entity_id == CatalogTable.id,
+                        CategoryAssignment.category_id.in_(descendant_cat_ids),
+                    )
+                )
+                stmt = stmt.where(cat_subq.exists())
+            else:
+                stmt = stmt.where(or_())
 
         # Apply SQL-pushed RBAC filter
         rbac_filter = build_table_rbac_filter(user_ctx=user_ctx, action=PermissionAction.VIEW_METADATA)

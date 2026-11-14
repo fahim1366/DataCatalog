@@ -47,6 +47,7 @@ class ConnectionCreateRequest(BaseModel):
 
 class ConnectionUpdateRequest(BaseModel):
     name: Optional[str] = Field(None, min_length=1, max_length=200)
+    engine_type: Optional[DatabaseEngine] = None
     host: Optional[str] = Field(None, min_length=1, max_length=255)
     port: Optional[int] = Field(None, ge=1, le=65535)
     database_name: Optional[str] = Field(None, min_length=1, max_length=255)
@@ -60,8 +61,8 @@ class ConnectionUpdateRequest(BaseModel):
     @field_validator("cron_expression")
     @classmethod
     def validate_cron(cls, v: Optional[str]) -> Optional[str]:
-        if v is not None:
-            validate_cron_expression(v)
+        if v is not None and v.strip():
+            validate_cron_expression(v.strip())
         return v
 
 

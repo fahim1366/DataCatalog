@@ -40,6 +40,20 @@ export class ConnectionService {
   }
 
   /**
+   * Updates an existing database connection.
+   */
+  updateConnection(id: string, request: Partial<ConnectionCreateRequest>): Observable<DatabaseConnection> {
+    return this.http.put<DatabaseConnection>(`${this.baseUrl}/${id}`, request);
+  }
+
+  /**
+   * Deletes a database connection.
+   */
+  deleteConnection(id: string): Observable<void> {
+    return this.http.delete<void>(`${this.baseUrl}/${id}`);
+  }
+
+  /**
    * Executes live dialect connection ping test with 5s timeout.
    */
   testConnection(id: string): Observable<ConnectionTestResult> {

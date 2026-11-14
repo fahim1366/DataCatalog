@@ -19,7 +19,7 @@ echarts.use([SunburstChart, CanvasRenderer, TitleComponent, TooltipComponent, Le
       <div class="sunburst-header">
         <h3 class="sunburst-title">{{ title() }}</h3>
         <span class="total-badge" *ngIf="report() as r">
-          {{ r.total_classified_columns.toLocaleString() }} Classified Columns
+          {{ r.total_classified_columns.toLocaleString() }} ستون طبقه‌بندی شده
         </span>
       </div>
       <div echarts [options]="chartOptions()" class="chart-container"></div>
@@ -37,6 +37,8 @@ echarts.use([SunburstChart, CanvasRenderer, TitleComponent, TooltipComponent, Le
         box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
         height: 100%;
         box-sizing: border-box;
+        direction: rtl;
+        font-family: var(--font-family-sans, 'Vazirmatn', sans-serif);
       }
       .sunburst-header {
         display: flex;
@@ -69,7 +71,7 @@ echarts.use([SunburstChart, CanvasRenderer, TitleComponent, TooltipComponent, Le
 })
 export class ClassificationSunburstComponent {
   readonly report = input<ClassificationReport | null>(null);
-  readonly title = input<string>('Classification & PII Distribution');
+  readonly title = input<string>('توزیع محرمانگی و داده‌های حساس (Classification & PII Distribution)');
 
   readonly chartOptions = computed<echarts.EChartsCoreOption>(() => {
     const rep = this.report();

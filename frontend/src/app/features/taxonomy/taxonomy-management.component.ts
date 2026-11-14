@@ -2,488 +2,635 @@ import {
   ChangeDetectionStrategy,
   Component,
   OnInit,
+  computed,
   inject,
   signal,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { FormsModule } from '@angular/forms';
+import {
+  FormControl,
+  FormGroup,
+  FormsModule,
+  ReactiveFormsModule,
+  Validators,
+} from '@angular/forms';
 import { HttpClient } from '@angular/common/http';
+import { TreeTableModule } from 'primeng/treetable';
+import { TreeNode } from 'primeng/api';
+
 import { TagChipComponent } from '../catalog/components/tag-chip/tag-chip.component';
 import { TagItem, CategoryTreeNode } from '../catalog/models/catalog.models';
+import {
+  CategoryService,
+  AvailableTableItem,
+  CategoryAssignmentItem,
+} from './services/category.service';
 
-interface CategoryItem {
+export interface CategoryRowData {
   id: string;
   name: string;
-  description?: string;
+  description?: string | null;
   parent_id?: string | null;
+  status: 'ACTIVE' | 'INACTIVE';
   assigned_tables_count: number;
+  tables?: any[];
+  databases?: any[];
 }
 
 @Component({
   selector: 'app-taxonomy-management',
   standalone: true,
-  imports: [CommonModule, FormsModule, TagChipComponent],
-  template: `
-    <div class="taxonomy-layout">
-      <!-- Header -->
-      <header class="page-header">
-        <div>
-          <h1 class="page-title">مدیریت تاکسونومی، تگ‌ها و دسته‌بندی‌های موضوعی</h1>
-          <p class="page-subtitle">تعریف ساختار موضوعی سازمان، واژه‌نامه داده‌ها و برچسب‌های حاکمیتی متادیتا</p>
-        </div>
-
-        <div class="header-actions">
-          @if (activeTab() === 'tags') {
-            <button class="btn btn-primary" (click)="openCreateTagModal()">
-              <span>+ ثبت برچسب سازمانی جدید</span>
-            </button>
-          } @else {
-            <button class="btn btn-primary" (click)="openCreateCategoryModal(null)">
-              <span>+ ایجاد دسته‌بندی اصلی جدید</span>
-            </button>
-          }
-        </div>
-      </header>
-
-      <!-- Tabs Nav -->
-      <div class="tabs-nav">
-        <button
-          class="tab-link"
-          [class.active]="activeTab() === 'tags'"
-          (click)="activeTab.set('tags')"
-        >
-          🏷️ برچسب‌ها و تگ‌های حاکمیتی (Governed Tags)
-        </button>
-        <button
-          class="tab-link"
-          [class.active]="activeTab() === 'categories'"
-          (click)="activeTab.set('categories')"
-        >
-          📂 درخت دسته‌بندی‌های موضوعی (Category Hierarchy)
-        </button>
-      </div>
-
-      <!-- Tab Content Area -->
-      <div class="tab-content">
-        <!-- TAB 1: GOVERNED TAGS -->
-        @if (activeTab() === 'tags') {
-          <div class="table-card">
-            <div class="card-header">
-              <h2>فهرست برچسب‌های سازمانی ({{ tags().length }})</h2>
-              <span class="text-muted">برچسب‌های استاندارد جهت رده‌بندی امنیتی، مالکیت و نیازمندی‌های انطباق قانونی</span>
-            </div>
-
-            <table class="data-table">
-              <thead>
-                <tr>
-                  <th>نمایش برچسب</th>
-                  <th>نام تگ</th>
-                  <th>رنگ شناسه</th>
-                  <th>توضیحات حاکمیتی</th>
-                  <th>تعداد موجودیت‌های متصل</th>
-                  <th>عملیات</th>
-                </tr>
-              </thead>
-              <tbody>
-                @for (tag of tags(); track tag.id) {
-                  <tr>
-                    <td>
-                      <app-tag-chip [tag]="tag" [removable]="false"></app-tag-chip>
-                    </td>
-                    <td class="mono-font fw-bold">{{ tag.name }}</td>
-                    <td>
-                      <div class="color-badge" [style.background-color]="tag.color"></div>
-                      <span class="mono-font">{{ tag.color }}</span>
-                    </td>
-                    <td>{{ tag.description || 'بدون توضیح' }}</td>
-                    <td>
-                      <span class="badge badge-internal">{{ tag.assignment_count || 0 }} مورد</span>
-                    </td>
-                    <td>
-                      <div class="actions-row">
-                        <button class="btn btn-secondary btn-sm" (click)="openEditTagModal(tag)">ویرایش</button>
-                        <button class="btn btn-danger btn-sm" (click)="deleteTag(tag)">حذف</button>
-                      </div>
-                    </td>
-                  </tr>
-                } @empty {
-                  <tr>
-                    <td colspan="6" class="text-center">هیچ تگی ثبت نشده است.</td>
-                  </tr>
-                }
-              </tbody>
-            </table>
-          </div>
-        }
-
-        <!-- TAB 2: CATEGORY TREE -->
-        @if (activeTab() === 'categories') {
-          <div class="table-card">
-            <div class="card-header">
-              <h2>درخت سلسله‌مراتبی حوزه‌های کسب‌وکار (Enterprise Core Domains)</h2>
-              <span class="text-muted">ارث‌بری قوانین امنیتی به صورت آبشاری از گره‌های والد به گره‌های فرزند اعمال می‌شود</span>
-            </div>
-
-            <div class="category-tree-wrapper">
-              @for (cat of categoryTree(); track cat.id) {
-                <div class="cat-tree-node">
-                  <div class="node-row root-node">
-                    <span class="folder-icon">📂</span>
-                    <strong class="cat-title">{{ cat.name }}</strong>
-                    <span class="text-muted cat-desc">{{ cat.description }}</span>
-                    <span class="badge badge-internal">{{ cat.tables.length }} جدول</span>
-                    <div class="node-actions">
-                      <button class="btn btn-secondary btn-sm" (click)="openCreateCategoryModal(cat.id)">+ زیردسته</button>
-                      <button class="btn btn-secondary btn-sm" (click)="openEditCategoryModal(cat)">ویرایش</button>
-                      <button class="btn btn-danger btn-sm" (click)="deleteCategory(cat.id)">حذف</button>
-                    </div>
-                  </div>
-
-                  <!-- Children Nodes -->
-                  @if (cat.children && cat.children.length > 0) {
-                    <div class="sub-tree">
-                      @for (sub of cat.children; track sub.id) {
-                        <div class="cat-tree-node sub-node">
-                          <div class="node-row">
-                            <span class="folder-icon">↳ 📁</span>
-                            <span class="cat-title">{{ sub.name }}</span>
-                            <span class="text-muted cat-desc">{{ sub.description }}</span>
-                            <span class="badge badge-internal">{{ sub.tables.length }} جدول</span>
-                            <div class="node-actions">
-                              <button class="btn btn-secondary btn-sm" (click)="openEditCategoryModal(sub)">ویرایش</button>
-                              <button class="btn btn-danger btn-sm" (click)="deleteCategory(sub.id)">حذف</button>
-                            </div>
-                          </div>
-                        </div>
-                      }
-                    </div>
-                  }
-                </div>
-              } @empty {
-                <div class="empty-state">دسته‌بندی موضوعی تعریف نشده است.</div>
-              }
-            </div>
-          </div>
-        }
-      </div>
-    </div>
-
-    <!-- MODAL: CREATE / EDIT TAG -->
-    @if (isTagModalOpen()) {
-      <div class="modal-backdrop" (click)="closeTagModal()">
-        <div class="modal-dialog" (click)="$event.stopPropagation()">
-          <div class="modal-header">
-            <h3 class="modal-title">{{ editingTagId() ? 'ویرایش برچسب سازمانی' : 'ایجاد برچسب جدید' }}</h3>
-            <button class="btn-close" (click)="closeTagModal()">✕</button>
-          </div>
-          <div class="modal-body">
-            <div class="form-group">
-              <label class="form-label">نام برچسب (انگلیسی یا فارسی):</label>
-              <input type="text" class="form-control" [(ngModel)]="tagFormName" placeholder="مثال: PII یا Financial" />
-            </div>
-
-            <div class="form-group">
-              <label class="form-label">رنگ نشانگر:</label>
-              <div class="color-presets">
-                @for (c of colorPresets; track c) {
-                  <button
-                    type="button"
-                    class="preset-btn"
-                    [style.background-color]="c"
-                    [class.selected]="tagFormColor === c"
-                    (click)="tagFormColor = c"
-                  ></button>
-                }
-              </div>
-              <input type="text" class="form-control mono-font" [(ngModel)]="tagFormColor" style="margin-top: 8px;" />
-            </div>
-
-            <div class="form-group">
-              <label class="form-label">شرح حاکمیتی و حوزه شمول برچسب:</label>
-              <textarea class="form-control" rows="3" [(ngModel)]="tagFormDescription"></textarea>
-            </div>
-          </div>
-          <div class="modal-footer">
-            <button class="btn btn-secondary" (click)="closeTagModal()">انصراف</button>
-            <button class="btn btn-primary" (click)="saveTag()">ذخیره برچسب</button>
-          </div>
-        </div>
-      </div>
-    }
-
-    <!-- MODAL: CREATE / EDIT CATEGORY -->
-    @if (isCategoryModalOpen()) {
-      <div class="modal-backdrop" (click)="closeCategoryModal()">
-        <div class="modal-dialog" (click)="$event.stopPropagation()">
-          <div class="modal-header">
-            <h3 class="modal-title">{{ editingCategoryId() ? 'ویرایش دسته‌بندی موضوعی' : 'ایجاد دسته‌بندی موضوعی جدید' }}</h3>
-            <button class="btn-close" (click)="closeCategoryModal()">✕</button>
-          </div>
-          <div class="modal-body">
-            <div class="form-group">
-              <label class="form-label">نام دسته‌بندی:</label>
-              <input type="text" class="form-control" [(ngModel)]="catFormName" placeholder="مثال: Customer Data" />
-            </div>
-
-            <div class="form-group">
-              <label class="form-label">توضیحات دسته‌بندی:</label>
-              <textarea class="form-control" rows="3" [(ngModel)]="catFormDescription"></textarea>
-            </div>
-          </div>
-          <div class="modal-footer">
-            <button class="btn btn-secondary" (click)="closeCategoryModal()">انصراف</button>
-            <button class="btn btn-primary" (click)="saveCategory()">ذخیره دسته‌بندی</button>
-          </div>
-        </div>
-      </div>
-    }
-
-    <!-- TOAST -->
-    @if (toastMessage()) {
-      <div class="toast-container">
-        <div class="toast" [class.toast-success]="toastType() === 'success'" [class.toast-error]="toastType() === 'error'">
-          {{ toastMessage() }}
-        </div>
-      </div>
-    }
-  `,
-  styles: [`
-    .taxonomy-layout {
-      padding: 24px 32px;
-      direction: rtl;
-      display: flex;
-      flex-direction: column;
-      gap: 20px;
-    }
-
-    .page-header {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-    }
-
-    .page-title {
-      font-size: 1.4rem;
-      font-weight: 800;
-      color: var(--slate-900);
-    }
-
-    .page-subtitle {
-      font-size: 0.85rem;
-      color: var(--slate-500);
-      margin-top: 4px;
-    }
-
-    .tabs-nav {
-      display: flex;
-      border-bottom: 2px solid var(--slate-200);
-      gap: 8px;
-    }
-
-    .tab-link {
-      padding: 10px 18px;
-      background: transparent;
-      border: none;
-      border-bottom: 3px solid transparent;
-      margin-bottom: -2px;
-      font-family: var(--font-family-sans);
-      font-size: 0.92rem;
-      font-weight: 700;
-      color: var(--slate-600);
-      cursor: pointer;
-      transition: all 0.15s ease;
-    }
-
-    .tab-link.active {
-      color: var(--primary-700);
-      border-bottom-color: var(--primary-600);
-    }
-
-    .table-card {
-      background: #ffffff;
-      border: 1px solid var(--slate-200);
-      border-radius: var(--radius-lg);
-      box-shadow: var(--shadow-sm);
-      overflow: hidden;
-    }
-
-    .card-header {
-      padding: 18px 24px;
-      border-bottom: 1px solid var(--slate-200);
-      background-color: var(--slate-50);
-    }
-
-    .card-header h2 {
-      font-size: 1.05rem;
-      font-weight: 700;
-      color: var(--slate-800);
-    }
-
-    .data-table {
-      width: 100%;
-      border-collapse: collapse;
-      font-size: 0.85rem;
-    }
-
-    .data-table th, .data-table td {
-      padding: 12px 18px;
-      border-bottom: 1px solid var(--slate-200);
-      text-align: right;
-    }
-
-    .data-table th {
-      background-color: var(--slate-100);
-      font-weight: 700;
-      color: var(--slate-700);
-    }
-
-    .color-badge {
-      display: inline-block;
-      width: 14px;
-      height: 14px;
-      border-radius: 50%;
-      margin-left: 6px;
-      vertical-align: middle;
-      border: 1px solid rgba(0, 0, 0, 0.15);
-    }
-
-    .actions-row {
-      display: flex;
-      gap: 6px;
-    }
-
-    .color-presets {
-      display: flex;
-      gap: 8px;
-      margin-top: 4px;
-    }
-
-    .preset-btn {
-      width: 28px;
-      height: 28px;
-      border-radius: 6px;
-      border: 2px solid transparent;
-      cursor: pointer;
-    }
-
-    .preset-btn.selected {
-      border-color: #0f172a;
-      transform: scale(1.1);
-    }
-
-    .category-tree-wrapper {
-      padding: 20px 24px;
-      display: flex;
-      flex-direction: column;
-      gap: 12px;
-    }
-
-    .cat-tree-node {
-      border: 1px solid var(--slate-200);
-      border-radius: var(--radius-md);
-      overflow: hidden;
-    }
-
-    .node-row {
-      padding: 12px 16px;
-      display: flex;
-      align-items: center;
-      gap: 12px;
-      background-color: #ffffff;
-    }
-
-    .root-node {
-      background-color: var(--slate-50);
-      border-bottom: 1px solid var(--slate-200);
-    }
-
-    .cat-title {
-      font-size: 0.92rem;
-      font-weight: 700;
-      color: var(--slate-800);
-    }
-
-    .cat-desc {
-      font-size: 0.82rem;
-      flex: 1;
-    }
-
-    .node-actions {
-      display: flex;
-      gap: 6px;
-      margin-right: auto;
-    }
-
-    .sub-tree {
-      padding: 8px 24px 8px 12px;
-      display: flex;
-      flex-direction: column;
-      gap: 8px;
-      background-color: #fafafa;
-    }
-
-    .btn-close {
-      background: none;
-      border: 1px solid var(--slate-300);
-      border-radius: 50%;
-      width: 28px;
-      height: 28px;
-      cursor: pointer;
-    }
-
-    .empty-state {
-      padding: 40px;
-      text-align: center;
-      color: var(--slate-500);
-    }
-  `],
+  imports: [
+    CommonModule,
+    FormsModule,
+    ReactiveFormsModule,
+    TreeTableModule,
+    TagChipComponent,
+  ],
+  templateUrl: './taxonomy-management.component.html',
+  styleUrls: ['./taxonomy-management.component.css'],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class TaxonomyManagementComponent implements OnInit {
-  private readonly http = inject(HttpClient);
+  private http = inject(HttpClient);
+  private categoryService = inject(CategoryService);
 
-  readonly activeTab = signal<'tags' | 'categories'>('tags');
-  readonly tags = signal<TagItem[]>([]);
-  readonly categoryTree = signal<CategoryTreeNode[]>([]);
+  // Active Tab
+  activeTab = signal<'categories' | 'tags'>('categories');
 
-  // Modals state
-  readonly isTagModalOpen = signal<boolean>(false);
-  readonly editingTagId = signal<string | null>(null);
+  // Loading States
+  isLoadingTree = signal<boolean>(false);
+  isLoadingTags = signal<boolean>(false);
+  isSavingCategory = signal<boolean>(false);
+  isLoadingAvailableTables = signal<boolean>(false);
+
+  // Raw Categories & TreeNodes
+  rawCategoryTree = signal<CategoryTreeNode[]>([]);
+  expandedNodeKeys = signal<Set<string>>(new Set<string>());
+
+  // Filter and Search
+  searchTerm = signal<string>('');
+  statusFilter = signal<'ALL' | 'ACTIVE' | 'INACTIVE'>('ALL');
+
+  // Mapped PrimeNG TreeNodes
+  treeNodes = computed<TreeNode<CategoryRowData>[]>(() => {
+    const raw = this.rawCategoryTree();
+    const expanded = this.expandedNodeKeys();
+    return this.buildTreeNodes(raw, expanded);
+  });
+
+  // Filtered TreeNodes
+  filteredTreeNodes = computed<TreeNode<CategoryRowData>[]>(() => {
+    const nodes = this.treeNodes();
+    const term = this.searchTerm().trim().toLowerCase();
+    const status = this.statusFilter();
+
+    if (!term && status === 'ALL') {
+      return nodes;
+    }
+
+    return this.filterTreeRecursively(nodes, term, status);
+  });
+
+  // Category Statistics
+  totalCategoriesCount = computed<number>(() => {
+    return this.countAllCategories(this.rawCategoryTree());
+  });
+
+  totalAssignedTablesCount = computed<number>(() => {
+    return this.countAllAssignedTables(this.rawCategoryTree());
+  });
+
+  // Category Modal State
+  isCategoryModalOpen = signal<boolean>(false);
+  categoryModalMode = signal<'create-root' | 'create-child' | 'edit'>('create-root');
+  selectedParentCategory = signal<CategoryRowData | null>(null);
+  editingCategory = signal<CategoryRowData | null>(null);
+
+  // Category Reactive Form
+  categoryForm = new FormGroup({
+    name: new FormControl<string>('', {
+      nonNullable: true,
+      validators: [Validators.required, Validators.minLength(1), Validators.maxLength(200)],
+    }),
+    description: new FormControl<string>(''),
+    status: new FormControl<'ACTIVE' | 'INACTIVE'>('ACTIVE', {
+      nonNullable: true,
+      validators: [Validators.required],
+    }),
+  });
+
+  // Delete Category Confirmation Modal State
+  isDeleteModalOpen = signal<boolean>(false);
+  categoryToDelete = signal<CategoryRowData | null>(null);
+  deleteSubcategoryCount = signal<number>(0);
+  deleteTableCount = signal<number>(0);
+
+  // Assign Tables Modal State
+  isAssignModalOpen = signal<boolean>(false);
+  targetCategoryForAssign = signal<CategoryRowData | null>(null);
+  currentAssignedTables = signal<CategoryAssignmentItem[]>([]);
+  availableCatalogTables = signal<AvailableTableItem[]>([]);
+  tableSearchQuery = signal<string>('');
+
+  // Governed Tags State
+  tags = signal<TagItem[]>([]);
+  isTagModalOpen = signal<boolean>(false);
+  editingTagId = signal<string | null>(null);
   tagFormName = '';
   tagFormColor = '#3b82f6';
   tagFormDescription = '';
+  colorPresets = [
+    '#ef4444',
+    '#f97316',
+    '#f59e0b',
+    '#10b981',
+    '#06b6d4',
+    '#3b82f6',
+    '#6366f1',
+    '#8b5cf6',
+    '#ec4899',
+    '#64748b',
+  ];
 
-  readonly isCategoryModalOpen = signal<boolean>(false);
-  readonly editingCategoryId = signal<string | null>(null);
-  catFormParentId: string | null = null;
-  catFormName = '';
-  catFormDescription = '';
-
-  readonly colorPresets = ['#ef4444', '#dc2626', '#f59e0b', '#eab308', '#10b981', '#3b82f6', '#8b5cf6', '#64748b'];
-
-  readonly toastMessage = signal<string | null>(null);
-  readonly toastType = signal<'success' | 'error'>('success');
+  // Toast Notifications
+  toastMessage = signal<string | null>(null);
+  toastType = signal<'success' | 'error'>('success');
+  private toastTimer: any = null;
 
   ngOnInit(): void {
+    this.loadCategoryTree();
     this.loadTags();
-    this.loadCategories();
   }
+
+  // ==========================================
+  // CATEGORY TREE LOADING & MAPPING
+  // ==========================================
+
+  loadCategoryTree(expandTargetId?: string): void {
+    this.isLoadingTree.set(true);
+    this.categoryService.getCategoryTree().subscribe({
+      next: (tree) => {
+        this.rawCategoryTree.set(tree);
+        if (expandTargetId) {
+          this.expandNodeAndAncestors(tree, expandTargetId);
+        }
+        this.isLoadingTree.set(false);
+      },
+      error: (err) => {
+        this.isLoadingTree.set(false);
+        this.showToast(this.extractErrorMessage(err, 'خطا در بارگذاری درخت دسته‌بندی‌ها'), 'error');
+      },
+    });
+  }
+
+  private buildTreeNodes(
+    nodes: CategoryTreeNode[],
+    expandedKeys: Set<string>
+  ): TreeNode<CategoryRowData>[] {
+    return nodes.map((node) => {
+      const isExpanded = expandedKeys.has(node.id);
+      const rowData: CategoryRowData = {
+        id: node.id,
+        name: node.name,
+        description: node.description,
+        parent_id: node.parent_id,
+        status: (node.status as 'ACTIVE' | 'INACTIVE') || 'ACTIVE',
+        assigned_tables_count:
+          node.assigned_tables_count !== undefined
+            ? node.assigned_tables_count
+            : node.tables
+              ? node.tables.length
+              : 0,
+        tables: node.tables || [],
+        databases: node.databases || [],
+      };
+
+      const children = node.children && node.children.length > 0
+        ? this.buildTreeNodes(node.children, expandedKeys)
+        : [];
+
+      return {
+        key: node.id,
+        label: node.name,
+        data: rowData,
+        expanded: isExpanded,
+        children: children,
+        leaf: children.length === 0,
+      };
+    });
+  }
+
+  private filterTreeRecursively(
+    nodes: TreeNode<CategoryRowData>[],
+    term: string,
+    status: 'ALL' | 'ACTIVE' | 'INACTIVE'
+  ): TreeNode<CategoryRowData>[] {
+    const result: TreeNode<CategoryRowData>[] = [];
+
+    for (const node of nodes) {
+      const data = node.data!;
+      const matchesTerm = !term || data.name.toLowerCase().includes(term) || (data.description && data.description.toLowerCase().includes(term));
+      const matchesStatus = status === 'ALL' || data.status === status;
+
+      const filteredChildren = node.children && node.children.length > 0
+        ? this.filterTreeRecursively(node.children, term, status)
+        : [];
+
+      if ((matchesTerm && matchesStatus) || filteredChildren.length > 0) {
+        result.push({
+          ...node,
+          expanded: term ? true : node.expanded,
+          children: filteredChildren,
+        });
+      }
+    }
+
+    return result;
+  }
+
+  private expandNodeAndAncestors(tree: CategoryTreeNode[], targetId: string): void {
+    const path: string[] = [];
+
+    const findPath = (nodes: CategoryTreeNode[], currentPath: string[]): boolean => {
+      for (const n of nodes) {
+        const nextPath = [...currentPath, n.id];
+        if (n.id === targetId) {
+          path.push(...nextPath);
+          return true;
+        }
+        if (n.children && n.children.length > 0) {
+          if (findPath(n.children, nextPath)) {
+            return true;
+          }
+        }
+      }
+      return false;
+    };
+
+    findPath(tree, []);
+    if (path.length > 0) {
+      this.expandedNodeKeys.update((keys) => {
+        const updated = new Set(keys);
+        path.forEach((id) => updated.add(id));
+        return updated;
+      });
+    }
+  }
+
+  private countAllCategories(nodes: CategoryTreeNode[]): number {
+    let count = 0;
+    for (const n of nodes) {
+      count += 1;
+      if (n.children && n.children.length > 0) {
+        count += this.countAllCategories(n.children);
+      }
+    }
+    return count;
+  }
+
+  private countAllAssignedTables(nodes: CategoryTreeNode[]): number {
+    let count = 0;
+    for (const n of nodes) {
+      count += n.assigned_tables_count || (n.tables ? n.tables.length : 0);
+      if (n.children && n.children.length > 0) {
+        count += this.countAllAssignedTables(n.children);
+      }
+    }
+    return count;
+  }
+
+  // Node toggle event from TreeTable
+  onNodeToggle(event: any): void {
+    const node = event?.node || event;
+    if (!node || !node.key) return;
+    this.expandedNodeKeys.update((keys) => {
+      const updated = new Set(keys);
+      if (node.expanded) {
+        updated.add(node.key!);
+      } else {
+        updated.delete(node.key!);
+      }
+      return updated;
+    });
+  }
+
+  expandAll(): void {
+    const allIds = new Set<string>();
+    const collectIds = (nodes: CategoryTreeNode[]) => {
+      for (const n of nodes) {
+        allIds.add(n.id);
+        if (n.children && n.children.length > 0) {
+          collectIds(n.children);
+        }
+      }
+    };
+    collectIds(this.rawCategoryTree());
+    this.expandedNodeKeys.set(allIds);
+  }
+
+  collapseAll(): void {
+    this.expandedNodeKeys.set(new Set<string>());
+  }
+
+  // ==========================================
+  // CREATE / EDIT CATEGORY MODAL
+  // ==========================================
+
+  openAddRootModal(): void {
+    this.categoryModalMode.set('create-root');
+    this.selectedParentCategory.set(null);
+    this.editingCategory.set(null);
+    this.categoryForm.reset({
+      name: '',
+      description: '',
+      status: 'ACTIVE',
+    });
+    this.isCategoryModalOpen.set(true);
+  }
+
+  openAddSubcategoryModal(parent: CategoryRowData): void {
+    this.categoryModalMode.set('create-child');
+    this.selectedParentCategory.set(parent);
+    this.editingCategory.set(null);
+    this.categoryForm.reset({
+      name: '',
+      description: '',
+      status: 'ACTIVE',
+    });
+    this.isCategoryModalOpen.set(true);
+  }
+
+  openEditCategoryModal(category: CategoryRowData): void {
+    this.categoryModalMode.set('edit');
+    this.selectedParentCategory.set(null);
+    this.editingCategory.set(category);
+    this.categoryForm.setValue({
+      name: category.name,
+      description: category.description || '',
+      status: category.status,
+    });
+    this.isCategoryModalOpen.set(true);
+  }
+
+  closeCategoryModal(): void {
+    this.isCategoryModalOpen.set(false);
+    this.selectedParentCategory.set(null);
+    this.editingCategory.set(null);
+    this.categoryForm.reset();
+  }
+
+  submitCategoryForm(): void {
+    if (this.categoryForm.invalid) {
+      this.categoryForm.markAllAsTouched();
+      return;
+    }
+
+    const { name, description, status } = this.categoryForm.getRawValue();
+    this.isSavingCategory.set(true);
+
+    const mode = this.categoryModalMode();
+
+    if (mode === 'create-root') {
+      this.categoryService
+        .createCategory({
+          name: name.trim(),
+          description: description?.trim() || null,
+          parent_id: null,
+          status: status,
+        })
+        .subscribe({
+          next: (created) => {
+            this.isSavingCategory.set(false);
+            this.closeCategoryModal();
+            this.showToast(`دسته‌بندی اصلی «${created.name}» با موفقیت ایجاد شد`, 'success');
+            this.loadCategoryTree(created.id);
+          },
+          error: (err) => {
+            this.isSavingCategory.set(false);
+            this.showToast(this.extractErrorMessage(err, 'خطا در ایجاد دسته‌بندی اصلی'), 'error');
+          },
+        });
+    } else if (mode === 'create-child') {
+      const parent = this.selectedParentCategory();
+      if (!parent) return;
+
+      this.categoryService
+        .createCategory({
+          name: name.trim(),
+          description: description?.trim() || null,
+          parent_id: parent.id,
+          status: status,
+        })
+        .subscribe({
+          next: (created) => {
+            this.isSavingCategory.set(false);
+            this.closeCategoryModal();
+            this.showToast(
+              `زیردسته «${created.name}» با موفقیت به «${parent.name}» افزوده شد`,
+              'success'
+            );
+            // Automatically expand parent node
+            this.expandedNodeKeys.update((keys) => {
+              const updated = new Set(keys);
+              updated.add(parent.id);
+              return updated;
+            });
+            this.loadCategoryTree(created.id);
+          },
+          error: (err) => {
+            this.isSavingCategory.set(false);
+            this.showToast(this.extractErrorMessage(err, 'خطا در ایجاد زیردسته'), 'error');
+          },
+        });
+    } else if (mode === 'edit') {
+      const category = this.editingCategory();
+      if (!category) return;
+
+      this.categoryService
+        .updateCategory(category.id, {
+          name: name.trim(),
+          description: description?.trim() || null,
+          parent_id: category.parent_id || null,
+          status: status,
+        })
+        .subscribe({
+          next: (updated) => {
+            this.isSavingCategory.set(false);
+            this.closeCategoryModal();
+            this.showToast(`تغییرات دسته‌بندی «${updated.name}» با موفقیت ذخیره شد`, 'success');
+            this.loadCategoryTree(updated.id);
+          },
+          error: (err) => {
+            this.isSavingCategory.set(false);
+            this.showToast(this.extractErrorMessage(err, 'خطا در ویرایش دسته‌بندی'), 'error');
+          },
+        });
+    }
+  }
+
+  // ==========================================
+  // SAFE DELETION CONFIRMATION
+  // ==========================================
+
+  confirmDeleteCategory(category: CategoryRowData): void {
+    this.categoryToDelete.set(category);
+
+    // Calculate subcategory count
+    const findNode = (nodes: CategoryTreeNode[], id: string): CategoryTreeNode | null => {
+      for (const n of nodes) {
+        if (n.id === id) return n;
+        if (n.children) {
+          const found = findNode(n.children, id);
+          if (found) return found;
+        }
+      }
+      return null;
+    };
+
+    const targetNode = findNode(this.rawCategoryTree(), category.id);
+    const subCount = targetNode?.children?.length || 0;
+    const tableCount = category.assigned_tables_count || 0;
+
+    this.deleteSubcategoryCount.set(subCount);
+    this.deleteTableCount.set(tableCount);
+    this.isDeleteModalOpen.set(true);
+  }
+
+  closeDeleteModal(): void {
+    this.isDeleteModalOpen.set(false);
+    this.categoryToDelete.set(null);
+  }
+
+  executeDeleteCategory(): void {
+    const cat = this.categoryToDelete();
+    if (!cat) return;
+
+    if (this.deleteSubcategoryCount() > 0 || this.deleteTableCount() > 0) {
+      return;
+    }
+
+    this.categoryService.deleteCategory(cat.id).subscribe({
+      next: () => {
+        this.closeDeleteModal();
+        this.showToast(`دسته‌بندی «${cat.name}» با موفقیت حذف شد`, 'success');
+        this.loadCategoryTree();
+      },
+      error: (err) => {
+        this.showToast(this.extractErrorMessage(err, 'امکان حذف این دسته‌بندی وجود ندارد'), 'error');
+      },
+    });
+  }
+
+  // ==========================================
+  // ASSIGN TABLES MODAL (`اختصاص جداول`)
+  // ==========================================
+
+  openAssignTablesModal(category: CategoryRowData): void {
+    this.targetCategoryForAssign.set(category);
+    this.tableSearchQuery.set('');
+    this.isAssignModalOpen.set(true);
+    this.loadCategoryAssignments(category.id);
+    this.searchAvailableTables('');
+  }
+
+  closeAssignModal(): void {
+    this.isAssignModalOpen.set(false);
+    this.targetCategoryForAssign.set(null);
+    this.currentAssignedTables.set([]);
+    this.availableCatalogTables.set([]);
+  }
+
+  loadCategoryAssignments(categoryId: string): void {
+    this.categoryService.getAssignments(categoryId, 'TABLE').subscribe({
+      next: (assignments) => {
+        this.currentAssignedTables.set(assignments);
+      },
+      error: (err) => {
+        this.showToast(this.extractErrorMessage(err, 'خطا در بارگذاری جداول اختصاص‌یافته'), 'error');
+      },
+    });
+  }
+
+  searchAvailableTables(query: string): void {
+    this.isLoadingAvailableTables.set(true);
+    this.categoryService.getAvailableTables(query).subscribe({
+      next: (tables) => {
+        this.availableCatalogTables.set(tables);
+        this.isLoadingAvailableTables.set(false);
+      },
+      error: (err) => {
+        this.isLoadingAvailableTables.set(false);
+        this.showToast(this.extractErrorMessage(err, 'خطا در جستجوی جداول کاتالوگ'), 'error');
+      },
+    });
+  }
+
+  onTableSearchInput(event: Event): void {
+    const input = event.target as HTMLInputElement;
+    const query = input.value;
+    this.tableSearchQuery.set(query);
+    this.searchAvailableTables(query);
+  }
+
+  isTableAssigned(tableId: string): boolean {
+    return this.currentAssignedTables().some((a) => a.entity_id === tableId);
+  }
+
+  assignTableToCurrentCategory(table: AvailableTableItem): void {
+    const cat = this.targetCategoryForAssign();
+    if (!cat) return;
+
+    if (this.isTableAssigned(table.id)) {
+      this.showToast(`جدول «${table.name}» پیش از این اختصاص یافته است`, 'error');
+      return;
+    }
+
+    this.categoryService.assignTable(cat.id, table.id).subscribe({
+      next: () => {
+        this.showToast(`جدول «${table.name}» با موفقیت به دسته‌بندی اختصاص یافت`, 'success');
+        this.loadCategoryAssignments(cat.id);
+        this.loadCategoryTree(cat.id);
+      },
+      error: (err) => {
+        this.showToast(this.extractErrorMessage(err, 'خطا در اختصاص جدول به دسته‌بندی'), 'error');
+      },
+    });
+  }
+
+  unassignTableFromCurrentCategory(assignment: CategoryAssignmentItem): void {
+    const cat = this.targetCategoryForAssign();
+    if (!cat) return;
+
+    this.categoryService.unassignTable(cat.id, assignment.entity_id).subscribe({
+      next: () => {
+        this.showToast(`تخصیص جدول «${assignment.table_name || 'انتخاب شده'}» لغو شد`, 'success');
+        this.loadCategoryAssignments(cat.id);
+        this.loadCategoryTree(cat.id);
+      },
+      error: (err) => {
+        this.showToast(this.extractErrorMessage(err, 'خطا در لغو تخصیص جدول'), 'error');
+      },
+    });
+  }
+
+  // ==========================================
+  // GOVERNED TAGS METHODS (Preserved)
+  // ==========================================
 
   loadTags(): void {
+    this.isLoadingTags.set(true);
     this.http.get<TagItem[]>('/api/v1/tags').subscribe({
-      next: (data) => this.tags.set(data),
-      error: () => this.showToast('خطا در دریافت لیست تگ‌ها', 'error'),
+      next: (data) => {
+        this.tags.set(data);
+        this.isLoadingTags.set(false);
+      },
+      error: () => {
+        this.isLoadingTags.set(false);
+      },
     });
   }
 
-  loadCategories(): void {
-    this.http.get<CategoryTreeNode[]>('/api/v1/categories/tree').subscribe({
-      next: (tree) => this.categoryTree.set(tree),
-      error: () => this.showToast('خطا در دریافت درخت دسته‌بندی‌ها', 'error'),
-    });
-  }
-
-  // Tag Handlers
   openCreateTagModal(): void {
     this.editingTagId.set(null);
     this.tagFormName = '';
@@ -505,113 +652,85 @@ export class TaxonomyManagementComponent implements OnInit {
   }
 
   saveTag(): void {
-    if (!this.tagFormName) return;
+    if (!this.tagFormName.trim()) return;
 
     const payload = {
-      name: this.tagFormName,
+      name: this.tagFormName.trim(),
       color: this.tagFormColor,
-      description: this.tagFormDescription,
+      description: this.tagFormDescription.trim() || null,
+      is_governed: true,
     };
 
-    if (this.editingTagId()) {
-      this.http.put(`/api/v1/tags/${this.editingTagId()}`, payload).subscribe({
+    const id = this.editingTagId();
+    if (id) {
+      this.http.put(`/api/v1/tags/${id}`, payload).subscribe({
         next: () => {
-          this.showToast('برچسب با موفقیت بروزرسانی شد');
           this.closeTagModal();
           this.loadTags();
+          this.showToast('برچسب با موفقیت ویرایش شد', 'success');
         },
-        error: () => this.showToast('خطا در بروزرسانی تگ', 'error'),
+        error: (err) => {
+          this.showToast(this.extractErrorMessage(err, 'خطا در ویرایش برچسب'), 'error');
+        },
       });
     } else {
       this.http.post('/api/v1/tags', payload).subscribe({
         next: () => {
-          this.showToast('برچسب جدید با موفقیت ایجاد شد');
           this.closeTagModal();
           this.loadTags();
+          this.showToast('برچسب جدید با موفقیت ایجاد شد', 'success');
         },
-        error: () => this.showToast('خطا در ثبت تگ جدید', 'error'),
+        error: (err) => {
+          this.showToast(this.extractErrorMessage(err, 'خطا در ایجاد برچسب'), 'error');
+        },
       });
     }
   }
 
   deleteTag(tag: TagItem): void {
-    if (!confirm(`آیا از حذف برچسب "${tag.name}" اطمینان دارید؟`)) return;
-
+    if (!confirm(`آیا از حذف برچسب «${tag.name}» اطمینان دارید؟`)) return;
     this.http.delete(`/api/v1/tags/${tag.id}`).subscribe({
       next: () => {
-        this.showToast('برچسب با موفقیت حذف شد');
         this.loadTags();
+        this.showToast('برچسب حذف شد', 'success');
       },
-      error: () => this.showToast('خطا در حذف برچسب', 'error'),
+      error: (err) => {
+        this.showToast(this.extractErrorMessage(err, 'خطا در حذف برچسب'), 'error');
+      },
     });
   }
 
-  // Category Handlers
-  openCreateCategoryModal(parentId: string | null): void {
-    this.editingCategoryId.set(null);
-    this.catFormParentId = parentId;
-    this.catFormName = '';
-    this.catFormDescription = '';
-    this.isCategoryModalOpen.set(true);
+  // ==========================================
+  // HELPERS
+  // ==========================================
+
+  showToast(message: string, type: 'success' | 'error' = 'success'): void {
+    if (this.toastTimer) {
+      clearTimeout(this.toastTimer);
+    }
+    this.toastMessage.set(message);
+    this.toastType.set(type);
+    this.toastTimer = setTimeout(() => {
+      this.toastMessage.set(null);
+    }, 4500);
   }
 
-  openEditCategoryModal(cat: any): void {
-    this.editingCategoryId.set(cat.id);
-    this.catFormParentId = cat.parent_id || null;
-    this.catFormName = cat.name;
-    this.catFormDescription = cat.description || '';
-    this.isCategoryModalOpen.set(true);
-  }
-
-  closeCategoryModal(): void {
-    this.isCategoryModalOpen.set(false);
-  }
-
-  saveCategory(): void {
-    if (!this.catFormName) return;
-
-    const payload = {
-      name: this.catFormName,
-      description: this.catFormDescription,
-      parent_id: this.catFormParentId,
-    };
-
-    if (this.editingCategoryId()) {
-      this.http.put(`/api/v1/categories/${this.editingCategoryId()}`, payload).subscribe({
-        next: () => {
-          this.showToast('دسته‌بندی با موفقیت بروزرسانی شد');
-          this.closeCategoryModal();
-          this.loadCategories();
-        },
-        error: () => this.showToast('خطا در بروزرسانی دسته‌بندی', 'error'),
-      });
-    } else {
-      this.http.post('/api/v1/categories', payload).subscribe({
-        next: () => {
-          this.showToast('دسته‌بندی با موفقیت ایجاد شد');
-          this.closeCategoryModal();
-          this.loadCategories();
-        },
-        error: () => this.showToast('خطا در ایجاد دسته‌بندی', 'error'),
-      });
+  closeToast(): void {
+    this.toastMessage.set(null);
+    if (this.toastTimer) {
+      clearTimeout(this.toastTimer);
     }
   }
 
-  deleteCategory(catId: string): void {
-    if (!confirm('آیا از حذف این دسته‌بندی اطمینان دارید؟')) return;
-
-    this.http.delete(`/api/v1/categories/${catId}`).subscribe({
-      next: () => {
-        this.showToast('دسته‌بندی با موفقیت حذف شد');
-        this.loadCategories();
-      },
-      error: () => this.showToast('خطا در حذف دسته‌بندی', 'error'),
-    });
-  }
-
-  showToast(msg: string, type: 'success' | 'error' = 'success'): void {
-    this.toastMessage.set(msg);
-    this.toastType.set(type);
-    setTimeout(() => this.toastMessage.set(null), 3500);
+  private extractErrorMessage(err: any, fallback: string): string {
+    if (err?.error?.detail) {
+      if (typeof err.error.detail === 'string') {
+        return err.error.detail;
+      }
+      if (Array.isArray(err.error.detail) && err.error.detail[0]?.msg) {
+        return err.error.detail[0].msg;
+      }
+    }
+    return fallback;
   }
 }

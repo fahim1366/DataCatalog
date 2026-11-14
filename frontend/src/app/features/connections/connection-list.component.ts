@@ -8,6 +8,7 @@ import {
 import { CommonModule } from '@angular/common';
 import { ConnectionService } from './services/connection.service';
 import { ConnectionDialogComponent } from './connection-dialog.component';
+import { HasPermissionDirective } from '../../core/directives/has-permission.directive';
 import {
   ConnectionCreateRequest,
   ConnectionTestResult,
@@ -17,7 +18,7 @@ import {
 @Component({
   selector: 'app-connection-list',
   standalone: true,
-  imports: [CommonModule, ConnectionDialogComponent],
+  imports: [CommonModule, ConnectionDialogComponent, HasPermissionDirective],
   templateUrl: './connection-list.component.html',
   styleUrls: ['./connection-list.component.css'],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -28,6 +29,7 @@ export class ConnectionListComponent implements OnInit {
   readonly connections = signal<DatabaseConnection[]>([]);
   readonly isLoading = signal<boolean>(false);
   readonly showDialog = signal<boolean>(false);
+  readonly connectionToEdit = signal<DatabaseConnection | null>(null);
   readonly testingConnectionId = signal<string | null>(null);
   readonly testResults = signal<Record<string, ConnectionTestResult>>({});
   readonly errorMessage = signal<string | null>(null);
@@ -46,7 +48,7 @@ export class ConnectionListComponent implements OnInit {
         this.isLoading.set(false);
       },
       error: (err: unknown) => {
-        const msg = err instanceof Error ? err.message : 'Failed to load database connections';
+        const msg = err instanceof Error ? err.message : 'خطا در بارگذاری لیست اتصالات پایگاه داده';
         this.errorMessage.set(msg);
         this.isLoading.set(false);
       },
@@ -54,21 +56,60 @@ export class ConnectionListComponent implements OnInit {
   }
 
   openCreateDialog(): void {
+    this.connectionToEdit.set(null);
+    this.showDialog.set(true);
+  }
+
+  openEditDialog(conn: DatabaseConnection): void {
+    this.connectionToEdit.set(conn);
     this.showDialog.set(true);
   }
 
   closeDialog(): void {
     this.showDialog.set(false);
+    this.connectionToEdit.set(null);
   }
 
   onSaveConnection(request: ConnectionCreateRequest): void {
-    this.connectionService.createConnection(request).subscribe({
-      next: (newConn) => {
-        this.connections.update((list) => [newConn, ...list]);
-        this.closeDialog();
+    const editConn = this.connectionToEdit();
+    if (editConn) {
+      this.connectionService.updateConnection(editConn.id, request).subscribe({
+        next: (updatedConn) => {
+          this.connections.update((list) =>
+            list.map((c) => (c.id === updatedConn.id ? updatedConn : c))
+          );
+          this.closeDialog();
+        },
+        error: (err: unknown) => {
+          const msg = err instanceof Error ? err.message : 'خطا در بروزرسانی اتصال دیتابیس';
+          this.errorMessage.set(msg);
+        },
+      });
+    } else {
+      this.connectionService.createConnection(request).subscribe({
+        next: (newConn) => {
+          this.connections.update((list) => [newConn, ...list]);
+          this.closeDialog();
+        },
+        error: (err: unknown) => {
+          const msg = err instanceof Error ? err.message : 'خطا در ثبت اتصال جدید پایگاه داده';
+          this.errorMessage.set(msg);
+        },
+      });
+    }
+  }
+
+  onDeleteConnection(id: string): void {
+    if (!confirm('آیا از حذف این اتصال پایگاه‌داده و زمان‌بندی همگام‌سازی آن اطمینان دارید؟')) {
+      return;
+    }
+
+    this.connectionService.deleteConnection(id).subscribe({
+      next: () => {
+        this.connections.update((list) => list.filter((c) => c.id !== id));
       },
       error: (err: unknown) => {
-        const msg = err instanceof Error ? err.message : 'Failed to register database connection';
+        const msg = err instanceof Error ? err.message : 'خطا در حذف اتصال دیتابیس';
         this.errorMessage.set(msg);
       },
     });
@@ -102,4 +143,3 @@ export class ConnectionListComponent implements OnInit {
     });
   }
 }
-

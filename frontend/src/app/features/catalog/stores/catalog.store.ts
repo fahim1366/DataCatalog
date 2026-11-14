@@ -20,6 +20,7 @@ export interface CatalogFilterOptions {
   classification?: string;
   status?: string;
   tag?: string;
+  category?: string;
 }
 
 @Injectable({
@@ -89,6 +90,9 @@ export class CatalogStore {
     }
     if (activeOpts.tag) {
       url += `&tag=${encodeURIComponent(activeOpts.tag)}`;
+    }
+    if (activeOpts.category) {
+      url += `&category=${encodeURIComponent(activeOpts.category)}`;
     }
 
     try {
@@ -185,6 +189,10 @@ export class CatalogStore {
    */
   async getCategoryTree(): Promise<CategoryTreeNode[]> {
     return firstValueFrom(this.http.get<CategoryTreeNode[]>('/api/v1/categories/tree'));
+  }
+
+  async loadCategoryTree(): Promise<CategoryTreeNode[]> {
+    return this.getCategoryTree();
   }
 
   /**

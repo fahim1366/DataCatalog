@@ -133,10 +133,6 @@ def build_table_rbac_filter(
         # Superadmin bypasses RBAC filtering completely
         return lambda query: query
 
-    if not user_ctx.role_ids:
-        # User has no roles -> deny all access
-        return lambda query: query.where(text("1 = 0"))
-
     # 1. ALLOW Subquery: Inherited from GLOBAL, DATABASE, SCHEMA, direct TABLE, or CATEGORY
     allow_subquery = exists(
         select(1)

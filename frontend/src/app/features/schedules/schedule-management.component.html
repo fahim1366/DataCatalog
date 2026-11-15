@@ -1,0 +1,284 @@
+<div class="schedule-management-view" dir="rtl">
+  <!-- Toast Notification -->
+  @if (toastMessage()) {
+    <div class="alert" [ngClass]="toastType() === 'success' ? 'alert-success' : 'alert-danger'">
+      <span class="alert-icon">{{ toastType() === 'success' ? '✓' : '⚠' }}</span>
+      <span class="alert-text">{{ toastMessage() }}</span>
+      <button type="button" class="alert-close" (click)="closeToast()">×</button>
+    </div>
+  }
+
+  <!-- Header -->
+  <header class="page-header">
+    <div class="header-titles">
+      <h1 class="page-title">
+        <span class="title-icon">⏱️</span>
+        زمان‌بندی بروزرسانی کاتالوگ داده
+      </h1>
+      <p class="page-subtitle">
+        تنظیم دوره‌های استخراج خودکار متاداده و اجرای همگام‌سازی بلادرنگ برای هر پایگاه داده
+      </p>
+    </div>
+  </header>
+
+  <!-- Main Content: Split View -->
+  <div class="split-container">
+    <!-- Right Sidebar: Database Hierarchy Tree -->
+    <aside class="sidebar-tree-pane card">
+      <div class="pane-header">
+        <h2 class="pane-title">پایگاه‌های داده متصل</h2>
+        <span class="pane-badge">{{ rawCategoryTree().length }} ریشه موضوعی</span>
+      </div>
+
+      <div class="search-box">
+        <span class="search-icon">🔍</span>
+        <input
+          type="text"
+          class="search-input"
+          placeholder="جستجوی دسته‌بندی یا پایگاه داده..."
+          [value]="treeSearchTerm()"
+          (input)="treeSearchTerm.set($any($event.target).value)"
+        />
+        @if (treeSearchTerm()) {
+          <button class="clear-btn" (click)="treeSearchTerm.set('')">×</button>
+        }
+      </div>
+
+      @if (isLoadingTree()) {
+        <div class="tree-loading">
+          <span class="spinner"></span>
+          <span>در حال دریافت ساختار پایگاه‌های داده...</span>
+        </div>
+      } @else if (filteredTree().length === 0) {
+        <div class="tree-empty">
+          <span>موردی یافت نشد.</span>
+        </div>
+      } @else {
+        <div class="tree-scroll-container">
+          <ul class="tree-root-list">
+            @for (cat of filteredTree(); track cat.id) {
+              <ng-container
+                *ngTemplateOutlet="categoryNodeTpl; context: { cat: cat, level: 0 }"
+              ></ng-container>
+            }
+          </ul>
+        </div>
+      }
+    </aside>
+
+    <!-- Recursive Category Tree Node Template -->
+    <ng-template #categoryNodeTpl let-cat="cat" let-level="level">
+      <li class="tree-cat-node" [style.padding-right.px]="level * 16">
+        <div class="cat-header-row" (click)="toggleCategory(cat.id)">
+          <span class="expand-arrow" [class.expanded]="expandedCategoryIds().has(cat.id)">
+            {{ expandedCategoryIds().has(cat.id) ? '▾' : '▸' }}
+          </span>
+          <span class="folder-icon">{{ expandedCategoryIds().has(cat.id) ? '📂' : '📁' }}</span>
+          <span class="cat-name">{{ cat.name }}</span>
+          @if (cat.databases?.length) {
+            <span class="count-pill">{{ cat.databases.length }} پایگاه</span>
+          }
+        </div>
+
+        @if (expandedCategoryIds().has(cat.id)) {
+          <!-- Child Categories -->
+          @if (cat.children?.length) {
+            <ul class="tree-child-list">
+              @for (child of cat.children; track child.id) {
+                <ng-container
+                  *ngTemplateOutlet="categoryNodeTpl; context: { cat: child, level: level + 1 }"
+                ></ng-container>
+              }
+            </ul>
+          }
+
+          <!-- Direct Database items -->
+          @if (cat.databases?.length) {
+            <ul class="tree-db-list" [style.padding-right.px]="(level + 1) * 16">
+              @for (db of cat.databases; track db.id) {
+                <li
+                  class="tree-db-item"
+                  [class.active]="selectedDatabase()?.id === db.id"
+                  (click)="selectDatabase({ id: db.id, name: db.name, engine_type: db.engine_type, database_name: db.database_name, category_name: cat.name })"
+                >
+                  <span class="db-icon">🗄️</span>
+                  <div class="db-meta">
+                    <span class="db-name">{{ db.name }}</span>
+                    <span class="db-sub">{{ db.database_name }}</span>
+                  </div>
+                  <span class="engine-badge" [attr.data-engine]="db.engine_type">
+                    {{ db.engine_type }}
+                  </span>
+                </li>
+              }
+            </ul>
+          }
+        }
+      </li>
+    </ng-template>
+
+    <!-- Left Content: Schedule Editor & Operations -->
+    <main class="main-editor-pane">
+      @if (!selectedDatabase()) {
+        <div class="empty-selection card">
+          <div class="empty-icon">👈</div>
+          <h3>هیچ پایگاه داده‌ای انتخاب نشده است</h3>
+          <p>برای مشاهده و تنظیم برنامه زمان‌بندی همگام‌سازی، لطفاً یک پایگاه داده را از ساختار درختی انتخاب کنید.</p>
+        </div>
+      } @else {
+        <!-- Selected DB Header Card -->
+        <section class="db-hero-card card">
+          <div class="hero-top">
+            <div class="hero-title-group">
+              <span class="hero-engine-badge" [attr.data-engine]="selectedDatabase()!.engine_type">
+                {{ selectedDatabase()!.engine_type }}
+              </span>
+              <h2 class="hero-title">{{ selectedDatabase()!.name }}</h2>
+              <span class="hero-category">دسته‌بندی: {{ selectedDatabase()!.category_name || 'بدون دسته' }}</span>
+            </div>
+            <div class="hero-actions">
+              <button
+                type="button"
+                class="btn btn-secondary sync-now-btn"
+                [disabled]="isTriggeringSync()"
+                (click)="triggerSyncNow()"
+              >
+                @if (isTriggeringSync()) {
+                  <span class="spinner-small"></span>
+                  در حال استخراج متاداده...
+                } @else {
+                  <span>⚡</span>
+                  اجرای فوری همگام‌سازی (Sync Now)
+                }
+              </button>
+            </div>
+          </div>
+
+          <!-- Execution Stats -->
+          <div class="execution-stats-grid">
+            <div class="stat-box">
+              <span class="stat-label">وضعیت آخرین اجرا</span>
+              <div class="stat-val-group">
+                @if (currentSchedule()?.last_run_status === 'SUCCESS') {
+                  <span class="status-pill status-success">موفق</span>
+                } @else if (currentSchedule()?.last_run_status === 'FAILED') {
+                  <span class="status-pill status-danger">خطا</span>
+                } @else if (currentSchedule()?.last_run_status) {
+                  <span class="status-pill status-warning">{{ currentSchedule()?.last_run_status }}</span>
+                } @else {
+                  <span class="status-pill status-neutral">هنوز اجرا نشده</span>
+                }
+              </div>
+            </div>
+
+            <div class="stat-box">
+              <span class="stat-label">تاریخ آخرین اجرا</span>
+              <span class="stat-value">
+                {{ currentSchedule()?.last_run_at ? (currentSchedule()!.last_run_at! | date:'yyyy/MM/dd HH:mm:ss') : '—' }}
+              </span>
+            </div>
+
+            <div class="stat-box">
+              <span class="stat-label">اجرای برنامه‌ریزی‌شده بعدی</span>
+              <span class="stat-value">
+                {{ currentSchedule()?.next_run_at ? (currentSchedule()!.next_run_at! | date:'yyyy/MM/dd HH:mm:ss') : 'خودکار توسط زمان‌بند' }}
+              </span>
+            </div>
+          </div>
+
+          @if (currentSchedule()?.last_run_message) {
+            <div class="last-message-box">
+              <span class="msg-title">پیام آخرین اجرا:</span>
+              <span class="msg-content">{{ currentSchedule()!.last_run_message }}</span>
+            </div>
+          }
+        </section>
+
+        <!-- Schedule Config Form Card -->
+        <section class="schedule-form-card card" [formGroup]="scheduleForm">
+          <div class="card-section-title">
+            <h3>تنظیم الگوی زمان‌بندی (Cron Schedule)</h3>
+            <label class="toggle-switch">
+              <input type="checkbox" formControlName="is_enabled" />
+              <span class="slider"></span>
+              <span class="toggle-label">
+                {{ scheduleForm.controls.is_enabled.value ? 'زمان‌بندی فعال است' : 'زمان‌بندی غیرفعال است' }}
+              </span>
+            </label>
+          </div>
+
+          <!-- Quick Presets -->
+          <div class="presets-section">
+            <span class="presets-label">الگوهای متداول سازمانی:</span>
+            <div class="preset-chips">
+              @for (preset of cronPresets; track preset.expression) {
+                <button
+                  type="button"
+                  class="preset-chip"
+                  [class.active]="scheduleForm.controls.cron_expression.value === preset.expression"
+                  (click)="applyPreset(preset)"
+                >
+                  <span class="chip-name">{{ preset.label }}</span>
+                  <code class="chip-code">{{ preset.expression }}</code>
+                </button>
+              }
+            </div>
+          </div>
+
+          <!-- Cron Expression Field -->
+          <div class="form-group">
+            <label class="form-label" for="cron_expression">
+              عبارت استاندارد Cron (۵ بخشی: دقیقه ساعت روز ماه روز_هفته)
+              <span class="required">*</span>
+            </label>
+            <div class="input-with-hint">
+              <input
+                id="cron_expression"
+                type="text"
+                dir="ltr"
+                class="form-control mono-font"
+                placeholder="0 2 * * *"
+                formControlName="cron_expression"
+                [class.invalid]="scheduleForm.controls.cron_expression.invalid && scheduleForm.controls.cron_expression.touched"
+              />
+            </div>
+            @if (scheduleForm.controls.cron_expression.hasError('invalidCron') && scheduleForm.controls.cron_expression.touched) {
+              <div class="error-msg">
+                الگوی کرون نامعتبر است. باید دقیقا شامل ۵ بخش استاندارد (دقیقه، ساعت، روز ماه، ماه، روز هفته) باشد.
+              </div>
+            }
+          </div>
+
+          <!-- Human Readable Preview -->
+          <div class="cron-preview-box">
+            <div class="preview-header">
+              <span class="preview-icon">🕒</span>
+              <span class="preview-label">تفسیر زمان‌بندی به زبان ساده:</span>
+            </div>
+            <div class="preview-text">
+              {{ cronHumanPreview() }}
+            </div>
+          </div>
+
+          <!-- Save Button Bar -->
+          <div class="form-actions">
+            <button
+              type="button"
+              class="btn btn-primary save-btn"
+              [disabled]="scheduleForm.invalid || isSavingSchedule()"
+              (click)="saveSchedule()"
+            >
+              @if (isSavingSchedule()) {
+                <span class="spinner-small"></span>
+                در حال ذخیره تغییرات...
+              } @else {
+                <span>💾</span>
+                ذخیره تنظیمات زمان‌بندی
+              }
+            </button>
+          </div>
+        </section>
+      }
+    </main>
+  </div>
+</div>

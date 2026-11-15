@@ -1,12 +1,18 @@
 from __future__ import annotations
 
 import logging
+from typing import List, Optional
+import uuid
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import PlainTextResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.src.api.dependencies.rbac import UserContext, get_current_user
+from backend.src.api.dependencies.rbac import (
+    UserContext,
+    get_current_user,
+    user_rule_matches,
+)
 from backend.src.core.database import get_db_session
 from backend.src.models.rbac import (
     PermissionAction,
@@ -36,15 +42,9 @@ async def require_reports_permission(
     if user_ctx.is_superadmin:
         return user_ctx
 
-    if not user_ctx.role_ids:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Forbidden: User lacks reporting permission.",
-        )
-
     # 1. Check explicit DENY for EXPORT_REPORTS
     deny_stmt = select(1).where(
-        PermissionRule.role_id.in_(user_ctx.role_ids),
+        user_rule_matches(user_ctx),
         PermissionRule.action == PermissionAction.EXPORT_REPORTS,
         PermissionRule.effect == PermissionEffect.DENY,
     )
@@ -57,7 +57,7 @@ async def require_reports_permission(
 
     # 2. Check explicit ALLOW for EXPORT_REPORTS
     allow_stmt = select(1).where(
-        PermissionRule.role_id.in_(user_ctx.role_ids),
+        user_rule_matches(user_ctx),
         PermissionRule.action == PermissionAction.EXPORT_REPORTS,
         PermissionRule.effect == PermissionEffect.ALLOW,
     )
@@ -74,17 +74,17 @@ async def require_reports_permission(
 @router.get(
     "/completeness",
     response_model=CompletenessReport,
-    summary="Fast sub-200ms metadata completeness report powered by Materialized View",
+    summary="Fast metadata completeness report with optional connection filtering",
 )
 async def get_completeness_report(
+    connection_ids: Optional[List[uuid.UUID]] = Query(None, description="Filter by database connection IDs"),
     user_ctx: UserContext = Depends(require_reports_permission),
     db: AsyncSession = Depends(get_db_session),
 ) -> CompletenessReport:
     """
-    Returns aggregated metadata completeness metrics across all registered databases,
-    queried directly from PostgreSQL mv_metadata_completeness in < 50ms.
+    Returns aggregated metadata completeness metrics across all registered databases or filtered ones.
     """
-    return await report_service.get_metadata_completeness(db)
+    return await report_service.get_metadata_completeness(db, connection_ids=connection_ids)
 
 
 @router.get(
@@ -98,14 +98,14 @@ async def get_completeness_report(
     include_in_schema=False,
 )
 async def get_classification_distribution_report(
+    connection_ids: Optional[List[uuid.UUID]] = Query(None, description="Filter by database connection IDs"),
     user_ctx: UserContext = Depends(require_reports_permission),
     db: AsyncSession = Depends(get_db_session),
 ) -> ClassificationReport:
     """
-    Returns security classification and PII distribution metrics across all catalog columns,
-    queried directly from PostgreSQL mv_classification_distribution in < 50ms.
+    Returns security classification and PII distribution metrics across all catalog columns or filtered ones.
     """
-    return await report_service.get_classification_distribution(db)
+    return await report_service.get_classification_distribution(db, connection_ids=connection_ids)
 
 
 @router.post(
@@ -134,14 +134,15 @@ async def refresh_reporting_views(
 )
 async def export_reports(
     format: str = Query("json", pattern="^(json|csv)$"),
+    connection_ids: Optional[List[uuid.UUID]] = Query(None, description="Filter by database connection IDs"),
     user_ctx: UserContext = Depends(require_reports_permission),
     db: AsyncSession = Depends(get_db_session),
 ):
     """
     Exports executive reporting summary to JSON or CSV, guarded by EXPORT_REPORTS permission.
     """
-    completeness = await report_service.get_metadata_completeness(db)
-    classification = await report_service.get_classification_distribution(db)
+    completeness = await report_service.get_metadata_completeness(db, connection_ids=connection_ids)
+    classification = await report_service.get_classification_distribution(db, connection_ids=connection_ids)
 
     if format == "csv":
         csv_lines = [

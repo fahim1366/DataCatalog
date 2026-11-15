@@ -6,6 +6,7 @@ import {
   ConnectionTestResult,
   DatabaseConnection,
 } from '../models/connection.models';
+import { CategoryTreeNode } from '../../catalog/models/catalog.models';
 
 @Injectable({
   providedIn: 'root',
@@ -13,6 +14,13 @@ import {
 export class ConnectionService {
   private readonly http = inject(HttpClient);
   private readonly baseUrl = '/api/v1/connections';
+
+  /**
+   * Retrieves business category hierarchy tree.
+   */
+  getCategoryTree(): Observable<CategoryTreeNode[]> {
+    return this.http.get<CategoryTreeNode[]>('/api/v1/categories/tree');
+  }
 
   /**
    * Retrieves all registered database connections with optional active filter.

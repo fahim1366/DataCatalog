@@ -7,6 +7,7 @@ import {
   signal,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { HttpClient } from '@angular/common/http';
 import { forkJoin } from 'rxjs';
 import { ReportService } from './services/report.service';
 import { HasPermissionDirective } from '../../core/directives/has-permission.directive';
@@ -32,6 +33,7 @@ import { ClassificationSunburstComponent } from './classification-sunburst.compo
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class ExecutiveDashboardComponent implements OnInit {
+  private readonly http = inject(HttpClient);
   private readonly reportService = inject(ReportService);
 
   readonly completenessReport = signal<CompletenessReport | null>(null);
@@ -41,6 +43,10 @@ export class ExecutiveDashboardComponent implements OnInit {
   readonly isExporting = signal<boolean>(false);
   readonly errorMessage = signal<string | null>(null);
   readonly refreshSuccessMessage = signal<string | null>(null);
+
+  // Available databases for filtering
+  readonly availableDatabases = signal<{ id: string; name: string; engine_type: string }[]>([]);
+  readonly selectedConnectionIds = signal<Set<string>>(new Set());
 
   // Computed metrics for executive KPI cards
   readonly overallScore = computed<number>(
@@ -63,16 +69,48 @@ export class ExecutiveDashboardComponent implements OnInit {
   );
 
   ngOnInit(): void {
+    this.loadDatabases();
     this.loadReports();
+  }
+
+  loadDatabases(): void {
+    this.http.get<any[]>('/api/v1/connections').subscribe({
+      next: (conns) => {
+        this.availableDatabases.set(
+          (conns || []).map((c) => ({ id: c.id, name: c.name, engine_type: c.engine_type }))
+        );
+      },
+      error: () => {},
+    });
+  }
+
+  toggleDatabaseFilter(dbId: string): void {
+    const current = new Set(this.selectedConnectionIds());
+    if (current.has(dbId)) {
+      current.delete(dbId);
+    } else {
+      current.add(dbId);
+    }
+    this.selectedConnectionIds.set(current);
+    this.loadReports();
+  }
+
+  clearDatabaseFilter(): void {
+    if (this.selectedConnectionIds().size > 0) {
+      this.selectedConnectionIds.set(new Set());
+      this.loadReports();
+    }
   }
 
   loadReports(): void {
     this.isLoading.set(true);
     this.errorMessage.set(null);
 
+    const ids = Array.from(this.selectedConnectionIds());
+
     forkJoin({
-      completeness: this.reportService.getCompletenessReport(),
-      classification: this.reportService.getClassificationDistribution(),
+      completeness: this.reportService.getCompletenessReport(ids),
+      classification: this.reportService.getClassificationDistribution(ids),
     }).subscribe({
       next: ({ completeness, classification }) => {
         this.completenessReport.set(completeness);
@@ -81,7 +119,7 @@ export class ExecutiveDashboardComponent implements OnInit {
       },
       error: (err: unknown) => {
         const msg =
-          err instanceof Error ? err.message : 'Failed to load executive reports';
+          err instanceof Error ? err.message : 'خطا در بارگذاری گزارشات حاکمیت داده';
         this.errorMessage.set(msg);
         this.isLoading.set(false);
       },
@@ -112,7 +150,8 @@ export class ExecutiveDashboardComponent implements OnInit {
 
   exportReport(format: 'json' | 'csv'): void {
     this.isExporting.set(true);
-    this.reportService.exportReports(format).subscribe({
+    const ids = Array.from(this.selectedConnectionIds());
+    this.reportService.exportReports(format, ids).subscribe({
       next: (blob) => {
         const url = window.URL.createObjectURL(blob);
         const a = document.createElement('a');

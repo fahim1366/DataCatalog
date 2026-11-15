@@ -53,6 +53,7 @@ export class CatalogExplorerComponent implements OnInit {
   selectedStatus = '';
   selectedTag = '';
   selectedCategory = '';
+  missingDescriptionsOnly = signal<boolean>(false);
 
   // Trees State
   activeTreeTab = signal<'physical' | 'category'>('physical');
@@ -129,10 +130,16 @@ export class CatalogExplorerComponent implements OnInit {
       status: this.selectedStatus || undefined,
       tag: this.selectedTag || undefined,
       category: this.selectedCategory || undefined,
+      missing_descriptions_only: this.missingDescriptionsOnly() || undefined,
     };
     this.store.search(this.searchQuery, true, filters).catch(() => {
       this.showToast('خطا در برقراری ارتباط با سرور متادیتا', 'error');
     });
+  }
+
+  toggleMissingDescriptionsOnly(): void {
+    this.missingDescriptionsOnly.update((v) => !v);
+    this.executeSearch();
   }
 
   resetFilters(): void {
@@ -143,6 +150,7 @@ export class CatalogExplorerComponent implements OnInit {
     this.selectedStatus = '';
     this.selectedTag = '';
     this.selectedCategory = '';
+    this.missingDescriptionsOnly.set(false);
     this.executeSearch();
   }
 
@@ -182,6 +190,12 @@ export class CatalogExplorerComponent implements OnInit {
   }
 
   // Tree Node Selection Handlers
+  filterByDatabase(databaseName: string): void {
+    this.selectedDatabase = databaseName;
+    this.selectedSchema = '';
+    this.executeSearch();
+  }
+
   filterBySchema(schemaName: string): void {
     this.selectedSchema = schemaName;
     this.executeSearch();
@@ -244,6 +258,37 @@ export class CatalogExplorerComponent implements OnInit {
   closeInspector(): void {
     this.selectedTable.set(null);
     this.selectedTableId.set(null);
+  }
+
+  // AI Suggestion Approvals
+  async approveAiTableDescription(tableId: string): Promise<void> {
+    try {
+      const updated = await this.store.approveAiTableDescription(tableId);
+      this.selectedTable.set(updated);
+      const history = await this.store.getTableHistory(tableId);
+      this.tableHistory.set(history);
+      this.showToast('پیشنهاد هوش مصنوعی با موفقیت تایید و به عنوان شرح نهایی ثبت شد', 'success');
+    } catch {
+      this.showToast('خطا در تایید پیشنهاد هوش مصنوعی', 'error');
+    }
+  }
+
+  async approveAiColumnDescription(col: ColumnItem): Promise<void> {
+    try {
+      const updated = await this.store.approveAiColumnDescription(col.id);
+      this.selectedTable.update((curr) => {
+        if (!curr) return null;
+        return {
+          ...curr,
+          columns: curr.columns.map((c) => (c.id === col.id ? updated : c)),
+        };
+      });
+      const history = await this.store.getTableHistory(col.table_id);
+      this.tableHistory.set(history);
+      this.showToast(`پیشنهاد هوش مصنوعی برای ستون «${col.name}» تایید گردید`, 'success');
+    } catch {
+      this.showToast('خطا در تایید پیشنهاد هوش مصنوعی ستون', 'error');
+    }
   }
 
   // Table Approved Description Editor

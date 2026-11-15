@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 import uuid
 from pydantic import BaseModel, ConfigDict
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import func, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -169,6 +170,7 @@ async def list_schema_tables(
     schema_id: uuid.UUID,
     limit: int = Query(50, ge=1, le=200, description="Max results per page"),
     cursor: Optional[str] = Query(None, description="Base64-encoded keyset cursor"),
+    missing_descriptions_only: bool = Query(False, description="Filter for items with missing descriptions"),
     user_ctx: UserContext = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session),
 ) -> TableListResponse:
@@ -181,8 +183,72 @@ async def list_schema_tables(
         user_ctx=user_ctx,
         limit=limit,
         cursor=cursor,
+        missing_descriptions_only=missing_descriptions_only,
     )
     return TableListResponse(items=items, page_info=page_info)
+
+
+@router.get(
+    "/tables",
+    response_model=TableListResponse,
+    summary="List tables with optional missing descriptions filter",
+)
+async def list_all_tables(
+    schema_id: Optional[uuid.UUID] = Query(None),
+    limit: int = Query(50, ge=1, le=200),
+    cursor: Optional[str] = Query(None),
+    missing_descriptions_only: bool = Query(False),
+    user_ctx: UserContext = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+) -> TableListResponse:
+    if schema_id:
+        items, page_info = await search_service.list_tables_by_schema(
+            session=db,
+            schema_id=schema_id,
+            user_ctx=user_ctx,
+            limit=limit,
+            cursor=cursor,
+            missing_descriptions_only=missing_descriptions_only,
+        )
+        return TableListResponse(items=items, page_info=page_info)
+
+    # Global table list with RBAC
+    stmt = select(CatalogTable).where(CatalogTable.status != LifecycleStatus.DELETED)
+    if missing_descriptions_only:
+        stmt = stmt.where(
+            or_(
+                CatalogTable.effective_description.is_(None),
+                CatalogTable.effective_description == "",
+            )
+        )
+    rbac_filter = build_table_rbac_filter(user_ctx=user_ctx, action=PermissionAction.VIEW_METADATA)
+    stmt = rbac_filter(stmt)
+    stmt = stmt.order_by(CatalogTable.name.asc(), CatalogTable.id.asc()).limit(limit)
+    res = await db.execute(stmt)
+    tables = res.scalars().all()
+    items = [
+        {
+            "id": t.id,
+            "schema_id": t.schema_id,
+            "name": t.name,
+            "table_type": t.table_type.value,
+            "row_count_estimate": t.row_count_estimate,
+            "size_bytes": t.size_bytes,
+            "source_description": t.source_description,
+            "approved_description": t.approved_description,
+            "effective_description": t.effective_description,
+            "ai_suggested_description": t.ai_suggested_description,
+            "description_source": t.description_source,
+            "curated_by_id": t.curated_by_id,
+            "curated_by_username": t.curated_by_username,
+            "curated_at": t.curated_at,
+            "owner": t.owner,
+            "status": t.status.value,
+            "tags": [],
+        }
+        for t in tables
+    ]
+    return TableListResponse(items=items, page_info={"has_next_page": False, "next_cursor": None, "limit": limit})
 
 
 @router.get(
@@ -256,7 +322,12 @@ async def update_table_description(
 
     old_desc = table.approved_description
     new_desc = payload.approved_description
+    now = datetime.now(timezone.utc)
     table.approved_description = new_desc
+    table.description_source = "ADMIN_MANUAL"
+    table.curated_by_id = user_ctx.user_id
+    table.curated_by_username = user_ctx.user.username
+    table.curated_at = now
 
     # Insert SchemaChangeLog
     change_log = SchemaChangeLog(
@@ -282,6 +353,7 @@ async def update_table_description(
             "field": "approved_description",
             "old_value": old_desc,
             "new_value": new_desc,
+            "description_source": "ADMIN_MANUAL",
         },
         flush=True,
     )
@@ -296,6 +368,94 @@ async def update_table_description(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Table {table_id} could not be retrieved after update",
+        )
+    return TableDetail(**detail)
+
+
+@router.post(
+    "/tables/{table_id}/approve-ai-description",
+    response_model=TableDetail,
+    summary="Approve AI-suggested description for a table",
+)
+async def approve_table_ai_description(
+    table_id: uuid.UUID,
+    user_ctx: UserContext = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+) -> TableDetail:
+    table = await db.get(CatalogTable, table_id)
+    if not table or table.status == LifecycleStatus.DELETED:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Table {table_id} not found",
+        )
+
+    if not user_ctx.is_superadmin:
+        effect = await CategoryService.resolve_effective_permission(
+            session=db,
+            user_ctx=user_ctx,
+            entity_type=EntityType.TABLE,
+            entity_id=table.id,
+            action=PermissionAction.EDIT_DESCRIPTION,
+        )
+        if effect != PermissionEffect.ALLOW:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Forbidden: User lacks EDIT_DESCRIPTION permission for table {table_id}",
+            )
+
+    if not table.ai_suggested_description:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="پیشنهاد هوش مصنوعی برای این جدول ثبت نشده است.",
+        )
+
+    old_desc = table.approved_description
+    new_desc = table.ai_suggested_description
+    now = datetime.now(timezone.utc)
+
+    table.approved_description = new_desc
+    table.description_source = "AI_APPROVED"
+    table.curated_by_id = user_ctx.user_id
+    table.curated_by_username = user_ctx.user.username
+    table.curated_at = now
+
+    change_log = SchemaChangeLog(
+        id=uuid.uuid4(),
+        table_id=table.id,
+        change_type=SchemaChangeType.DESCRIPTION_UPDATED,
+        column_name=None,
+        old_value={"approved_description": old_desc},
+        new_value={"approved_description": new_desc, "source": "AI_APPROVED"},
+        actor_id=user_ctx.user_id,
+    )
+    db.add(change_log)
+
+    await record_audit_event(
+        session=db,
+        actor_username=user_ctx.user.username,
+        actor_id=user_ctx.user_id,
+        action="APPROVE_AI_DESCRIPTION",
+        entity_type=EntityType.TABLE,
+        entity_id=table.id,
+        diff_jsonb={
+            "field": "approved_description",
+            "old_value": old_desc,
+            "new_value": new_desc,
+            "description_source": "AI_APPROVED",
+        },
+        flush=True,
+    )
+    await db.flush()
+
+    detail = await search_service.get_table_details(
+        session=db,
+        table_id=table.id,
+        user_ctx=user_ctx,
+    )
+    if detail is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Table {table_id} could not be retrieved after approval",
         )
     return TableDetail(**detail)
 
@@ -338,7 +498,12 @@ async def update_column_description(
 
     old_desc = column.approved_description
     new_desc = payload.approved_description
+    now = datetime.now(timezone.utc)
     column.approved_description = new_desc
+    column.description_source = "ADMIN_MANUAL"
+    column.curated_by_id = user_ctx.user_id
+    column.curated_by_username = user_ctx.user.username
+    column.curated_at = now
 
     change_log = SchemaChangeLog(
         id=uuid.uuid4(),
@@ -364,6 +529,7 @@ async def update_column_description(
             "column_name": column.name,
             "old_value": old_desc,
             "new_value": new_desc,
+            "description_source": "ADMIN_MANUAL",
         },
         flush=True,
     )
@@ -384,6 +550,113 @@ async def update_column_description(
         source_description=column.source_description,
         approved_description=column.approved_description,
         effective_description=column.effective_description,
+        ai_suggested_description=column.ai_suggested_description,
+        description_source=column.description_source,
+        curated_by_id=column.curated_by_id,
+        curated_by_username=column.curated_by_username,
+        curated_at=column.curated_at,
+        classification_level=column.classification_level.value,
+        status=column.status.value,
+    )
+
+
+@router.post(
+    "/columns/{column_id}/approve-ai-description",
+    response_model=ColumnItem,
+    summary="Approve AI-suggested description for a column",
+)
+async def approve_column_ai_description(
+    column_id: uuid.UUID,
+    user_ctx: UserContext = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+) -> ColumnItem:
+    column = await db.get(CatalogColumn, column_id)
+    if not column or column.status == LifecycleStatus.DELETED:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Column {column_id} not found",
+        )
+
+    if not user_ctx.is_superadmin:
+        effect = await CategoryService.resolve_effective_permission(
+            session=db,
+            user_ctx=user_ctx,
+            entity_type=EntityType.TABLE,
+            entity_id=column.table_id,
+            action=PermissionAction.EDIT_DESCRIPTION,
+        )
+        if effect != PermissionEffect.ALLOW:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Forbidden: User lacks EDIT_DESCRIPTION permission for table {column.table_id}",
+            )
+
+    if not column.ai_suggested_description:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="پیشنهاد هوش مصنوعی برای این ستون ثبت نشده است.",
+        )
+
+    old_desc = column.approved_description
+    new_desc = column.ai_suggested_description
+    now = datetime.now(timezone.utc)
+
+    column.approved_description = new_desc
+    column.description_source = "AI_APPROVED"
+    column.curated_by_id = user_ctx.user_id
+    column.curated_by_username = user_ctx.user.username
+    column.curated_at = now
+
+    change_log = SchemaChangeLog(
+        id=uuid.uuid4(),
+        table_id=column.table_id,
+        change_type=SchemaChangeType.DESCRIPTION_UPDATED,
+        column_name=column.name,
+        old_value={"approved_description": old_desc},
+        new_value={"approved_description": new_desc, "source": "AI_APPROVED"},
+        actor_id=user_ctx.user_id,
+    )
+    db.add(change_log)
+
+    await record_audit_event(
+        session=db,
+        actor_username=user_ctx.user.username,
+        actor_id=user_ctx.user_id,
+        action="APPROVE_AI_DESCRIPTION",
+        entity_type=EntityType.COLUMN,
+        entity_id=column.id,
+        diff_jsonb={
+            "field": "approved_description",
+            "table_id": str(column.table_id),
+            "column_name": column.name,
+            "old_value": old_desc,
+            "new_value": new_desc,
+            "description_source": "AI_APPROVED",
+        },
+        flush=True,
+    )
+    await db.flush()
+    await db.refresh(column)
+
+    return ColumnItem(
+        id=column.id,
+        table_id=column.table_id,
+        name=column.name,
+        ordinal_position=column.ordinal_position,
+        data_type=column.data_type,
+        raw_data_type=column.raw_data_type,
+        is_nullable=column.is_nullable,
+        is_primary_key=column.is_primary_key,
+        is_foreign_key=column.is_foreign_key,
+        default_value=column.default_value,
+        source_description=column.source_description,
+        approved_description=column.approved_description,
+        effective_description=column.effective_description,
+        ai_suggested_description=column.ai_suggested_description,
+        description_source=column.description_source,
+        curated_by_id=column.curated_by_id,
+        curated_by_username=column.curated_by_username,
+        curated_at=column.curated_at,
         classification_level=column.classification_level.value,
         status=column.status.value,
     )

@@ -68,15 +68,59 @@
   padding: 0;
 }
 
+html {
+  font-size: 13.5px;
+  -webkit-text-size-adjust: 100%;
+}
+
 html, body {
   height: 100%;
   direction: rtl;
   text-align: right;
   font-family: var(--font-family-sans);
+  font-size: 12.5px;
   background-color: var(--slate-50);
   color: var(--slate-900);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+}
+
+/* Compact Typography Scale for Persian Enterprise UI */
+h1 { font-size: 1.35rem; }
+h2 { font-size: 1.15rem; }
+h3 { font-size: 1.02rem; }
+h4 { font-size: 0.92rem; }
+h5, h6 { font-size: 0.82rem; }
+
+button, input, select, textarea {
+  font-family: var(--font-family-sans);
+  font-size: 12px;
+}
+
+table, th, td {
+  font-size: 12px;
+}
+
+/* Global Tables Center Alignment */
+table th,
+table td {
+  text-align: center;
+  vertical-align: middle;
+}
+
+/* PrimeNG Compact Component Scaling */
+.p-component,
+.p-treetable,
+.p-datatable,
+.p-tree {
+  font-family: var(--font-family-sans) !important;
+  font-size: 12px !important;
+}
+
+.p-treetable .p-treetable-tbody > tr > td,
+.p-treetable .p-treetable-thead > tr > th {
+  padding: 8px 10px !important;
+  font-size: 12px !important;
 }
 
 /* Typography & Technical LTR Identifier badges */

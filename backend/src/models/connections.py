@@ -31,6 +31,7 @@ class DatabaseEngine(str, enum.Enum):
     ORACLE = "ORACLE"
     MYSQL = "MYSQL"
     CLICKHOUSE = "CLICKHOUSE"
+    MONGODB = "MONGODB"
 
 
 class DatabaseConnection(Base):

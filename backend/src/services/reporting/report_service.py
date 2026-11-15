@@ -70,13 +70,14 @@ class ReportService:
     async def get_metadata_completeness(
         self,
         session: AsyncSession,
+        connection_ids: Optional[List[uuid.UUID]] = None,
     ) -> CompletenessReport:
         """
         Retrieves metadata completeness metrics across all registered database connections
-        from mv_metadata_completeness with guaranteed sub-50ms query latency.
+        or filtered by connection_ids.
         """
         start_time = time.perf_counter()
-        stmt = text("""
+        query_sql = """
             SELECT 
                 connection_id,
                 database_name,
@@ -87,9 +88,15 @@ class ReportService:
                 tables_with_owner,
                 table_desc_completeness_pct
             FROM mv_metadata_completeness
-            ORDER BY database_name ASC;
-        """)
-        result = await session.execute(stmt)
+        """
+        params = {}
+        if connection_ids:
+            query_sql += " WHERE connection_id = ANY(:cids)"
+            params["cids"] = [str(cid) for cid in connection_ids]
+        query_sql += " ORDER BY database_name ASC;"
+
+        stmt = text(query_sql)
+        result = await session.execute(stmt, params)
         rows = result.fetchall()
 
         breakdown: List[DatabaseCompletenessItem] = []
@@ -144,21 +151,41 @@ class ReportService:
     async def get_classification_distribution(
         self,
         session: AsyncSession,
+        connection_ids: Optional[List[uuid.UUID]] = None,
     ) -> ClassificationReport:
         """
         Retrieves column-level security classification breakdown across all connected
-        databases from mv_classification_distribution with guaranteed sub-50ms query latency.
+        databases or filtered by connection_ids.
         """
         start_time = time.perf_counter()
-        stmt = text("""
-            SELECT 
-                classification_level,
-                column_count,
-                affected_table_count
-            FROM mv_classification_distribution
-            ORDER BY classification_level ASC;
-        """)
-        result = await session.execute(stmt)
+        params = {}
+        if connection_ids:
+            query_sql = """
+                SELECT 
+                    c.classification_level,
+                    count(c.id) AS column_count,
+                    count(DISTINCT c.table_id) AS affected_table_count
+                FROM catalog_columns c
+                JOIN catalog_tables t ON t.id = c.table_id
+                JOIN schemas s ON s.id = t.schema_id
+                WHERE c.status != 'DELETED' AND t.status != 'DELETED'
+                  AND s.connection_id = ANY(:cids)
+                GROUP BY c.classification_level
+                ORDER BY c.classification_level ASC;
+            """
+            params["cids"] = [str(cid) for cid in connection_ids]
+        else:
+            query_sql = """
+                SELECT 
+                    classification_level,
+                    column_count,
+                    affected_table_count
+                FROM mv_classification_distribution
+                ORDER BY classification_level ASC;
+            """
+
+        stmt = text(query_sql)
+        result = await session.execute(stmt, params)
         rows = result.fetchall()
 
         breakdown: List[ClassificationBreakdownItem] = []

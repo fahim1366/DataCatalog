@@ -12,7 +12,11 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from backend.src.api.dependencies.rbac import UserContext, get_current_user
+from backend.src.api.dependencies.rbac import (
+    UserContext,
+    get_current_user,
+    user_rule_matches,
+)
 from backend.src.core.database import get_db_session
 from backend.src.models.audit import AuditLog
 from backend.src.models.identity import Group, Role, User, UserGroup, UserRole, UserStatus
@@ -47,6 +51,7 @@ class UserCreateRequest(BaseModel):
 
 
 class UserUpdateRequest(BaseModel):
+    username: Optional[str] = None
     full_name: Optional[str] = None
     email: Optional[str] = None
     phone: Optional[str] = None
@@ -70,6 +75,10 @@ class UserGroupsUpdateRequest(BaseModel):
 
 class ResetPasswordRequest(BaseModel):
     new_password: str = Field(..., min_length=8, description="Minimum 8 characters")
+
+
+class UserDatabaseAccessUpdateRequest(BaseModel):
+    database_ids: List[uuid.UUID] = Field(default_factory=list)
 
 
 class UserResponse(BaseModel):
@@ -107,8 +116,8 @@ class UserDetailResponse(BaseModel):
 
 
 class BulkUserPermissionItem(BaseModel):
-    resource_type: ResourceType
-    resource_id: uuid.UUID
+    resource_type: ResourceType = ResourceType.GLOBAL
+    resource_id: Optional[uuid.UUID] = None
     action: PermissionAction
     effect: PermissionEffect = PermissionEffect.ALLOW
 
@@ -135,7 +144,7 @@ class UserActivityItem(BaseModel):
 )
 async def list_users(
     page: Optional[int] = Query(None, ge=1, description="Page number"),
-    page_size: int = Query(10, ge=1, le=100, description="Items per page"),
+    page_size: int = Query(10, ge=1, le=1000, description="Items per page"),
     search: Optional[str] = Query(None, description="Search by name, username, or email"),
     role_id: Optional[uuid.UUID] = Query(None, description="Filter by role ID"),
     group_id: Optional[uuid.UUID] = Query(None, description="Filter by group ID"),
@@ -242,15 +251,41 @@ async def list_users(
     return results
 
 
+async def require_manage_users(
+    user_ctx: UserContext = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+) -> UserContext:
+    if user_ctx.is_superadmin:
+        return user_ctx
+    deny_stmt = select(1).where(
+        user_rule_matches(user_ctx),
+        PermissionRule.action == PermissionAction.MANAGE_USERS,
+        PermissionRule.effect == PermissionEffect.DENY,
+    )
+    if (await db.execute(deny_stmt)).scalar_one_or_none() is not None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Forbidden: Access to manage users is explicitly denied.",
+        )
+    allow_stmt = select(1).where(
+        user_rule_matches(user_ctx),
+        PermissionRule.action == PermissionAction.MANAGE_USERS,
+        PermissionRule.effect == PermissionEffect.ALLOW,
+    )
+    if (await db.execute(allow_stmt)).scalar_one_or_none() is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Forbidden: User lacks MANAGE_USERS permission.",
+        )
+    return user_ctx
+
+
 @router.post("", response_model=UserResponse, status_code=status.HTTP_201_CREATED, summary="Create a new user")
 async def create_user(
     payload: UserCreateRequest,
-    user_ctx: UserContext = Depends(get_current_user),
+    user_ctx: UserContext = Depends(require_manage_users),
     db: AsyncSession = Depends(get_db_session),
 ) -> UserResponse:
-    if not user_ctx.is_superadmin:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only SuperAdmin can manage users")
-
     # Check unique username or email
     stmt = select(User).where((User.username == payload.username) | (User.email == payload.email))
     existing = (await db.execute(stmt)).scalar_one_or_none()
@@ -260,12 +295,13 @@ async def create_user(
             detail="User with this username or email already exists",
         )
 
+    clean_phone = payload.phone.strip() if payload.phone and payload.phone.strip() else None
     new_user = User(
         id=uuid.uuid4(),
-        username=payload.username,
-        email=payload.email,
-        full_name=payload.full_name,
-        phone=payload.phone,
+        username=payload.username.strip(),
+        email=payload.email.strip(),
+        full_name=payload.full_name.strip(),
+        phone=clean_phone,
         hashed_password=auth_service.hash_password(payload.password),
         status=UserStatus.ACTIVE,
         is_superadmin=payload.is_superadmin,
@@ -302,7 +338,7 @@ async def create_user(
         actor_username=user_ctx.user.username,
         actor_id=user_ctx.user_id,
         action="CREATE_USER",
-        entity_type=EntityType.DATABASE,
+        entity_type=EntityType.USER,
         entity_id=new_user.id,
         diff_jsonb={
             "username": new_user.username,
@@ -431,17 +467,22 @@ async def get_user_details(
 async def update_user(
     user_id: uuid.UUID,
     payload: UserUpdateRequest,
-    user_ctx: UserContext = Depends(get_current_user),
+    user_ctx: UserContext = Depends(require_manage_users),
     db: AsyncSession = Depends(get_db_session),
 ) -> UserResponse:
-    if not user_ctx.is_superadmin:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only SuperAdmin can manage users")
-
     user = await db.get(User, user_id)
     if not user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
 
     diff = {}
+    if payload.username is not None and payload.username.strip() and payload.username.strip() != user.username:
+        new_username = payload.username.strip()
+        exist_un = (await db.execute(select(User).where(User.username == new_username, User.id != user_id))).scalar_one_or_none()
+        if exist_un:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Username already in use")
+        diff["username"] = {"old": user.username, "new": new_username}
+        user.username = new_username
+
     if payload.full_name is not None and payload.full_name != user.full_name:
         diff["full_name"] = {"old": user.full_name, "new": payload.full_name}
         user.full_name = payload.full_name
@@ -454,8 +495,10 @@ async def update_user(
         user.email = payload.email
 
     if payload.phone is not None:
-        diff["phone"] = {"old": user.phone, "new": payload.phone}
-        user.phone = payload.phone
+        new_phone = payload.phone.strip() if payload.phone.strip() else None
+        if new_phone != user.phone:
+            diff["phone"] = {"old": user.phone, "new": new_phone}
+            user.phone = new_phone
 
     if payload.status is not None:
         diff["status"] = {"old": user.status.value, "new": payload.status.value}
@@ -496,7 +539,7 @@ async def update_user(
         actor_username=user_ctx.user.username,
         actor_id=user_ctx.user_id,
         action="UPDATE_USER",
-        entity_type=EntityType.DATABASE,
+        entity_type=EntityType.USER,
         entity_id=user.id,
         diff_jsonb=diff,
         flush=True,
@@ -510,12 +553,9 @@ async def update_user(
 async def reset_password(
     user_id: uuid.UUID,
     payload: ResetPasswordRequest,
-    user_ctx: UserContext = Depends(get_current_user),
+    user_ctx: UserContext = Depends(require_manage_users),
     db: AsyncSession = Depends(get_db_session),
 ) -> Dict[str, str]:
-    if not user_ctx.is_superadmin:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only SuperAdmin can reset passwords")
-
     user = await db.get(User, user_id)
     if not user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
@@ -528,7 +568,7 @@ async def reset_password(
         actor_username=user_ctx.user.username,
         actor_id=user_ctx.user_id,
         action="RESET_PASSWORD",
-        entity_type=EntityType.DATABASE,
+        entity_type=EntityType.USER,
         entity_id=user.id,
         diff_jsonb={"target_username": user.username, "reset_by": user_ctx.user.username},
         flush=True,
@@ -542,12 +582,9 @@ async def reset_password(
 async def update_user_status(
     user_id: uuid.UUID,
     payload: UserStatusUpdateRequest,
-    user_ctx: UserContext = Depends(get_current_user),
+    user_ctx: UserContext = Depends(require_manage_users),
     db: AsyncSession = Depends(get_db_session),
 ) -> UserResponse:
-    if not user_ctx.is_superadmin:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only SuperAdmin can change user status")
-
     user = await db.get(User, user_id)
     if not user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
@@ -560,7 +597,7 @@ async def update_user_status(
         actor_username=user_ctx.user.username,
         actor_id=user_ctx.user_id,
         action="UPDATE_USER_STATUS",
-        entity_type=EntityType.DATABASE,
+        entity_type=EntityType.USER,
         entity_id=user.id,
         diff_jsonb={"old_status": old_status, "new_status": user.status.value},
         flush=True,
@@ -574,12 +611,9 @@ async def update_user_status(
 async def update_user_roles(
     user_id: uuid.UUID,
     payload: UserRolesUpdateRequest,
-    user_ctx: UserContext = Depends(get_current_user),
+    user_ctx: UserContext = Depends(require_manage_users),
     db: AsyncSession = Depends(get_db_session),
 ) -> UserResponse:
-    if not user_ctx.is_superadmin:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only SuperAdmin can manage user roles")
-
     user = await db.get(User, user_id)
     if not user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
@@ -607,7 +641,7 @@ async def update_user_roles(
         actor_username=user_ctx.user.username,
         actor_id=user_ctx.user_id,
         action="UPDATE_USER_ROLES",
-        entity_type=EntityType.DATABASE,
+        entity_type=EntityType.USER,
         entity_id=user.id,
         diff_jsonb={"new_roles": assigned_role_names},
         flush=True,
@@ -686,14 +720,14 @@ async def update_user_groups(
 @router.get("/{user_id}/permissions", response_model=List[Dict[str, Any]], summary="Get direct user permissions")
 async def get_user_direct_permissions(
     user_id: uuid.UUID,
+    resource_type: Optional[ResourceType] = None,
     user_ctx: UserContext = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session),
 ) -> List[Dict[str, Any]]:
-    stmt = (
-        select(PermissionRule)
-        .where(PermissionRule.user_id == user_id)
-        .order_by(PermissionRule.created_at.desc())
-    )
+    stmt = select(PermissionRule).where(PermissionRule.user_id == user_id)
+    if resource_type is not None:
+        stmt = stmt.where(PermissionRule.resource_type == resource_type)
+    stmt = stmt.order_by(PermissionRule.created_at.desc())
     rules = (await db.execute(stmt)).scalars().all()
     return [
         {
@@ -713,20 +747,17 @@ async def get_user_direct_permissions(
 async def bulk_update_user_permissions(
     user_id: uuid.UUID,
     payload: BulkUserPermissionsRequest,
-    user_ctx: UserContext = Depends(get_current_user),
+    user_ctx: UserContext = Depends(require_manage_users),
     db: AsyncSession = Depends(get_db_session),
 ) -> List[Dict[str, Any]]:
-    if not user_ctx.is_superadmin:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only SuperAdmin can manage user permissions")
-
     user = await db.get(User, user_id)
     if not user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
 
-    # Clear existing direct resource permissions for database, schema, table
+    # Clear existing direct GLOBAL permissions for user (database access is managed via /{user_id}/databases)
     del_stmt = select(PermissionRule).where(
         PermissionRule.user_id == user_id,
-        PermissionRule.resource_type.in_([ResourceType.DATABASE, ResourceType.SCHEMA, ResourceType.TABLE]),
+        PermissionRule.resource_type == ResourceType.GLOBAL,
     )
     old_rules = (await db.execute(del_stmt)).scalars().all()
     for rule in old_rules:
@@ -738,7 +769,7 @@ async def bulk_update_user_permissions(
             id=uuid.uuid4(),
             user_id=user_id,
             resource_type=item.resource_type,
-            resource_id=item.resource_id,
+            resource_id=item.resource_id if item.resource_id else None,
             action=item.action,
             effect=item.effect,
         )
@@ -749,7 +780,7 @@ async def bulk_update_user_permissions(
         actor_username=user_ctx.user.username,
         actor_id=user_ctx.user_id,
         action="UPDATE_USER_PERMISSIONS",
-        entity_type=EntityType.DATABASE,
+        entity_type=EntityType.USER,
         entity_id=user_id,
         diff_jsonb={"username": user.username, "rules_count": len(payload.permissions)},
         flush=True,
@@ -763,12 +794,9 @@ async def bulk_update_user_permissions(
 async def delete_user_permission_rule(
     user_id: uuid.UUID,
     rule_id: uuid.UUID,
-    user_ctx: UserContext = Depends(get_current_user),
+    user_ctx: UserContext = Depends(require_manage_users),
     db: AsyncSession = Depends(get_db_session),
 ) -> None:
-    if not user_ctx.is_superadmin:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only SuperAdmin can manage permissions")
-
     rule = await db.get(PermissionRule, rule_id)
     if not rule or rule.user_id != user_id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Permission rule not found")
@@ -778,7 +806,7 @@ async def delete_user_permission_rule(
         actor_username=user_ctx.user.username,
         actor_id=user_ctx.user_id,
         action="REVOKE_USER_PERMISSION",
-        entity_type=EntityType.DATABASE,
+        entity_type=EntityType.USER,
         entity_id=user_id,
         diff_jsonb={"rule_id": str(rule.id), "resource_type": rule.resource_type.value, "action": rule.action.value},
         flush=True,
@@ -831,7 +859,7 @@ async def get_user_activity(
         .where(
             or_(
                 AuditLog.actor_id == user_id,
-                (AuditLog.entity_type == EntityType.DATABASE) & (AuditLog.entity_id == user_id),
+                (AuditLog.entity_type.in_([EntityType.USER, EntityType.DATABASE])) & (AuditLog.entity_id == user_id),
             )
         )
         .order_by(AuditLog.created_at.desc())
@@ -854,15 +882,74 @@ async def get_user_activity(
     ]
 
 
-@router.delete("/{user_id}", status_code=status.HTTP_204_NO_CONTENT, summary="Delete user")
-async def delete_user(
+@router.get("/{user_id}/databases", response_model=List[uuid.UUID], summary="Get databases assigned to user")
+async def get_user_assigned_databases(
     user_id: uuid.UUID,
     user_ctx: UserContext = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session),
-) -> None:
-    if not user_ctx.is_superadmin:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only SuperAdmin can delete users")
+) -> List[uuid.UUID]:
+    stmt = select(PermissionRule.resource_id).where(
+        PermissionRule.user_id == user_id,
+        PermissionRule.resource_type == ResourceType.DATABASE,
+        PermissionRule.effect == PermissionEffect.ALLOW,
+    )
+    res = await db.execute(stmt)
+    return [r for r in res.scalars().all() if r is not None]
 
+
+@router.put("/{user_id}/databases", response_model=List[uuid.UUID], summary="Update databases assigned to user")
+async def update_user_assigned_databases(
+    user_id: uuid.UUID,
+    payload: UserDatabaseAccessUpdateRequest,
+    user_ctx: UserContext = Depends(require_manage_users),
+    db: AsyncSession = Depends(get_db_session),
+) -> List[uuid.UUID]:
+    user = await db.get(User, user_id)
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+
+    # Clear existing direct DATABASE rules for user
+    del_stmt = select(PermissionRule).where(
+        PermissionRule.user_id == user_id,
+        PermissionRule.resource_type == ResourceType.DATABASE,
+    )
+    old_rules = (await db.execute(del_stmt)).scalars().all()
+    for rule in old_rules:
+        await db.delete(rule)
+    await db.flush()
+
+    for db_id in payload.database_ids:
+        rule = PermissionRule(
+            id=uuid.uuid4(),
+            user_id=user_id,
+            resource_type=ResourceType.DATABASE,
+            resource_id=db_id,
+            action=PermissionAction.VIEW_METADATA,
+            effect=PermissionEffect.ALLOW,
+        )
+        db.add(rule)
+
+    await record_audit_event(
+        session=db,
+        actor_username=user_ctx.user.username,
+        actor_id=user_ctx.user_id,
+        action="UPDATE_USER_DATABASE_ACCESS",
+        entity_type=EntityType.USER,
+        entity_id=user_id,
+        diff_jsonb={"username": user.username, "assigned_databases": [str(d) for d in payload.database_ids]},
+        flush=True,
+    )
+    await db.flush()
+
+    return payload.database_ids
+
+
+@router.delete("/{user_id}", status_code=status.HTTP_204_NO_CONTENT, summary="Delete user")
+async def delete_user(
+    user_id: uuid.UUID,
+    user_ctx: UserContext = Depends(require_manage_users),
+    db: AsyncSession = Depends(get_db_session),
+) -> None:
     if user_id == user_ctx.user_id:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Cannot delete current logged-in user")
 
@@ -875,7 +962,7 @@ async def delete_user(
         actor_username=user_ctx.user.username,
         actor_id=user_ctx.user_id,
         action="DELETE_USER",
-        entity_type=EntityType.DATABASE,
+        entity_type=EntityType.USER,
         entity_id=user.id,
         diff_jsonb={"deleted_username": user.username},
         flush=True,

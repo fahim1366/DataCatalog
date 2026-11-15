@@ -1,13 +1,46 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideHttpClient } from '@angular/common/http';
-import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
+import { provideHttpClientTesting } from '@angular/common/http/testing';
 import { By } from '@angular/platform-browser';
-import { of, throwError } from 'rxjs';
+import { of } from 'rxjs';
 import { ConnectionListComponent } from './connection-list.component';
 import { ConnectionDialogComponent } from './connection-dialog.component';
 import { ConnectionService } from './services/connection.service';
 import { DatabaseConnection, ConnectionTestResult } from './models/connection.models';
 import { AuthService } from '../../core/auth/auth.service';
+import { CategoryTreeNode } from '../catalog/models/catalog.models';
+
+const mockCategoryTree: CategoryTreeNode[] = [
+  {
+    id: 'parent-cat-1',
+    name: 'شهرداری و شهرسازی (Parent Branch)',
+    tables: [],
+    databases: [],
+    children: [
+      {
+        id: 'leaf-cat-1',
+        name: 'پروانه‌های ساختمانی (Leaf 1)',
+        tables: [],
+        databases: [],
+        children: [],
+      },
+      {
+        id: 'leaf-cat-2',
+        name: 'طرح تفصیلی (Leaf 2)',
+        tables: [],
+        databases: [],
+        children: [],
+      },
+    ],
+  },
+  {
+    id: 'leaf-cat-root',
+    name: 'امور مالیاتی مستقل (Root Leaf)',
+    tables: [],
+    databases: [],
+    children: [],
+  },
+];
 
 const mockConnections: DatabaseConnection[] = [
   {
@@ -19,6 +52,8 @@ const mockConnections: DatabaseConnection[] = [
     database_name: 'prod_warehouse',
     default_schema: 'public',
     owner: 'data-engineering',
+    category_id: 'leaf-cat-1',
+    category_name: 'پروانه‌های ساختمانی (Leaf 1)',
     is_active: true,
     custom_params: { sslmode: 'require' },
     masked_credentials: { username: 'app_admin', password: '***' },
@@ -100,6 +135,7 @@ describe('ConnectionListComponent (T028: Angular Connection Management UI)', () 
     authService.setToken(token);
 
     vi.spyOn(connectionService, 'getConnections').mockReturnValue(of(mockConnections));
+    vi.spyOn(connectionService, 'getCategoryTree').mockReturnValue(of(mockCategoryTree));
 
     fixture = TestBed.createComponent(ConnectionListComponent);
     component = fixture.componentInstance;
@@ -121,6 +157,26 @@ describe('ConnectionListComponent (T028: Angular Connection Management UI)', () 
     expect(secondCardText).toContain('Analytics ClickHouse Cluster');
     expect(secondCardText).toContain('CLICKHOUSE');
     expect(secondCardText).toContain('clickhouse.analytics.net:8123');
+  });
+
+  it('should render topic hierarchy tree and filter databases by selected leaf topic', () => {
+    // Topic sidebar exists
+    const treeItems = fixture.debugElement.queryAll(By.css('.tree-node-item'));
+    expect(treeItems.length).toBeGreaterThanOrEqual(2);
+
+    // Find leaf node 'leaf-cat-1' and click it
+    const leaf1 = mockCategoryTree[0].children[0];
+    component.selectCategory(leaf1);
+    fixture.detectChanges();
+
+    expect(component.selectedCategory()?.id).toBe('leaf-cat-1');
+    expect(component.filteredConnections().length).toBe(1);
+    expect(component.filteredConnections()[0].name).toBe('Production PostgreSQL Warehouse');
+
+    // Deselect back to all
+    component.selectCategory(null);
+    fixture.detectChanges();
+    expect(component.filteredConnections().length).toBe(2);
   });
 
   it('should render active and inactive status badges correctly', () => {
@@ -195,6 +251,23 @@ describe('ConnectionListComponent (T028: Angular Connection Management UI)', () 
     expect(failureEl.nativeElement.textContent).toContain('timed out');
   });
 
+  it('should open edit dialog with existing connection populated when edit button is clicked', async () => {
+    const editButtons = fixture.debugElement.queryAll(By.css('.btn-edit-connection'));
+    expect(editButtons.length).toBeGreaterThanOrEqual(1);
+
+    editButtons[0].nativeElement.click();
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    expect(component.showDialog()).toBe(true);
+    expect(component.connectionToEdit()).toEqual(mockConnections[0]);
+
+    const dialogDebug = fixture.debugElement.query(By.directive(ConnectionDialogComponent));
+    expect(dialogDebug).toBeTruthy();
+    const dialogComponent = dialogDebug.componentInstance as ConnectionDialogComponent;
+    expect(dialogComponent.form.controls.name.value).toBe('Production PostgreSQL Warehouse');
+  });
+
   it('should validate 5-part cron schedule with validation feedback in ConnectionDialogComponent', async () => {
     // Open connection creation dialog
     const addBtn = fixture.debugElement.query(By.css('.btn-add-connection'));
@@ -253,4 +326,3 @@ describe('ConnectionListComponent (T028: Angular Connection Management UI)', () 
     expect(validFeedbackEl).toBeTruthy();
   });
 });
-

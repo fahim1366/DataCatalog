@@ -25,6 +25,17 @@ class SyncScheduleResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class SyncScheduleUpdateRequest(BaseModel):
+    cron_expression: str = Field(..., description="5-part cron schedule expression")
+    is_enabled: bool = Field(default=True, description="Whether the schedule is active")
+
+    @field_validator("cron_expression")
+    @classmethod
+    def validate_cron(cls, v: str) -> str:
+        validate_cron_expression(v)
+        return v
+
+
 class ConnectionCreateRequest(BaseModel):
     name: str = Field(..., min_length=1, max_length=200, description="Unique connection profile name")
     engine_type: DatabaseEngine = Field(..., description="Target database engine dialect")
@@ -33,6 +44,7 @@ class ConnectionCreateRequest(BaseModel):
     database_name: str = Field(..., min_length=1, max_length=255, description="Target database name or catalog")
     default_schema: Optional[str] = Field(None, max_length=100, description="Default schema to inspect")
     owner: Optional[str] = Field(None, max_length=255, description="Data steward or administrator owner")
+    category_id: Optional[uuid.UUID] = Field(None, description="Assigned category / topic leaf ID")
     credentials: Dict[str, Any] = Field(..., description="Sensitive connection credentials to encrypt with DEK")
     custom_params: Dict[str, Any] = Field(default_factory=dict, description="Dialect-specific driver parameters")
     cron_expression: Optional[str] = Field(None, description="Optional 5-part cron schedule for background sync")
@@ -53,6 +65,7 @@ class ConnectionUpdateRequest(BaseModel):
     database_name: Optional[str] = Field(None, min_length=1, max_length=255)
     default_schema: Optional[str] = Field(None, max_length=100)
     owner: Optional[str] = Field(None, max_length=255)
+    category_id: Optional[uuid.UUID] = None
     credentials: Optional[Dict[str, Any]] = None
     custom_params: Optional[Dict[str, Any]] = None
     cron_expression: Optional[str] = None
@@ -76,6 +89,8 @@ class ConnectionResponse(BaseModel):
     default_schema: Optional[str] = None
     owner: str
     is_active: bool
+    category_id: Optional[uuid.UUID] = None
+    category_name: Optional[str] = None
     custom_params: Dict[str, Any] = Field(default_factory=dict)
     masked_credentials: Dict[str, str] = Field(default_factory=dict)
     sync_schedule: Optional[SyncScheduleResponse] = None

@@ -4,12 +4,12 @@ import logging
 import uuid
 from typing import Any, Dict, List, Optional
 
-from sqlalchemy import select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from backend.src.models.connections import DatabaseConnection, DatabaseEngine, SyncSchedule
-from backend.src.models.rbac import EntityType
+from backend.src.models.rbac import Category, CategoryAssignment, EntityType
 from backend.src.schemas.connections import (
     ConnectionCreateRequest,
     ConnectionResponse,
@@ -49,7 +49,12 @@ class ConnectionService:
     def __init__(self, crypto_service: Optional[EnvelopeEncryptionService] = None) -> None:
         self.crypto = crypto_service or EnvelopeEncryptionService()
 
-    def serialize_response(self, connection: DatabaseConnection) -> ConnectionResponse:
+    def serialize_response(
+        self,
+        connection: DatabaseConnection,
+        category_id: Optional[uuid.UUID] = None,
+        category_name: Optional[str] = None,
+    ) -> ConnectionResponse:
         """Converts DatabaseConnection ORM entity into ConnectionResponse with masked credentials."""
         # Decrypt transiently in memory to extract keys and mask secret values
         try:
@@ -64,6 +69,9 @@ class ConnectionService:
         if "sync_schedule" in connection.__dict__ and connection.sync_schedule is not None:
             sync_resp = SyncScheduleResponse.model_validate(connection.sync_schedule)
 
+        eff_cat_id = category_id if category_id is not None else getattr(connection, "_category_id", None)
+        eff_cat_name = category_name if category_name is not None else getattr(connection, "_category_name", None)
+
         return ConnectionResponse(
             id=connection.id,
             name=connection.name,
@@ -74,6 +82,8 @@ class ConnectionService:
             default_schema=connection.default_schema,
             owner=connection.owner,
             is_active=connection.is_active,
+            category_id=eff_cat_id,
+            category_name=eff_cat_name,
             custom_params=connection.custom_params or {},
             masked_credentials=masked,
             sync_schedule=sync_resp,
@@ -129,9 +139,31 @@ class ConnectionService:
         else:
             connection.sync_schedule = None
 
+        # 4. Handle Category Assignment (enforce leaf category)
+        cat_name: Optional[str] = None
+        if request.category_id:
+            cat = await session.get(Category, request.category_id)
+            if not cat:
+                raise ValueError("دسته‌بندی / موضوع انتخاب‌شده یافت نشد.")
+            child_count_stmt = select(func.count(Category.id)).where(Category.parent_id == request.category_id)
+            child_count = (await session.execute(child_count_stmt)).scalar() or 0
+            if child_count > 0:
+                raise ValueError("فقط برگ‌های درخت موضوعات (دسته‌بندی‌های بدون زیرمجموعه) قابل انتساب به پایگاه‌داده هستند.")
+            assignment = CategoryAssignment(
+                id=uuid.uuid4(),
+                category_id=request.category_id,
+                entity_type=EntityType.DATABASE,
+                entity_id=connection_id,
+            )
+            session.add(assignment)
+            cat_name = cat.name
+
+        connection._category_id = request.category_id
+        connection._category_name = cat_name
+
         await session.flush()
 
-        # 4. Record immutable audit log entry in the same transaction
+        # 5. Record immutable audit log entry in the same transaction
         await record_audit_event(
             session=session,
             actor_username=actor_username,
@@ -146,6 +178,7 @@ class ConnectionService:
                 "port": connection.port,
                 "database_name": connection.database_name,
                 "has_schedule": request.cron_expression is not None,
+                "category_id": str(request.category_id) if request.category_id else None,
             },
             flush=True,
         )
@@ -155,19 +188,37 @@ class ConnectionService:
     async def get_connection(
         self, session: AsyncSession, connection_id: uuid.UUID
     ) -> Optional[DatabaseConnection]:
-        """Retrieves connection by ID including sync_schedule."""
+        """Retrieves connection by ID including sync_schedule and category assignment."""
         stmt = (
             select(DatabaseConnection)
             .where(DatabaseConnection.id == connection_id)
             .options(selectinload(DatabaseConnection.sync_schedule))
         )
         result = await session.execute(stmt)
-        return result.scalar_one_or_none()
+        conn = result.scalar_one_or_none()
+        if conn is not None:
+            assign_stmt = (
+                select(CategoryAssignment.category_id, Category.name)
+                .join(Category, Category.id == CategoryAssignment.category_id)
+                .where(
+                    CategoryAssignment.entity_id == connection_id,
+                    CategoryAssignment.entity_type == EntityType.DATABASE,
+                )
+            )
+            assign_res = await session.execute(assign_stmt)
+            row = assign_res.first()
+            if row is not None:
+                conn._category_id = row[0]
+                conn._category_name = row[1]
+            else:
+                conn._category_id = None
+                conn._category_name = None
+        return conn
 
     async def list_connections(
         self, session: AsyncSession, is_active: Optional[bool] = None
     ) -> List[DatabaseConnection]:
-        """Lists registered database connections."""
+        """Lists registered database connections with their assigned leaf category."""
         stmt = select(DatabaseConnection).options(
             selectinload(DatabaseConnection.sync_schedule)
         )
@@ -175,7 +226,28 @@ class ConnectionService:
             stmt = stmt.where(DatabaseConnection.is_active == is_active)
         stmt = stmt.order_by(DatabaseConnection.name.asc())
         result = await session.execute(stmt)
-        return list(result.scalars().all())
+        connections = list(result.scalars().all())
+
+        # Load category assignments for all connections
+        assign_stmt = (
+            select(
+                CategoryAssignment.entity_id,
+                CategoryAssignment.category_id,
+                Category.name,
+            )
+            .join(Category, Category.id == CategoryAssignment.category_id)
+            .where(CategoryAssignment.entity_type == EntityType.DATABASE)
+        )
+        assign_res = await session.execute(assign_stmt)
+        cat_map = {row[0]: (row[1], row[2]) for row in assign_res.all()}
+
+        for c in connections:
+            if c.id in cat_map:
+                c._category_id, c._category_name = cat_map[c.id]
+            else:
+                c._category_id, c._category_name = None, None
+
+        return connections
 
     async def test_connection(
         self, session: AsyncSession, connection_id: uuid.UUID

@@ -34,6 +34,7 @@ export interface UserCreateDto {
 }
 
 export interface UserUpdateDto {
+  username?: string;
   full_name?: string;
   email?: string;
   phone?: string;

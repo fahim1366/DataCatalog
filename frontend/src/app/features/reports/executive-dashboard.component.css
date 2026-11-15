@@ -264,7 +264,7 @@
 .data-table {
   width: 100%;
   border-collapse: collapse;
-  text-align: left;
+  text-align: center;
   font-size: 0.875rem;
 }
 
@@ -274,12 +274,14 @@
   font-weight: 600;
   padding: 0.75rem 1rem;
   border-bottom: 1px solid #e2e8f0;
+  text-align: center;
 }
 
 .data-table td {
   padding: 0.75rem 1rem;
   border-bottom: 1px solid #f1f5f9;
   color: #334155;
+  text-align: center;
 }
 
 .data-table tr:hover td {
@@ -294,6 +296,7 @@
 .pct-cell {
   display: flex;
   align-items: center;
+  justify-content: center;
   gap: 0.5rem;
 }
 
@@ -327,4 +330,120 @@
   text-align: center;
   color: #94a3b8;
   padding: 2rem !important;
+}
+
+/* --- Selective Database Filter Bar --- */
+.db-filter-bar {
+  background-color: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 1rem 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+}
+
+.filter-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.filter-title-group {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.filter-title-icon {
+  font-size: 1.125rem;
+}
+
+.filter-title {
+  font-size: 0.875rem;
+  font-weight: 700;
+  color: #1e293b;
+}
+
+.filter-status-group {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.filter-badge {
+  font-size: 0.75rem;
+  font-weight: 700;
+  background-color: #e0e7ff;
+  color: #4338ca;
+  padding: 0.25rem 0.625rem;
+  border-radius: 9999px;
+}
+
+.filter-badge-all {
+  font-size: 0.75rem;
+  background-color: #f1f5f9;
+  color: #64748b;
+  padding: 0.25rem 0.625rem;
+  border-radius: 9999px;
+}
+
+.btn-clear-filter {
+  background: none;
+  border: none;
+  color: #6366f1;
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+  text-decoration: underline;
+  padding: 0;
+}
+
+.btn-clear-filter:hover {
+  color: #4338ca;
+}
+
+.filter-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.db-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.375rem 0.75rem;
+  background-color: #f8fafc;
+  border: 1px solid #cbd5e1;
+  border-radius: 20px;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: #334155;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.db-chip:hover {
+  background-color: #f1f5f9;
+  border-color: #94a3b8;
+}
+
+.db-chip.active {
+  background-color: #eef2ff;
+  border-color: #6366f1;
+  color: #3730a3;
+  font-weight: 700;
+}
+
+.chip-engine {
+  font-size: 0.6875rem;
+  font-weight: 700;
+  background-color: rgba(0, 0, 0, 0.06);
+  padding: 0.125rem 0.375rem;
+  border-radius: 4px;
+  text-transform: uppercase;
 }

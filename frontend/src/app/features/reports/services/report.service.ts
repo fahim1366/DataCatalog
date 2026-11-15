@@ -1,5 +1,5 @@
 import { Injectable, inject } from '@angular/core';
-import { HttpClient } from '@angular/common/http';
+import { HttpClient, HttpParams } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import {
   CompletenessReport,
@@ -15,19 +15,29 @@ export class ReportService {
   private readonly baseUrl = '/api/v1/reports';
 
   /**
-   * Retrieves aggregated metadata completeness metrics across all registered databases.
-   * Queried directly from PostgreSQL mv_metadata_completeness in < 50ms.
+   * Retrieves aggregated metadata completeness metrics across all or selected databases.
    */
-  getCompletenessReport(): Observable<CompletenessReport> {
-    return this.http.get<CompletenessReport>(`${this.baseUrl}/completeness`);
+  getCompletenessReport(connectionIds?: string[]): Observable<CompletenessReport> {
+    let params = new HttpParams();
+    if (connectionIds && connectionIds.length > 0) {
+      connectionIds.forEach((id) => {
+        params = params.append('connection_ids', id);
+      });
+    }
+    return this.http.get<CompletenessReport>(`${this.baseUrl}/completeness`, { params });
   }
 
   /**
-   * Retrieves security classification and PII distribution metrics across all catalog columns.
-   * Queried directly from PostgreSQL mv_classification_distribution in < 50ms.
+   * Retrieves security classification and PII distribution metrics across all or selected databases.
    */
-  getClassificationDistribution(): Observable<ClassificationReport> {
-    return this.http.get<ClassificationReport>(`${this.baseUrl}/classification-distribution`);
+  getClassificationDistribution(connectionIds?: string[]): Observable<ClassificationReport> {
+    let params = new HttpParams();
+    if (connectionIds && connectionIds.length > 0) {
+      connectionIds.forEach((id) => {
+        params = params.append('connection_ids', id);
+      });
+    }
+    return this.http.get<ClassificationReport>(`${this.baseUrl}/classification-distribution`, { params });
   }
 
   /**
@@ -40,8 +50,15 @@ export class ReportService {
   /**
    * Exports executive reporting summary to JSON or CSV format.
    */
-  exportReports(format: 'json' | 'csv'): Observable<Blob> {
-    return this.http.get(`${this.baseUrl}/export?format=${format}`, {
+  exportReports(format: 'json' | 'csv', connectionIds?: string[]): Observable<Blob> {
+    let params = new HttpParams().set('format', format);
+    if (connectionIds && connectionIds.length > 0) {
+      connectionIds.forEach((id) => {
+        params = params.append('connection_ids', id);
+      });
+    }
+    return this.http.get(`${this.baseUrl}/export`, {
+      params,
       responseType: 'blob',
     });
   }

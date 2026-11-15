@@ -220,6 +220,7 @@
 .app-body {
   display: flex;
   flex: 1;
+  min-height: 0;
   overflow: hidden;
 }
 
@@ -235,6 +236,7 @@
   padding: 18px 12px;
   box-shadow: -2px 0 8px rgba(0, 0, 0, 0.2);
   z-index: 20;
+  overflow-y: auto;
 }
 
 .nav-menu {
@@ -291,8 +293,12 @@
 
 .app-content {
   flex: 1;
-  overflow: hidden;
+  min-height: 0;
+  min-width: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
   background-color: var(--slate-50);
   display: flex;
   flex-direction: column;
+  scroll-behavior: smooth;
 }

@@ -1,4 +1,4 @@
-export type DatabaseEngine = 'POSTGRESQL' | 'MSSQL' | 'ORACLE' | 'MYSQL' | 'CLICKHOUSE';
+export type DatabaseEngine = 'POSTGRESQL' | 'MSSQL' | 'ORACLE' | 'MYSQL' | 'CLICKHOUSE' | 'MONGODB';
 
 export interface SyncSchedule {
   id: string;
@@ -23,6 +23,8 @@ export interface DatabaseConnection {
   default_schema?: string | null;
   owner: string;
   is_active: boolean;
+  category_id?: string | null;
+  category_name?: string | null;
   custom_params?: Record<string, unknown>;
   masked_credentials?: Record<string, string>;
   sync_schedule?: SyncSchedule | null;
@@ -38,6 +40,7 @@ export interface ConnectionCreateRequest {
   database_name: string;
   default_schema?: string;
   owner?: string;
+  category_id?: string | null;
   credentials: Record<string, unknown>;
   custom_params?: Record<string, unknown>;
   cron_expression?: string;

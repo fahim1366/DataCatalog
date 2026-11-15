@@ -124,6 +124,23 @@ class CatalogTable(Base):
     approved_description: Mapped[Optional[str]] = mapped_column(
         Text, nullable=True
     )
+    ai_suggested_description: Mapped[Optional[str]] = mapped_column(
+        Text, nullable=True
+    )
+    description_source: Mapped[str] = mapped_column(
+        String(50), nullable=False, default="SOURCE_DB", server_default=text("'SOURCE_DB'")
+    )
+    curated_by_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    curated_by_username: Mapped[Optional[str]] = mapped_column(
+        String(100), nullable=True
+    )
+    curated_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     effective_description: Mapped[Optional[str]] = mapped_column(
         Text,
         Computed(
@@ -236,6 +253,23 @@ class CatalogColumn(Base):
     )
     approved_description: Mapped[Optional[str]] = mapped_column(
         Text, nullable=True
+    )
+    ai_suggested_description: Mapped[Optional[str]] = mapped_column(
+        Text, nullable=True
+    )
+    description_source: Mapped[str] = mapped_column(
+        String(50), nullable=False, default="SOURCE_DB", server_default=text("'SOURCE_DB'")
+    )
+    curated_by_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    curated_by_username: Mapped[Optional[str]] = mapped_column(
+        String(100), nullable=True
+    )
+    curated_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
     )
     effective_description: Mapped[Optional[str]] = mapped_column(
         Text,

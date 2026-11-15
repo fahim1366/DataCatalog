@@ -58,6 +58,47 @@
     </div>
   }
 
+  <!-- Selective Database Filter Section -->
+  <section class="db-filter-bar">
+    <div class="filter-header">
+      <div class="filter-title-group">
+        <span class="filter-title-icon">🎯</span>
+        <span class="filter-title">فیلتر پایگاه‌های داده جهت گزارش‌گیری انتخابی (Selective Database Filter):</span>
+      </div>
+      @if (selectedConnectionIds().size > 0) {
+        <div class="filter-status-group">
+          <span class="filter-badge">{{ selectedConnectionIds().size }} پایگاه داده انتخاب شده</span>
+          <button type="button" class="btn-clear-filter" (click)="clearDatabaseFilter()">نمایش همه (حذف فیلتر)</button>
+        </div>
+      } @else {
+        <span class="filter-badge-all">کل پایگاه‌های داده سازمان (بدون فیلتر)</span>
+      }
+    </div>
+
+    <div class="filter-chips">
+      <button
+        type="button"
+        class="db-chip"
+        [class.active]="selectedConnectionIds().size === 0"
+        (click)="clearDatabaseFilter()"
+      >
+        <span>همه پایگاه‌های داده (All Databases)</span>
+      </button>
+
+      @for (db of availableDatabases(); track db.id) {
+        <button
+          type="button"
+          class="db-chip"
+          [class.active]="selectedConnectionIds().has(db.id)"
+          (click)="toggleDatabaseFilter(db.id)"
+        >
+          <span class="chip-engine">{{ db.engine_type }}</span>
+          <span>{{ db.name }}</span>
+        </button>
+      }
+    </div>
+  </section>
+
   <!-- Loading State -->
   @if (isLoading() && !completenessReport()) {
     <div class="loading-state">

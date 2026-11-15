@@ -5,7 +5,11 @@ export enum PermissionAction {
   VIEW_METADATA = 'VIEW_METADATA',
   EDIT_DESCRIPTION = 'EDIT_DESCRIPTION',
   MANAGE_TAGS = 'MANAGE_TAGS',
+  MANAGE_CATEGORIES = 'MANAGE_CATEGORIES',
   MANAGE_CONNECTIONS = 'MANAGE_CONNECTIONS',
+  MANAGE_USERS = 'MANAGE_USERS',
+  MANAGE_ROLES = 'MANAGE_ROLES',
+  MANAGE_SCHEDULES = 'MANAGE_SCHEDULES',
   VIEW_AUDIT_LOGS = 'VIEW_AUDIT_LOGS',
   EXPORT_REPORTS = 'EXPORT_REPORTS',
 }
@@ -14,9 +18,83 @@ export const ALL_PERMISSION_ACTIONS: PermissionAction[] = [
   PermissionAction.VIEW_METADATA,
   PermissionAction.EDIT_DESCRIPTION,
   PermissionAction.MANAGE_TAGS,
+  PermissionAction.MANAGE_CATEGORIES,
   PermissionAction.MANAGE_CONNECTIONS,
+  PermissionAction.MANAGE_USERS,
+  PermissionAction.MANAGE_ROLES,
+  PermissionAction.MANAGE_SCHEDULES,
   PermissionAction.VIEW_AUDIT_LOGS,
   PermissionAction.EXPORT_REPORTS,
+];
+
+export interface PermissionDefinition {
+  action: PermissionAction;
+  name: string;
+  description: string;
+  module: string;
+}
+
+export const SYSTEM_PERMISSIONS: PermissionDefinition[] = [
+  {
+    action: PermissionAction.MANAGE_CATEGORIES,
+    name: 'مدیریت دسته‌بندی موضوعات',
+    description: 'تعریف و مدیریت دسته‌بندی موضوعات درختی و سلسله‌مراتبی کاتالوگ',
+    module: 'حاکمیت داده',
+  },
+  {
+    action: PermissionAction.MANAGE_CONNECTIONS,
+    name: 'مدیریت پایگاه‌های داده',
+    description: 'افزودن و ویرایش پایگاه‌های داده و اتصالات',
+    module: 'اتصالات',
+  },
+  {
+    action: PermissionAction.MANAGE_USERS,
+    name: 'مدیریت کاربران',
+    description: 'افزودن، ویرایش و غیرفعال‌سازی کاربران و انتساب دسترسی‌ها',
+    module: 'دسترسی',
+  },
+  {
+    action: PermissionAction.MANAGE_ROLES,
+    name: 'مدیریت نقش‌ها',
+    description: 'افزودن، ویرایش و حذف نقش‌ها و مجوزها',
+    module: 'دسترسی',
+  },
+  {
+    action: PermissionAction.MANAGE_SCHEDULES,
+    name: 'مدیریت زمان‌بندی',
+    description: 'مدیریت زمان‌بندی استخراج و بروزرسانی خودکار کاتالوگ',
+    module: 'زمان‌بندی',
+  },
+  {
+    action: PermissionAction.VIEW_AUDIT_LOGS,
+    name: 'مشاهده لاگ‌های ممیزی',
+    description: 'مشاهده و فیلتر لاگ‌های ممیزی سامانه',
+    module: 'امنیت و ممیزی',
+  },
+  {
+    action: PermissionAction.EXPORT_REPORTS,
+    name: 'گزارش‌گیری کاتالوگ',
+    description: 'گزارش‌گیری از دیتاکاتالوگ دیتابیس‌های انتخابی',
+    module: 'گزارش‌ها',
+  },
+  {
+    action: PermissionAction.EDIT_DESCRIPTION,
+    name: 'ویرایش و تایید توضیحات',
+    description: 'ویرایش توضیحات فاقد مقدار و تایید پیشنهادهای هوش مصنوعی',
+    module: 'محتوا و مستندات',
+  },
+  {
+    action: PermissionAction.VIEW_METADATA,
+    name: 'مشاهده متاداده کاتالوگ',
+    description: 'مشاهده ساختار جداول، نوع ستون‌ها و مشخصات پایه کاتالوگ',
+    module: 'کاتالوگ داده',
+  },
+  {
+    action: PermissionAction.MANAGE_TAGS,
+    name: 'مدیریت برچسب و طبقه‌بندی',
+    description: 'انتساب برچسب‌های تجاری و طبقه‌بندی سطوح امنیت',
+    module: 'کاتالوگ داده',
+  },
 ];
 
 export const ROLE_PERMISSIONS: Record<string, string[]> = {

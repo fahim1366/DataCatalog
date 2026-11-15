@@ -67,6 +67,11 @@ export interface ColumnItem {
   source_description?: string | null;
   approved_description?: string | null;
   effective_description?: string | null;
+  ai_suggested_description?: string | null;
+  description_source?: string | null;
+  curated_by_id?: string | null;
+  curated_by_username?: string | null;
+  curated_at?: string | null;
   classification_level: string;
   status: string;
   tags?: TagItem[];
@@ -84,6 +89,11 @@ export interface TableDetail {
   source_description?: string | null;
   approved_description?: string | null;
   effective_description?: string | null;
+  ai_suggested_description?: string | null;
+  description_source?: string | null;
+  curated_by_id?: string | null;
+  curated_by_username?: string | null;
+  curated_at?: string | null;
   owner?: string | null;
   status: string;
   columns: ColumnItem[];
@@ -126,6 +136,8 @@ export interface CategoryTreeNode {
   parent_id?: string | null;
   status?: 'ACTIVE' | 'INACTIVE';
   assigned_tables_count?: number;
+  assigned_databases_count?: number;
+  children_count?: number;
   tables: {
     id: string;
     name: string;

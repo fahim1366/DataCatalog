@@ -14,6 +14,7 @@ from backend.src.api.dependencies.rbac import (
     build_table_rbac_filter,
     get_current_user,
     require_permission,
+    user_rule_matches,
 )
 from backend.src.core.database import get_db_session
 from backend.src.models.catalog import CatalogColumn, CatalogTable, LifecycleStatus, DatabaseSchema
@@ -23,6 +24,8 @@ from backend.src.models.rbac import (
     CategoryAssignment,
     EntityType,
     PermissionAction,
+    PermissionEffect,
+    PermissionRule,
 )
 from backend.src.services.audit.audit_service import record_audit_event
 
@@ -63,6 +66,8 @@ class CategoryTreeNode(BaseModel):
     parent_id: Optional[uuid.UUID] = None
     status: str = "ACTIVE"
     assigned_tables_count: int = 0
+    assigned_databases_count: int = 0
+    children_count: int = 0
     tables: List[Dict[str, Any]] = Field(default_factory=list)
     databases: List[Dict[str, Any]] = Field(default_factory=list)
     children: List[CategoryTreeNode] = Field(default_factory=list)
@@ -219,6 +224,7 @@ async def get_category_tree(
     nodes_by_id: Dict[uuid.UUID, CategoryTreeNode] = {}
     for c in all_categories:
         cat_tables = tables_by_cat.get(c.id, [])
+        cat_dbs = dbs_by_cat.get(c.id, [])
         nodes_by_id[c.id] = CategoryTreeNode(
             id=c.id,
             name=c.name,
@@ -226,8 +232,10 @@ async def get_category_tree(
             parent_id=c.parent_id,
             status=c.status if hasattr(c, "status") and c.status else "ACTIVE",
             assigned_tables_count=len(cat_tables),
+            assigned_databases_count=len(cat_dbs),
+            children_count=0,
             tables=cat_tables,
-            databases=dbs_by_cat.get(c.id, []),
+            databases=cat_dbs,
             children=[],
         )
 
@@ -235,17 +243,54 @@ async def get_category_tree(
     for c in all_categories:
         node = nodes_by_id[c.id]
         if c.parent_id and c.parent_id in nodes_by_id:
-            nodes_by_id[c.parent_id].children.append(node)
+            parent_node = nodes_by_id[c.parent_id]
+            parent_node.children.append(node)
+            parent_node.children_count += 1
         else:
             root_nodes.append(node)
 
     return root_nodes
 
 
+async def require_category_admin(
+    user_ctx: UserContext = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+) -> UserContext:
+    if user_ctx.is_superadmin:
+        return user_ctx
+    deny_stmt = select(1).where(
+        user_rule_matches(user_ctx),
+        PermissionRule.action.in_([
+            PermissionAction.MANAGE_CATEGORIES,
+            PermissionAction.MANAGE_TAGS,
+        ]),
+        PermissionRule.effect == PermissionEffect.DENY,
+    )
+    if (await db.execute(deny_stmt)).scalar_one_or_none() is not None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Forbidden: Access to manage categories is explicitly denied.",
+        )
+    allow_stmt = select(1).where(
+        user_rule_matches(user_ctx),
+        PermissionRule.action.in_([
+            PermissionAction.MANAGE_CATEGORIES,
+            PermissionAction.MANAGE_TAGS,
+        ]),
+        PermissionRule.effect == PermissionEffect.ALLOW,
+    )
+    if (await db.execute(allow_stmt)).scalar_one_or_none() is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Forbidden: User lacks MANAGE_CATEGORIES permission.",
+        )
+    return user_ctx
+
+
 @router.post("", response_model=CategoryResponse, status_code=status.HTTP_201_CREATED, summary="Create a new category")
 async def create_category(
     payload: CategoryCreateRequest,
-    user_ctx: UserContext = Depends(require_permission(PermissionAction.MANAGE_TAGS)),
+    user_ctx: UserContext = Depends(require_category_admin),
     db: AsyncSession = Depends(get_db_session),
 ) -> CategoryResponse:
     if payload.parent_id:
@@ -266,7 +311,7 @@ async def create_category(
         actor_username=user_ctx.user.username,
         actor_id=user_ctx.user.id,
         action="CREATE_CATEGORY",
-        entity_type=EntityType.SCHEMA,
+        entity_type=EntityType.CATEGORY,
         entity_id=cat.id,
         diff_jsonb={"name": cat.name, "parent_id": str(cat.parent_id) if cat.parent_id else None, "status": cat.status},
         flush=True,
@@ -286,7 +331,7 @@ async def create_category(
 async def update_category(
     category_id: uuid.UUID,
     payload: CategoryUpdateRequest,
-    user_ctx: UserContext = Depends(require_permission(PermissionAction.MANAGE_TAGS)),
+    user_ctx: UserContext = Depends(require_category_admin),
     db: AsyncSession = Depends(get_db_session),
 ) -> CategoryResponse:
     cat = await db.get(Category, category_id)
@@ -311,7 +356,7 @@ async def update_category(
         actor_username=user_ctx.user.username,
         actor_id=user_ctx.user.id,
         action="UPDATE_CATEGORY",
-        entity_type=EntityType.SCHEMA,
+        entity_type=EntityType.CATEGORY,
         entity_id=cat.id,
         diff_jsonb={"old_name": old_name, "new_name": cat.name, "status": cat.status},
         flush=True,
@@ -336,14 +381,14 @@ async def update_category(
 @router.delete("/{category_id}", status_code=status.HTTP_204_NO_CONTENT, summary="Delete a category")
 async def delete_category(
     category_id: uuid.UUID,
-    user_ctx: UserContext = Depends(require_permission(PermissionAction.MANAGE_TAGS)),
+    user_ctx: UserContext = Depends(require_category_admin),
     db: AsyncSession = Depends(get_db_session),
 ) -> None:
     cat = await db.get(Category, category_id)
     if not cat:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Category not found")
 
-    # Safety check 1: child categories
+    # Safety check 1: child categories (Leaf-only deletion)
     child_count_stmt = select(func.count(Category.id)).where(Category.parent_id == category_id)
     child_count = (await db.execute(child_count_stmt)).scalar() or 0
     if child_count > 0:
@@ -352,10 +397,23 @@ async def delete_category(
             detail="امکان حذف دسته‌بندی دارای زیردسته وجود ندارد. ابتدا زیردسته‌ها را حذف یا منتقل نمایید.",
         )
 
-    # Safety check 2: assigned entities (tables, etc.)
-    assign_count_stmt = select(func.count(CategoryAssignment.id)).where(CategoryAssignment.category_id == category_id)
-    assign_count = (await db.execute(assign_count_stmt)).scalar() or 0
-    if assign_count > 0:
+    # Safety check 2: assigned databases (returns HTTP 409 Conflict)
+    db_assign_stmt = select(func.count(CategoryAssignment.id)).where(
+        (CategoryAssignment.category_id == category_id) & (CategoryAssignment.entity_type == EntityType.DATABASE)
+    )
+    db_assign_count = (await db.execute(db_assign_stmt)).scalar() or 0
+    if db_assign_count > 0:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="امکان‌پذیر نیست: به این دسته‌بندی پایگاه داده اختصاص داده شده است.",
+        )
+
+    # Safety check 3: assigned tables (returns HTTP 400 Bad Request)
+    table_assign_stmt = select(func.count(CategoryAssignment.id)).where(
+        (CategoryAssignment.category_id == category_id) & (CategoryAssignment.entity_type == EntityType.TABLE)
+    )
+    table_assign_count = (await db.execute(table_assign_stmt)).scalar() or 0
+    if table_assign_count > 0:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="امکان حذف دسته‌بندی دارای جداول اختصاص‌یافته وجود ندارد. ابتدا تخصیص‌های جداول را لغو نمایید.",
@@ -366,7 +424,7 @@ async def delete_category(
         actor_username=user_ctx.user.username,
         actor_id=user_ctx.user.id,
         action="DELETE_CATEGORY",
-        entity_type=EntityType.SCHEMA,
+        entity_type=EntityType.CATEGORY,
         entity_id=cat.id,
         diff_jsonb={"deleted_name": cat.name},
         flush=True,

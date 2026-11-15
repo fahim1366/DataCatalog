@@ -244,6 +244,7 @@ class SearchService:
         user_ctx: UserContext,
         limit: int = 50,
         cursor: Optional[str] = None,
+        missing_descriptions_only: bool = False,
     ) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
         """
         Keyset-paginated listing of tables within a specific schema.
@@ -256,6 +257,14 @@ class SearchService:
                 CatalogTable.status != LifecycleStatus.DELETED,
             )
         )
+
+        if missing_descriptions_only:
+            stmt = stmt.where(
+                or_(
+                    CatalogTable.effective_description.is_(None),
+                    CatalogTable.effective_description == "",
+                )
+            )
 
         rbac_filter = build_table_rbac_filter(user_ctx=user_ctx, action=PermissionAction.VIEW_METADATA)
         stmt = rbac_filter(stmt)
@@ -304,7 +313,14 @@ class SearchService:
                 "table_type": t.table_type.value,
                 "row_count_estimate": t.row_count_estimate,
                 "size_bytes": t.size_bytes,
+                "source_description": t.source_description,
+                "approved_description": t.approved_description,
                 "effective_description": t.effective_description,
+                "ai_suggested_description": t.ai_suggested_description,
+                "description_source": t.description_source,
+                "curated_by_id": t.curated_by_id,
+                "curated_by_username": t.curated_by_username,
+                "curated_at": t.curated_at,
                 "owner": t.owner,
                 "status": t.status.value,
                 "tags": tags_by_table.get(t.id, []),
@@ -423,6 +439,11 @@ class SearchService:
                 "source_description": col.source_description,
                 "approved_description": col.approved_description,
                 "effective_description": col.effective_description,
+                "ai_suggested_description": col.ai_suggested_description,
+                "description_source": col.description_source,
+                "curated_by_id": col.curated_by_id,
+                "curated_by_username": col.curated_by_username,
+                "curated_at": col.curated_at,
                 "classification_level": col.classification_level.value,
                 "status": col.status.value,
                 "tags": col_tags_map.get(col.id, []),
@@ -443,6 +464,11 @@ class SearchService:
             "source_description": tbl.source_description,
             "approved_description": tbl.approved_description,
             "effective_description": tbl.effective_description,
+            "ai_suggested_description": tbl.ai_suggested_description,
+            "description_source": tbl.description_source,
+            "curated_by_id": tbl.curated_by_id,
+            "curated_by_username": tbl.curated_by_username,
+            "curated_at": tbl.curated_at,
             "owner": tbl.owner,
             "status": tbl.status.value,
             "columns": columns_data,

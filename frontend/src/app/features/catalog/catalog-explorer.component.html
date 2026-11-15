@@ -56,7 +56,7 @@
           <div class="tree-list">
             @for (conn of physicalTree(); track conn.id) {
               <div class="tree-group">
-                <div class="tree-node node-db">
+                <div class="tree-node node-db" (click)="filterByDatabase(conn.name)">
                   <span class="node-icon">🗄️</span>
                   <span class="node-label mono-font">{{ conn.name }}</span>
                   <span class="node-engine-badge">{{ conn.engine_type }}</span>
@@ -67,23 +67,12 @@
                     <div class="tree-node node-schema" (click)="filterBySchema(schema.name)">
                       <span class="node-icon">📁</span>
                       <span class="node-label mono-font">{{ schema.name }}</span>
-                      <span class="node-count-badge">{{ schema.table_count }} جدول</span>
-                    </div>
-
-                    <div class="tree-tables">
-                      @for (tbl of schema.tables; track tbl.id) {
-                        <div class="tree-node node-table" (click)="filterByTable(tbl.name)">
-                          <span class="node-icon">📄</span>
-                          <span class="node-label mono-font">{{ tbl.name }}</span>
-                          <span class="node-col-badge">{{ tbl.column_count }} فیلد</span>
-                        </div>
-                      }
                     </div>
                   }
                 </div>
               </div>
             } @empty {
-              <div class="tree-empty">اتصالی تعریف نشده است.</div>
+              <div class="tree-empty">هیچ پایگاه‌داده‌ای ثبت نشده است.</div>
             }
           </div>
         }
@@ -96,7 +85,6 @@
                 <div class="tree-node node-cat" (click)="filterByCategory(cat.name)">
                   <span class="node-icon">🏷️</span>
                   <span class="node-label">{{ cat.name }}</span>
-                  <span class="node-count-badge">{{ cat.tables.length }} جدول</span>
                 </div>
 
                 <!-- Children categories -->
@@ -106,28 +94,10 @@
                       <div class="tree-node node-cat" (click)="filterByCategory(sub.name)">
                         <span class="node-icon">↳ 📂</span>
                         <span class="node-label">{{ sub.name }}</span>
-                        <span class="node-count-badge">{{ sub.tables.length }} جدول</span>
-                      </div>
-                      <div class="tree-tables">
-                        @for (tbl of sub.tables; track tbl.id) {
-                          <div class="tree-node node-table" (click)="filterByTable(tbl.name)">
-                            <span class="node-icon">📄</span>
-                            <span class="node-label mono-font">{{ tbl.name }}</span>
-                          </div>
-                        }
                       </div>
                     }
                   </div>
                 }
-
-                <div class="tree-tables">
-                  @for (tbl of cat.tables; track tbl.id) {
-                    <div class="tree-node node-table" (click)="filterByTable(tbl.name)">
-                      <span class="node-icon">📄</span>
-                      <span class="node-label mono-font">{{ tbl.name }}</span>
-                    </div>
-                  }
-                </div>
               </div>
             } @empty {
               <div class="tree-empty">دسته‌بندی موضوعی یافت نشد.</div>
@@ -226,6 +196,17 @@
               <option [value]="t.name">{{ t.name }}</option>
             }
           </select>
+        </div>
+
+        <div class="filter-item filter-missing-desc">
+          <button
+            type="button"
+            class="missing-desc-btn"
+            [class.active]="missingDescriptionsOnly()"
+            (click)="toggleMissingDescriptionsOnly()"
+          >
+            <span>⚠️ فقط موارد فاقد توضیحات (Missing Only)</span>
+          </button>
         </div>
       </div>
 
@@ -355,7 +336,19 @@
   <aside class="inspector-drawer">
     <div class="inspector-header">
       <div class="inspector-title-box">
-        <span class="badge badge-internal">شناسنامه متادیتا</span>
+        <div class="inspector-badge-row">
+          <span class="badge badge-internal">شناسنامه متادیتا</span>
+          @if (selectedTable()?.description_source) {
+            <span class="badge" [ngClass]="'source-' + selectedTable()!.description_source">
+              منبع شرح: {{ selectedTable()!.description_source === 'AI_APPROVED' ? 'تایید هوش مصنوعی' : selectedTable()!.description_source === 'ADMIN_MANUAL' ? 'ثبت دستی' : 'دیتابیس مبدا' }}
+            </span>
+          }
+          @if (selectedTable()?.curated_by_username) {
+            <span class="curator-badge">
+              ویراستار: {{ selectedTable()!.curated_by_username }}
+            </span>
+          }
+        </div>
         <h2 class="inspector-title mono-font">{{ selectedTable()?.name || 'در حال بارگذاری...' }}</h2>
         <span class="text-muted mono-font">{{ selectedTable()?.database_name }} / {{ selectedTable()?.schema_name }}</span>
       </div>
@@ -472,6 +465,20 @@
                             <span class="label-muted">مبدا:</span> <span class="fallback-text">(خالی - جایگزین با توضیحات مصوب)</span>
                           </div>
                         }
+                        @if (col.ai_suggested_description) {
+                          <div class="ai-col-suggestion">
+                            <span class="ai-icon">✨</span>
+                            <span class="ai-text">پیشنهاد هوش مصنوعی: {{ col.ai_suggested_description }}</span>
+                            <button
+                              type="button"
+                              class="btn-ai-approve"
+                              title="تایید پیشنهاد هوش مصنوعی"
+                              (click)="approveAiColumnDescription(col)"
+                            >
+                              ✓ تایید هوش مصنوعی
+                            </button>
+                          </div>
+                        }
                         <app-inline-desc-editor
                           [description]="col.approved_description"
                           placeholder="توضیحات تایید شده فیلد..."
@@ -489,6 +496,27 @@
         <!-- TAB 2: TABLE METADATA -->
         @if (activeInspectorTab() === 'metadata') {
           <div class="metadata-tab-content">
+            @if (selectedTable()!.ai_suggested_description) {
+              <div class="ai-suggestion-box">
+                <div class="ai-suggestion-header">
+                  <div class="ai-title-group">
+                    <span class="ai-icon">✨</span>
+                    <span class="ai-title">پیشنهاد هوش مصنوعی برای شرح این جدول (AI Suggested Description)</span>
+                  </div>
+                  <button
+                    type="button"
+                    class="btn btn-sm btn-primary ai-approve-btn"
+                    (click)="approveAiTableDescription(selectedTable()!.id)"
+                  >
+                    ✓ تایید و اعمال پیشنهاد هوش مصنوعی
+                  </button>
+                </div>
+                <div class="ai-suggestion-body">
+                  {{ selectedTable()!.ai_suggested_description }}
+                </div>
+              </div>
+            }
+
             <div class="meta-card">
               <div class="desc-header-row">
                 <h3>توضیحات استخراج شده از مبدا (Source Description)</h3>

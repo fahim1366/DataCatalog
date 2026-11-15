@@ -3,15 +3,17 @@ from __future__ import annotations
 import logging
 from typing import List, Optional
 import uuid
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.src.api.dependencies.rbac import UserContext, get_current_user
 from backend.src.core.database import get_db_session
+from backend.src.models.audit import AuditLog
 from backend.src.models.identity import Role, User, UserRole
 from backend.src.models.rbac import (
+    EntityType,
     PermissionAction,
     PermissionEffect,
     PermissionRule,
@@ -94,6 +96,16 @@ async def resolve_effective_permissions(
             elif rule.effect == PermissionEffect.DENY and rule.resource_type == ResourceType.GLOBAL:
                 perms.discard(rule.action.value)
 
+    # Evaluate direct user rules
+    user_rules_stmt = select(PermissionRule).where(PermissionRule.user_id == user.id)
+    user_rules_res = await session.execute(user_rules_stmt)
+    user_rules = user_rules_res.scalars().all()
+    for rule in user_rules:
+        if rule.effect == PermissionEffect.ALLOW:
+            perms.add(rule.action.value)
+        elif rule.effect == PermissionEffect.DENY and rule.resource_type == ResourceType.GLOBAL:
+            perms.discard(rule.action.value)
+
     if not perms:
         perms.add(PermissionAction.VIEW_METADATA.value)
 
@@ -107,6 +119,7 @@ async def resolve_effective_permissions(
 )
 async def login(
     payload: LoginRequest,
+    request: Request,
     db: AsyncSession = Depends(get_db_session),
 ) -> AuthResponse:
     """
@@ -147,6 +160,20 @@ async def login(
 
     permissions = await resolve_effective_permissions(db, user, role_ids, roles)
 
+    # Log USER_LOGIN audit event
+    audit_entry = AuditLog(
+        actor_id=user.id,
+        actor_username=user.username,
+        ip_address=request.client.host if request.client else None,
+        user_agent=request.headers.get("user-agent"),
+        action="USER_LOGIN",
+        entity_type=EntityType.USER,
+        entity_id=user.id,
+        diff_jsonb={"event": "user_logged_in", "username": user.username},
+    )
+    db.add(audit_entry)
+    await db.commit()
+
     token = auth_service.create_access_token(
         data={
             "sub": str(user.id),
@@ -172,6 +199,31 @@ async def login(
         token_type="bearer",
         user=user_ctx,
     )
+
+
+@router.post(
+    "/logout",
+    status_code=status.HTTP_200_OK,
+    summary="Sign out user and emit audit log",
+)
+async def logout(
+    request: Request,
+    user_ctx: UserContext = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+) -> dict:
+    audit_entry = AuditLog(
+        actor_id=user_ctx.user_id,
+        actor_username=user_ctx.user.username,
+        ip_address=request.client.host if request.client else None,
+        user_agent=request.headers.get("user-agent"),
+        action="USER_LOGOUT",
+        entity_type=EntityType.USER,
+        entity_id=user_ctx.user_id,
+        diff_jsonb={"event": "user_logged_out", "username": user_ctx.user.username},
+    )
+    db.add(audit_entry)
+    await db.commit()
+    return {"message": "Logged out successfully"}
 
 
 @router.get(

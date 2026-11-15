@@ -1,0 +1,475 @@
+<div class="roles-management-view" dir="rtl">
+  <!-- Notifications -->
+  @if (successMessage()) {
+    <div class="alert alert-success animate-fade">
+      <i class="pi pi-check-circle alert-icon"></i>
+      <span>{{ successMessage() }}</span>
+      <button type="button" class="alert-close" (click)="successMessage.set(null)" aria-label="بستن">
+        <i class="pi pi-times"></i>
+      </button>
+    </div>
+  }
+  @if (errorMessage()) {
+    <div class="alert alert-danger animate-fade">
+      <i class="pi pi-exclamation-triangle alert-icon"></i>
+      <span>{{ errorMessage() }}</span>
+      <button type="button" class="alert-close" (click)="errorMessage.set(null)" aria-label="بستن">
+        <i class="pi pi-times"></i>
+      </button>
+    </div>
+  }
+
+  <!-- Top System Sub-Nav Tabs & Primary Action -->
+  <div class="subnav-header">
+    <div class="subnav-tabs">
+      <a routerLink="/admin/users" class="subnav-tab inactive">
+        <span>کاربران</span>
+        <i class="pi pi-times tab-close-icon"></i>
+      </a>
+      <div class="subnav-tab active">
+        <span>نقش‌ها</span>
+        <i class="pi pi-times tab-close-icon"></i>
+      </div>
+    </div>
+
+    <div class="subnav-actions">
+      <button type="button" class="btn btn-primary" (click)="startCreateNewRole()">
+        <i class="pi pi-plus"></i>
+        <span>نقش جدید</span>
+      </button>
+    </div>
+  </div>
+
+  <!-- Upper Card: Roles Data Table -->
+  <div class="table-card">
+    <div class="table-card-header">
+      <h2 class="table-title"> نقش‌های سازمانی</h2>
+    </div>
+
+    <div class="table-responsive">
+      <table class="master-table">
+        <thead>
+          <tr class="header-titles-row">
+            <th class="th-num">ردیف</th>
+            <th>نام نقش به فارسی <i class="pi pi-sort-alt sort-arrows"></i></th>
+            <th>نام نقش به انگلیسی (کد سیستمی) <i class="pi pi-sort-alt sort-arrows"></i></th>
+            <th class="th-center">تعداد کاربران <i class="pi pi-sort-alt sort-arrows"></i></th>
+            <th class="th-actions">عملیات</th>
+          </tr>
+          <tr class="header-filters-row">
+            <th class="th-num"></th>
+            <th>
+              <div class="inline-filter-box">
+                <i class="pi pi-search filter-icon"></i>
+                <input
+                  type="text"
+                  class="filter-input"
+                  placeholder="جستجو"
+                  [ngModel]="filterPersianName()"
+                  (ngModelChange)="filterPersianName.set($event); onFilterChanged()"
+                />
+              </div>
+            </th>
+            <th>
+              <div class="inline-filter-box">
+                <i class="pi pi-search filter-icon"></i>
+                <input
+                  type="text"
+                  class="filter-input"
+                  placeholder="جستجو"
+                  [ngModel]="filterEnglishName()"
+                  (ngModelChange)="filterEnglishName.set($event); onFilterChanged()"
+                />
+              </div>
+            </th>
+            <th class="th-center"></th>
+            <th class="th-actions"></th>
+          </tr>
+        </thead>
+        <tbody>
+          @if (isLoading()) {
+            <tr>
+              <td colspan="5" class="td-state">
+                <div class="spinner"></div>
+                <span>در حال بارگذاری لیست نقش‌ها...</span>
+              </td>
+            </tr>
+          } @else if (filteredRoles().length === 0) {
+            <tr>
+              <td colspan="5" class="td-state">
+                <span>هیچ نقشی با مشخصات وارد شده یافت نشد.</span>
+              </td>
+            </tr>
+          } @else {
+            @for (role of paginatedRoles(); track role.id; let idx = $index) {
+              <tr
+                [class.selected-row]="!isCreateMode() && selectedRole()?.id === role.id"
+                (click)="selectRole(role)"
+              >
+                <td class="td-num">{{ (currentPage() - 1) * pageSize() + idx + 1 }}</td>
+                <td class="td-text font-bold">{{ role.description || role.name }}</td>
+                <td class="td-code">{{ role.name }}</td>
+                <td class="th-center">
+                  <span class="users-count-badge">
+                    <i class="pi pi-users"></i>
+                    <span>{{ role.user_count }} کاربر</span>
+                  </span>
+                </td>
+                <td class="td-actions" (click)="$event.stopPropagation()">
+                  <button
+                    type="button"
+                    class="action-icon-btn action-edit"
+                    title="ویرایش نقش سازمانی"
+                    aria-label="ویرایش نقش سازمانی"
+                    (click)="startEditRole(role, $event)"
+                  >
+                    <i class="pi pi-pencil"></i>
+                  </button>
+                  @if (!role.is_system_role) {
+                    <button
+                      type="button"
+                      class="action-icon-btn action-delete"
+                      title="حذف نقش سازمانی"
+                      aria-label="حذف نقش سازمانی"
+                      (click)="deleteRole(role, $event)"
+                    >
+                      <i class="pi pi-trash"></i>
+                    </button>
+                  } @else {
+                    <span class="system-role-tag" title="نقش پیش‌فرض غیرقابل حذف">
+                      <i class="pi pi-lock"></i>
+                      <span>سیستمی</span>
+                    </span>
+                  }
+                </td>
+              </tr>
+            }
+          }
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Table Pagination Footer -->
+    <div class="table-pagination-footer">
+      <div class="pagination-info">
+        نمایش گزینه‌های {{ pageDisplayStart() }} تا {{ pageDisplayEnd() }} از {{ filteredRoles().length }} گزینه
+      </div>
+
+      <div class="pagination-controls">
+        <!-- RTL: صفحه نخست سمت راست است -->
+        <button
+          type="button"
+          class="page-nav-btn"
+          [disabled]="currentPage() === 1"
+          (click)="goToPage(1)"
+          title="صفحه نخست"
+          aria-label="صفحه نخست"
+        >
+          <i class="pi pi-angle-double-right"></i>
+        </button>
+        <button
+          type="button"
+          class="page-nav-btn"
+          [disabled]="currentPage() === 1"
+          (click)="goToPage(currentPage() - 1)"
+          title="صفحه قبلی"
+          aria-label="صفحه قبلی"
+        >
+          <i class="pi pi-angle-right"></i>
+        </button>
+
+        @for (p of [].constructor(totalPages()); track $index; let pIdx = $index) {
+          @if (pIdx + 1 >= currentPage() - 2 && pIdx + 1 <= currentPage() + 2) {
+            <button
+              type="button"
+              class="page-num-btn"
+              [class.active]="currentPage() === pIdx + 1"
+              (click)="goToPage(pIdx + 1)"
+            >
+              {{ pIdx + 1 }}
+            </button>
+          }
+        }
+
+        <button
+          type="button"
+          class="page-nav-btn"
+          [disabled]="currentPage() === totalPages()"
+          (click)="goToPage(currentPage() + 1)"
+          title="صفحه بعدی"
+          aria-label="صفحه بعدی"
+        >
+          <i class="pi pi-angle-left"></i>
+        </button>
+        <button
+          type="button"
+          class="page-nav-btn"
+          [disabled]="currentPage() === totalPages()"
+          (click)="goToPage(totalPages())"
+          title="صفحه آخر"
+          aria-label="صفحه آخر"
+        >
+          <i class="pi pi-angle-double-left"></i>
+        </button>
+      </div>
+
+      <div class="pagination-size-selector">
+        <label>تعداد در صفحه:</label>
+        <select
+          [ngModel]="pageSize()"
+          (ngModelChange)="changePageSize($event)"
+          class="page-size-select"
+        >
+          @for (sz of availablePageSizes; track sz) {
+            <option [value]="sz">{{ sz }}</option>
+          }
+        </select>
+      </div>
+    </div>
+  </div>
+
+  <!-- Lower Detail Card: Role Info & Permissions / Users Tabs -->
+  <div class="detail-card">
+    <div class="detail-card-header">
+      <div class="detail-title-group">
+        <span class="detail-edit-icon">
+          @if (isCreateMode()) {
+            <i class="pi pi-plus"></i>
+          } @else if (isEditMode()) {
+            <i class="pi pi-pencil"></i>
+          } @else {
+            <i class="pi pi-shield"></i>
+          }
+        </span>
+        <h3 class="detail-title">
+          @if (isCreateMode()) {
+            تعریف نقش سازمانی جدید
+          } @else if (isEditMode()) {
+            ویرایش نقش: {{ selectedRole()?.description || selectedRole()?.name }}
+          } @else {
+            اطلاعات نقش: {{ selectedRole()?.description || selectedRole()?.name }}
+          }
+        </h3>
+
+        @if (isCreateMode()) {
+          <span class="badge badge-edit-mode">حالت تعریف نقش جدید</span>
+        } @else if (isEditMode()) {
+          <span class="badge badge-edit-mode">حالت ویرایش نقش</span>
+        }
+
+        @if (selectedRole() && !isFormEditable()) {
+          <button
+            type="button"
+            class="btn-edit-inline"
+            (click)="enableEditMode()"
+            aria-label="ویرایش نقش"
+          >
+            <i class="pi pi-pencil"></i>
+            <span>ویرایش</span>
+          </button>
+        }
+      </div>
+
+      <div class="detail-header-actions">
+        @if (selectedRole() && !isCreateMode()) {
+          <span class="badge" [class.badge-system]="selectedRole()?.is_system_role" [class.badge-custom]="!selectedRole()?.is_system_role">
+            {{ selectedRole()?.is_system_role ? 'نقش سیستمی' : 'نقش سفارشی' }}
+          </span>
+        }
+      </div>
+    </div>
+
+    <div class="detail-form-body">
+      <!-- Row 1: English & Persian Names -->
+      <div class="form-row-2">
+        <div class="form-field">
+          <label>نام نقش به انگلیسی (کد سیستمی) <span class="required-star">*</span></label>
+          <input
+            type="text"
+            class="input-control input-ltr"
+            placeholder="مانند: KarshenasBazdid"
+            [disabled]="!isFormEditable() || (!isCreateMode() && (selectedRole()?.is_system_role ?? false))"
+            [ngModel]="formEnglishName()"
+            (ngModelChange)="formEnglishName.set($event)"
+          />
+        </div>
+
+        <div class="form-field">
+          <label>نام نقش به فارسی <span class="required-star">*</span></label>
+          <input
+            type="text"
+            class="input-control"
+            placeholder="مانند: کارشناس بازدید"
+            [disabled]="!isFormEditable()"
+            [ngModel]="formPersianName()"
+            (ngModelChange)="formPersianName.set($event)"
+          />
+        </div>
+      </div>
+
+      <!-- Sub-Tabs: Permissions / Users -->
+      <div class="detail-subtabs-bar">
+        <button
+          type="button"
+          class="detail-subtab-btn"
+          [class.active]="activeSubTab() === 'permissions'"
+          (click)="switchSubTab('permissions')"
+        >
+          <i class="pi pi-key tab-icon"></i>
+          <span>دسترسی‌ها / مجوزها</span>
+          <span class="tab-counter-badge">{{ roleSelectedActions().size }} مورد انتخاب شده</span>
+        </button>
+
+        <button
+          type="button"
+          class="detail-subtab-btn"
+          [class.active]="activeSubTab() === 'users'"
+          (click)="switchSubTab('users')"
+        >
+          <i class="pi pi-users tab-icon"></i>
+          <span>کاربران این نقش</span>
+          <span class="tab-counter-badge">{{ roleUsers().length }} کاربر</span>
+        </button>
+      </div>
+
+      <!-- TAB 1: Permissions List -->
+      @if (activeSubTab() === 'permissions') {
+        <div class="subtab-content">
+          <div class="permissions-filter-toolbar">
+            <div class="inline-filter-box filter-wide">
+              <i class="pi pi-search filter-icon"></i>
+              <input
+                type="text"
+                class="filter-input"
+                placeholder="جستجو در بین مجوزها و عناوین دسترسی..."
+                [ngModel]="permissionFilterQuery()"
+                (ngModelChange)="permissionFilterQuery.set($event)"
+              />
+            </div>
+          </div>
+
+          <div class="permissions-table-wrapper">
+            <table class="permissions-table">
+              <thead>
+                <tr>
+                  <th style="width: 75%;">عنوان دسترسی</th>
+                  <th style="width: 25%;" class="th-center">وضعیت</th>
+                </tr>
+              </thead>
+              <tbody>
+                @if (flatPermissions().length === 0) {
+                  <tr>
+                    <td colspan="2" class="td-perm-empty">هیچ مجوزی یافت نشد.</td>
+                  </tr>
+                } @else {
+                  @for (p of flatPermissions(); track p.action) {
+                    <tr class="perm-row" [class.perm-selected]="hasPermission(p.action)">
+                      <td>
+                        <div class="perm-row-content">
+                          <input
+                            type="checkbox"
+                            class="perm-checkbox"
+                            [disabled]="!isFormEditable()"
+                            [checked]="hasPermission(p.action)"
+                            (change)="togglePermission(p.action, $event)"
+                          />
+                          <div class="perm-info">
+                            <div class="perm-header">
+                              <span class="perm-name font-bold">{{ p.name }}</span>
+                              <span class="perm-code-tag">{{ p.action }}</span>
+                              <span class="perm-module-tag">{{ p.moduleName }}</span>
+                            </div>
+                            <span class="perm-desc">{{ p.description }}</span>
+                          </div>
+                        </div>
+                      </td>
+                      <td class="th-center">
+                        @if (hasPermission(p.action)) {
+                          <span class="status-indicator status-has"><i class="pi pi-check"></i> دارد</span>
+                        } @else {
+                          <span class="status-indicator status-none"><i class="pi pi-times"></i> ندارد</span>
+                        }
+                      </td>
+                    </tr>
+                  }
+                }
+              </tbody>
+            </table>
+          </div>
+        </div>
+      }
+
+      <!-- TAB 2: Users of this role -->
+      @if (activeSubTab() === 'users') {
+        <div class="subtab-content">
+          <div class="users-table-wrapper">
+            <table class="users-table">
+              <thead>
+                <tr>
+                  <th style="width: 50px;" class="th-center">ردیف</th>
+                  <th>نام و نام خانوادگی</th>
+                  <th>نام کاربری</th>
+                  <th>ایمیل سازمانی</th>
+                  <th class="th-center">نحوه انتساب</th>
+                </tr>
+              </thead>
+              <tbody>
+                @if (isLoadingRoleUsers()) {
+                  <tr>
+                    <td colspan="5" class="td-state">در حال بارگذاری لیست کاربران این نقش...</td>
+                  </tr>
+                } @else if (roleUsers().length === 0) {
+                  <tr>
+                    <td colspan="5" class="td-state">هیچ کاربری به این نقش منتسب نشده است.</td>
+                  </tr>
+                } @else {
+                  @for (u of roleUsers(); track u.id; let uIdx = $index) {
+                    <tr>
+                      <td class="td-num">{{ uIdx + 1 }}</td>
+                      <td class="font-bold">{{ u.full_name }}</td>
+                      <td class="td-code">{{ u.username }}</td>
+                      <td class="td-ltr">{{ u.email }}</td>
+                      <td class="th-center">
+                        <span class="assignment-badge">
+                          {{ u.assignment_type === 'DIRECT' ? 'مستقیم' : 'عضویت' }}
+                        </span>
+                      </td>
+                    </tr>
+                  }
+                }
+              </tbody>
+            </table>
+          </div>
+        </div>
+      }
+
+      <!-- Action Buttons Footer -->
+      @if (isFormEditable()) {
+        <div class="detail-actions-footer">
+          <button
+            type="button"
+            class="btn btn-save"
+            [disabled]="isSaving()"
+            (click)="saveRole()"
+          >
+            @if (isSaving()) {
+              <i class="pi pi-spin pi-spinner"></i>
+              <span>در حال ذخیره...</span>
+            } @else {
+              <i class="pi pi-check"></i>
+              <span>ثبت</span>
+            }
+          </button>
+
+          <button
+            type="button"
+            class="btn btn-cancel"
+            (click)="cancelDetailEdit()"
+          >
+            انصراف
+          </button>
+        </div>
+      }
+    </div>
+  </div>
+</div>

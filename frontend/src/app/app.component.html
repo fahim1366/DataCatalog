@@ -61,7 +61,7 @@
                 <div class="role-tag tag-admin">SuperAdmin</div>
                 <div class="role-info">
                   <strong>مدیر ارشد سامانه (admin)</strong>
-                  <small>دسترسی نامحدود به تمامی جداول، ویرایش، تگ و لاگ</small>
+                  <small>دسترسی نامحدود به تمامی جداول، ویرایش و لاگ</small>
                 </div>
               </button>
 
@@ -73,7 +73,7 @@
                 <div class="role-tag tag-steward">Data Steward</div>
                 <div class="role-info">
                   <strong>راهبر داده (steward)</strong>
-                  <small>ویرایش توضیحات، مدیریت تگ‌ها و دسته‌بندی‌ها</small>
+                  <small>ویرایش توضیحات و مدیریت دسته‌بندی‌ها</small>
                 </div>
               </button>
 
@@ -114,14 +114,19 @@
             <span class="nav-text">کاوشگر کاتالوگ و درختواره داده</span>
           </a>
 
-          <a class="nav-item" routerLink="/connections" routerLinkActive="active" id="nav-connections">
+          <a class="nav-item" routerLink="/connections" routerLinkActive="active" id="nav-connections" *hasPermission="'MANAGE_CONNECTIONS'">
             <span class="nav-icon">🔌</span>
-            <span class="nav-text">مدیریت اتصالات و زمانبندی بروزرسانی</span>
+            <span class="nav-text">مدیریت اتصالات و منابع داده</span>
           </a>
 
-          <a class="nav-item" routerLink="/taxonomy" routerLinkActive="active" id="nav-taxonomy">
-            <span class="nav-icon">🏷️</span>
-            <span class="nav-text">مدیریت تگ‌ها و دسته‌بندی‌های موضوعی</span>
+          <a class="nav-item" routerLink="/schedules" routerLinkActive="active" id="nav-schedules" *hasPermission="'MANAGE_SCHEDULES'">
+            <span class="nav-icon">⏱️</span>
+            <span class="nav-text">زمان‌بندی بروزرسانی کاتالوگ</span>
+          </a>
+
+          <a class="nav-item" routerLink="/taxonomy" routerLinkActive="active" id="nav-taxonomy" *hasPermission="'MANAGE_CATEGORIES'">
+            <span class="nav-icon">📁</span>
+            <span class="nav-text">مدیریت دسته‌بندی‌های موضوعی</span>
           </a>
 
           <a class="nav-item" routerLink="/versions" routerLinkActive="active" id="nav-diff">
@@ -134,21 +139,10 @@
             routerLink="/admin/users"
             routerLinkActive="active"
             id="nav-users"
-            *hasPermission="'MANAGE_CONNECTIONS'"
+            *hasPermission="'MANAGE_USERS'"
           >
             <span class="nav-icon">👥</span>
-            <span class="nav-text">مدیریت کاربران و دسترسی‌ها (Users)</span>
-          </a>
-
-          <a
-            class="nav-item"
-            routerLink="/admin/groups"
-            routerLinkActive="active"
-            id="nav-groups"
-            *hasPermission="'MANAGE_CONNECTIONS'"
-          >
-            <span class="nav-icon">🏢</span>
-            <span class="nav-text">گروه‌های سازمانی (Groups)</span>
+            <span class="nav-text">مدیریت کاربران (Users)</span>
           </a>
 
           <a
@@ -156,10 +150,10 @@
             routerLink="/admin/roles"
             routerLinkActive="active"
             id="nav-roles"
-            *hasPermission="'MANAGE_CONNECTIONS'"
+            *hasPermission="'MANAGE_ROLES'"
           >
             <span class="nav-icon">🛡️</span>
-            <span class="nav-text">نقش‌ها و سطوح دسترسی (Roles)</span>
+            <span class="nav-text">مدیریت نقش‌ها (Roles)</span>
           </a>
 
           <a

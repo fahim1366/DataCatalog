@@ -75,7 +75,7 @@ describe('AppComponent (Enterprise Navigation Shell)', () => {
     expect(catalogLink).toBeTruthy();
     expect(catalogLink?.textContent).toContain('کاوشگر کاتالوگ');
     expect(connLink?.textContent).toContain('مدیریت اتصالات');
-    expect(taxLink?.textContent).toContain('مدیریت تگ‌ها');
+    expect(taxLink?.textContent).toContain('مدیریت دسته‌بندی‌ها');
     expect(diffLink?.textContent).toContain('مقایسه نسخه‌ها');
     expect(reportsLink?.textContent).toContain('داشبورد گزارشات');
   });

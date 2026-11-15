@@ -23,7 +23,18 @@
   border: 1px solid var(--slate-200, #e2e8f0);
   box-shadow: var(--shadow-sm, 0 1px 3px rgba(0, 0, 0, 0.05));
 }
+.category-row-cell {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
 
+.row-operations-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  flex-shrink: 0;
+}
 .page-title {
   font-size: 1.4rem;
   font-weight: 800;
@@ -271,7 +282,7 @@
   font-weight: 700;
   padding: 0.85rem 1rem;
   border-bottom: 2px solid var(--slate-200, #e2e8f0);
-  text-align: right;
+  text-align: center;
   white-space: nowrap;
 }
 
@@ -395,7 +406,7 @@
   display: inline-flex;
   align-items: center;
   gap: 0.3rem;
-  padding: 0.35rem 0.6rem;
+  padding: 0.2rem;
   border-radius: 6px;
   font-size: 0.8rem;
   font-weight: 600;
@@ -740,7 +751,7 @@
   background: var(--slate-50, #f8fafc);
   padding: 0.5rem 0.75rem;
   border-bottom: 1px solid var(--slate-200, #e2e8f0);
-  text-align: right;
+  text-align: center;
   font-weight: 600;
   color: var(--slate-600, #475569);
 }
@@ -750,6 +761,7 @@
   border-bottom: 1px solid var(--slate-200, #e2e8f0);
   color: var(--slate-800, #1e293b);
   vertical-align: middle;
+  text-align: center;
 }
 
 .table-compact tr:last-child td {

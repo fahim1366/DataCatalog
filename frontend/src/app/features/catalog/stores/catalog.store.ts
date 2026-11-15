@@ -21,6 +21,7 @@ export interface CatalogFilterOptions {
   status?: string;
   tag?: string;
   category?: string;
+  missing_descriptions_only?: boolean;
 }
 
 @Injectable({
@@ -94,6 +95,9 @@ export class CatalogStore {
     if (activeOpts.category) {
       url += `&category=${encodeURIComponent(activeOpts.category)}`;
     }
+    if (activeOpts.missing_descriptions_only) {
+      url += `&missing_descriptions_only=true`;
+    }
 
     try {
       const resp = await firstValueFrom(this.http.get<SearchResponse>(url));
@@ -146,6 +150,31 @@ export class CatalogStore {
    */
   async getTableDetails(tableId: string): Promise<TableDetail> {
     return firstValueFrom(this.http.get<TableDetail>(`/api/v1/tables/${tableId}`));
+  }
+
+  /**
+   * Approves AI-suggested description for a table.
+   */
+  async approveAiTableDescription(tableId: string): Promise<TableDetail> {
+    const updated = await firstValueFrom(
+      this.http.post<TableDetail>(`/api/v1/tables/${tableId}/approve-ai-description`, {})
+    );
+    this._tables.update((list) =>
+      list.map((t) => (t.id === tableId ? { ...t, effective_description: updated.effective_description } : t))
+    );
+    this._searchHits.update((list) =>
+      list.map((hit) => (hit.id === tableId ? { ...hit, effective_description: updated.effective_description } : hit))
+    );
+    return updated;
+  }
+
+  /**
+   * Approves AI-suggested description for a column.
+   */
+  async approveAiColumnDescription(columnId: string): Promise<ColumnItem> {
+    return firstValueFrom(
+      this.http.post<ColumnItem>(`/api/v1/columns/${columnId}/approve-ai-description`, {})
+    );
   }
 
   /**

@@ -9,8 +9,8 @@ import { ExecutiveDashboardComponent } from './features/reports/executive-dashbo
 import { LoginComponent } from './features/auth/login.component';
 import { authGuard } from './core/guards/auth.guard';
 import { UserManagementComponent } from './features/access-control/users/user-management.component';
-import { GroupManagementComponent } from './features/access-control/groups/group-management.component';
 import { RoleManagementComponent } from './features/access-control/roles/role-management.component';
+import { ScheduleManagementComponent } from './features/schedules/schedule-management.component';
 
 export const routes: Routes = [
   {
@@ -36,10 +36,16 @@ export const routes: Routes = [
     title: 'مدیریت اتصالات و زمانبندی بروزرسانی - سامانه داده',
   },
   {
+    path: 'schedules',
+    component: ScheduleManagementComponent,
+    canActivate: [authGuard],
+    title: 'زمان‌بندی بروزرسانی کاتالوگ داده (Sync Schedules)',
+  },
+  {
     path: 'taxonomy',
     component: TaxonomyManagementComponent,
     canActivate: [authGuard],
-    title: 'مدیریت تگ‌ها و دسته‌بندی‌های موضوعی - سامانه داده',
+    title: 'مدیریت دسته‌بندی‌های موضوعی - سامانه داده',
   },
   {
     path: 'versions',
@@ -65,9 +71,8 @@ export const routes: Routes = [
   },
   {
     path: 'admin/groups',
-    component: GroupManagementComponent,
-    canActivate: [authGuard],
-    title: 'مدیریت گروه‌های سازمانی (Group Management)',
+    redirectTo: 'admin/roles',
+    pathMatch: 'full',
   },
   {
     path: 'admin/roles',

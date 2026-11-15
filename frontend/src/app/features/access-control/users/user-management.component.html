@@ -2,16 +2,20 @@
   <!-- Notifications -->
   @if (successMessage()) {
     <div class="alert alert-success animate-fade">
-      <span class="alert-icon">✓</span>
+      <i class="pi pi-check-circle alert-icon"></i>
       <span>{{ successMessage() }}</span>
-      <button class="alert-close" (click)="successMessage.set(null)">×</button>
+      <button type="button" class="alert-close" (click)="successMessage.set(null)" aria-label="بستن">
+        <i class="pi pi-times"></i>
+      </button>
     </div>
   }
   @if (errorMessage()) {
     <div class="alert alert-danger animate-fade">
-      <span class="alert-icon">⚠</span>
+      <i class="pi pi-exclamation-triangle alert-icon"></i>
       <span>{{ errorMessage() }}</span>
-      <button class="alert-close" (click)="errorMessage.set(null)">×</button>
+      <button type="button" class="alert-close" (click)="errorMessage.set(null)" aria-label="بستن">
+        <i class="pi pi-times"></i>
+      </button>
     </div>
   }
 
@@ -20,17 +24,18 @@
     <div class="subnav-tabs">
       <div class="subnav-tab active">
         <span>کاربران</span>
-        <span class="tab-close-icon">×</span>
+        <i class="pi pi-times tab-close-icon"></i>
       </div>
       <a routerLink="/admin/roles" class="subnav-tab inactive">
         <span>نقش‌ها</span>
-        <span class="tab-close-icon">×</span>
+        <i class="pi pi-times tab-close-icon"></i>
       </a>
     </div>
 
     <div class="subnav-actions">
-      <button class="btn btn-primary" (click)="startCreateNewUser()">
-        <span>+ کاربر جدید</span>
+      <button type="button" class="btn btn-primary" (click)="startCreateNewUser()">
+        <i class="pi pi-plus"></i>
+        <span>کاربر جدید</span>
       </button>
     </div>
   </div>
@@ -38,7 +43,7 @@
   <!-- Upper Card: Users Data Table -->
   <div class="table-card">
     <div class="table-card-header">
-      <h2 class="table-title">فهرست کاربران</h2>
+      <h2 class="table-title"> کاربران</h2>
     </div>
 
     <div class="table-responsive">
@@ -46,17 +51,17 @@
         <thead>
           <tr class="header-titles-row">
             <th class="th-num">ردیف</th>
-            <th>نام <span class="sort-arrows">⇅</span></th>
-            <th>نام خانوادگی <span class="sort-arrows">⇅</span></th>
-            <th>نام کاربری <span class="sort-arrows">⇅</span></th>
-            <th>ایمیل <span class="sort-arrows">⇅</span></th>
+            <th>نام <i class="pi pi-sort-alt sort-arrows"></i></th>
+            <th>نام خانوادگی <i class="pi pi-sort-alt sort-arrows"></i></th>
+            <th>نام کاربری <i class="pi pi-sort-alt sort-arrows"></i></th>
+            <th>ایمیل <i class="pi pi-sort-alt sort-arrows"></i></th>
             <th class="th-actions">عملیات</th>
           </tr>
           <tr class="header-filters-row">
             <th class="th-num"></th>
             <th>
               <div class="inline-filter-box">
-                <span class="filter-icon">🔍</span>
+                <i class="pi pi-search filter-icon"></i>
                 <input
                   type="text"
                   class="filter-input"
@@ -68,7 +73,7 @@
             </th>
             <th>
               <div class="inline-filter-box">
-                <span class="filter-icon">🔍</span>
+                <i class="pi pi-search filter-icon"></i>
                 <input
                   type="text"
                   class="filter-input"
@@ -80,7 +85,7 @@
             </th>
             <th>
               <div class="inline-filter-box">
-                <span class="filter-icon">🔍</span>
+                <i class="pi pi-search filter-icon"></i>
                 <input
                   type="text"
                   class="filter-input"
@@ -92,7 +97,7 @@
             </th>
             <th>
               <div class="inline-filter-box">
-                <span class="filter-icon">🔍</span>
+                <i class="pi pi-search filter-icon"></i>
                 <input
                   type="text"
                   class="filter-input"
@@ -110,7 +115,7 @@
             <tr>
               <td colspan="6" class="td-state">
                 <div class="spinner"></div>
-                <span>در حال بارگذاری فهرست کاربران...</span>
+                <span>در حال بارگذاری لیست کاربران...</span>
               </td>
             </tr>
           } @else if (filteredUsers().length === 0) {
@@ -132,28 +137,34 @@
                 <td class="td-text td-ltr">{{ row.user.email }}</td>
                 <td class="td-actions" (click)="$event.stopPropagation()">
                   <button
+                    type="button"
                     class="action-icon-btn action-edit"
                     title="ویرایش اطلاعات کاربر"
+                    aria-label="ویرایش اطلاعات کاربر"
                     (click)="startEditUser(row.user, $event)"
                   >
-                    ✏️
+                    <i class="pi pi-pencil"></i>
                   </button>
                   <button
+                    type="button"
                     class="action-icon-btn action-delete"
                     title="حذف حساب کاربری"
+                    aria-label="حذف حساب کاربری"
                     (click)="deleteUser(row.user, $event)"
                   >
-                    🗑️
+                    <i class="pi pi-trash"></i>
                   </button>
                   <button
+                    type="button"
                     class="action-icon-btn action-lock"
                     [title]="row.user.status === 'ACTIVE' ? 'تعلیق حساب کاربری' : 'فعال‌سازی کاربر'"
+                    [attr.aria-label]="row.user.status === 'ACTIVE' ? 'تعلیق حساب کاربری' : 'فعال‌سازی کاربر'"
                     (click)="toggleUserStatus(row.user, $event)"
                   >
                     @if (row.user.status === 'ACTIVE') {
-                      🔓
+                      <i class="pi pi-lock-open"></i>
                     } @else {
-                      🔒
+                      <i class="pi pi-lock"></i>
                     }
                   </button>
                 </td>
@@ -164,33 +175,39 @@
       </table>
     </div>
 
-    <!-- Table Pagination Footer matching screenshot -->
+    <!-- Table Pagination Footer -->
     <div class="table-pagination-footer">
       <div class="pagination-info">
         نمایش گزینه‌های {{ pageDisplayStart() }} تا {{ pageDisplayEnd() }} از {{ filteredUsers().length }} گزینه
       </div>
 
       <div class="pagination-controls">
+        <!-- RTL: صفحه نخست سمت راست است -->
         <button
+          type="button"
           class="page-nav-btn"
           [disabled]="currentPage() === 1"
           (click)="goToPage(1)"
           title="صفحه نخست"
+          aria-label="صفحه نخست"
         >
-          «
+          <i class="pi pi-angle-double-right"></i>
         </button>
         <button
+          type="button"
           class="page-nav-btn"
           [disabled]="currentPage() === 1"
           (click)="goToPage(currentPage() - 1)"
           title="صفحه قبلی"
+          aria-label="صفحه قبلی"
         >
-          ‹
+          <i class="pi pi-angle-right"></i>
         </button>
 
         @for (p of [].constructor(totalPages()); track $index; let pIdx = $index) {
           @if (pIdx + 1 >= currentPage() - 2 && pIdx + 1 <= currentPage() + 2) {
             <button
+              type="button"
               class="page-num-btn"
               [class.active]="currentPage() === pIdx + 1"
               (click)="goToPage(pIdx + 1)"
@@ -201,20 +218,24 @@
         }
 
         <button
+          type="button"
           class="page-nav-btn"
           [disabled]="currentPage() === totalPages()"
           (click)="goToPage(currentPage() + 1)"
           title="صفحه بعدی"
+          aria-label="صفحه بعدی"
         >
-          ›
+          <i class="pi pi-angle-left"></i>
         </button>
         <button
+          type="button"
           class="page-nav-btn"
           [disabled]="currentPage() === totalPages()"
           (click)="goToPage(totalPages())"
           title="صفحه آخر"
+          aria-label="صفحه آخر"
         >
-          »
+          <i class="pi pi-angle-double-left"></i>
         </button>
       </div>
 
@@ -239,11 +260,11 @@
       <div class="detail-title-group">
         <span class="detail-edit-icon">
           @if (isCreateMode()) {
-            ➕
+            <i class="pi pi-plus"></i>
           } @else if (isEditMode()) {
-            ✏️
+            <i class="pi pi-pencil"></i>
           } @else {
-            👤
+            <i class="pi pi-user"></i>
           }
         </span>
         <h3 class="detail-title">
@@ -259,15 +280,22 @@
           <span class="badge badge-create-mode">حالت ثبت کاربر جدید</span>
         } @else if (isEditMode()) {
           <span class="badge badge-create-mode">حالت ویرایش کاربر</span>
-        } 
+        }
+
+        @if (selectedUser() && !isFormEditable()) {
+          <button
+            type="button"
+            class="btn btn-outline-primary btn-sm btn-edit-inline"
+            (click)="enableEditMode()"
+            aria-label="ویرایش اطلاعات کاربر"
+          >
+            <i class="pi pi-pencil"></i>
+            <span>ویرایش</span>
+          </button>
+        }
       </div>
 
       <div class="detail-header-actions">
-        @if (selectedUser() && !isFormEditable()) {
-          <button type="button" class="btn btn-outline-primary btn-sm" (click)="enableEditMode()">
-            <span>✏️ ویرایش</span>
-          </button>
-        }
         @if (selectedUser() && !isCreateMode()) {
           <span class="badge" [class.badge-active]="selectedUser()?.status === 'ACTIVE'" [class.badge-suspended]="selectedUser()?.status !== 'ACTIVE'">
             {{ selectedUser()?.status === 'ACTIVE' ? 'حساب فعال' : 'حساب معلق' }}
@@ -355,7 +383,8 @@
               </label>
               @if (isCreateMode()) {
                 <button type="button" class="btn-text-action" (click)="generateRandomPassword()">
-                  <span>🔑 ایجاد کلمه عبور خودکار</span>
+                  <i class="pi pi-key"></i>
+                  <span>ایجاد کلمه عبور خودکار</span>
                 </button>
               }
             </div>
@@ -386,8 +415,9 @@
                     class="role-chip-remove"
                     (click)="removeRoleFromUser(rId)"
                     title="حذف نقش"
+                    aria-label="حذف نقش"
                   >
-                    ×
+                    <i class="pi pi-times"></i>
                   </button>
                 }
               </span>
@@ -420,7 +450,8 @@
           [class.active]="activeDetailTab() === 'databases'"
           (click)="activeDetailTab.set('databases')"
         >
-          <span>🗄️ تخصیص پایگاه‌های داده (ساختار درختی موضوعی)</span>
+          <i class="pi pi-database"></i>
+          <span>تخصیص پایگاه‌های داده </span>
           <span class="subtab-badge">{{ formSelectedDatabaseIds().size }} دیتابیس</span>
         </button>
         <button
@@ -429,7 +460,8 @@
           [class.active]="activeDetailTab() === 'permissions'"
           (click)="activeDetailTab.set('permissions')"
         >
-          <span>🛡️ مجوزهای اختصاصی کاربر (۸ ماژول حاکمیتی)</span>
+          <i class="pi pi-shield"></i>
+          <span>مجوزهای اختصاصی کاربر</span>
           <span class="subtab-badge">{{ userDirectPermissions().size }} مجوز فعال</span>
         </button>
       </div>
@@ -439,7 +471,7 @@
         <div class="form-section-tree">
           <div class="tree-section-header">
             <div class="tree-title-group">
-              <span class="tree-header-icon">🗄️</span>
+              <i class="pi pi-database tree-header-icon"></i>
               <h4>ساختار درختی دسته‌بندی‌ها و پایگاه‌های داده</h4>
             </div>
             <span class="tree-counter-badge">
@@ -481,7 +513,7 @@
                             [checked]="isDatabaseSelected(db.id)"
                             (change)="toggleDatabaseSelection(db.id, $event)"
                           />
-                          <span class="node-icon">🗄️</span>
+                          <i class="pi pi-database node-icon"></i>
                           <span class="node-name font-bold">{{ db.name }}</span>
                           <span class="node-db-target font-mono">({{ db.database_name }})</span>
                         </div>
@@ -491,9 +523,9 @@
                       </td>
                       <td class="th-center">
                         @if (isDatabaseSelected(db.id)) {
-                          <span class="status-indicator status-has">✓ دارد</span>
+                          <span class="status-indicator status-has"><i class="pi pi-check"></i> دارد</span>
                         } @else {
-                          <span class="status-indicator status-none">✕ ندارد</span>
+                          <span class="status-indicator status-none"><i class="pi pi-times"></i> ندارد</span>
                         }
                       </td>
                     </tr>
@@ -510,8 +542,14 @@
           <tr class="tree-row cat-tree-row" (click)="toggleCategory(cat.id)">
             <td colspan="3" [style.padding-right.px]="level * 20 + 12">
               <div class="tree-cat-header-content">
-                <span class="expand-icon">{{ expandedCategoryIds().has(cat.id) ? '▾' : '▸' }}</span>
-                <span class="folder-icon">{{ expandedCategoryIds().has(cat.id) ? '📂' : '📁' }}</span>
+                <i
+                  class="pi expand-icon"
+                  [ngClass]="expandedCategoryIds().has(cat.id) ? 'pi-chevron-down' : 'pi-chevron-left'"
+                ></i>
+                <i
+                  class="pi folder-icon"
+                  [ngClass]="expandedCategoryIds().has(cat.id) ? 'pi-folder-open' : 'pi-folder'"
+                ></i>
                 <span class="cat-label font-bold">{{ cat.name }}</span>
                 @if (cat.description) {
                   <span class="cat-desc-hint">({{ cat.description }})</span>
@@ -546,7 +584,7 @@
                         [checked]="isDatabaseSelected(db.id)"
                         (change)="toggleDatabaseSelection(db.id, $event)"
                       />
-                      <span class="node-icon">🗄️</span>
+                      <i class="pi pi-database node-icon"></i>
                       <span class="node-name font-bold">{{ db.name }}</span>
                       <span class="node-db-target font-mono">({{ db.database_name }})</span>
                     </div>
@@ -556,9 +594,9 @@
                   </td>
                   <td class="th-center">
                     @if (isDatabaseSelected(db.id)) {
-                      <span class="status-indicator status-has">✓ دارد</span>
+                      <span class="status-indicator status-has"><i class="pi pi-check"></i> دارد</span>
                     } @else {
-                      <span class="status-indicator status-none">✕ ندارد</span>
+                      <span class="status-indicator status-none"><i class="pi pi-times"></i> ندارد</span>
                     }
                   </td>
                 </tr>
@@ -573,8 +611,8 @@
         <div class="form-section-tree">
           <div class="tree-section-header">
             <div class="tree-title-group">
-              <span class="tree-header-icon">🛡️</span>
-              <h4>مجوزهای اداری و حاکمیتی مستقیم کاربر (Direct User Permissions)</h4>
+              <i class="pi pi-shield tree-header-icon"></i>
+              <h4>مجوزهای مستقیم کاربر </h4>
             </div>
             <span class="tree-counter-badge">
               {{ userDirectPermissions().size }} از ۸ مجوز فعال
@@ -602,7 +640,7 @@
                           [checked]="userDirectPermissions().has(perm.action)"
                           (change)="toggleDirectPermission(perm.action, $event)"
                         />
-                        <span class="node-icon">🔑</span>
+                        <i class="pi pi-key node-icon"></i>
                         <span class="node-name font-bold">{{ perm.label }}</span>
                         <code class="font-mono" style="font-size: 11px; color: #64748b;">({{ perm.action }})</code>
                       </div>
@@ -612,9 +650,9 @@
                     </td>
                     <td class="th-center">
                       @if (userDirectPermissions().has(perm.action)) {
-                        <span class="status-indicator status-has">✓ دارد</span>
+                        <span class="status-indicator status-has"><i class="pi pi-check"></i> دارد</span>
                       } @else {
-                        <span class="status-indicator status-none">✕ ندارد</span>
+                        <span class="status-indicator status-none"><i class="pi pi-times"></i> ندارد</span>
                       }
                     </td>
                   </tr>
@@ -628,16 +666,20 @@
       <!-- Inline status notifications inside detail card right above buttons -->
       @if (errorMessage()) {
         <div class="alert alert-danger animate-fade" style="margin-top: 16px; margin-bottom: 8px;">
-          <span class="alert-icon">⚠</span>
+          <i class="pi pi-exclamation-triangle alert-icon"></i>
           <span>{{ errorMessage() }}</span>
-          <button type="button" class="alert-close" (click)="errorMessage.set(null)">×</button>
+          <button type="button" class="alert-close" (click)="errorMessage.set(null)" aria-label="بستن">
+            <i class="pi pi-times"></i>
+          </button>
         </div>
       }
       @if (successMessage()) {
         <div class="alert alert-success animate-fade" style="margin-top: 16px; margin-bottom: 8px;">
-          <span class="alert-icon">✓</span>
+          <i class="pi pi-check-circle alert-icon"></i>
           <span>{{ successMessage() }}</span>
-          <button type="button" class="alert-close" (click)="successMessage.set(null)">×</button>
+          <button type="button" class="alert-close" (click)="successMessage.set(null)" aria-label="بستن">
+            <i class="pi pi-times"></i>
+          </button>
         </div>
       }
 
@@ -651,9 +693,11 @@
             (click)="saveUser()"
           >
             @if (isSaving()) {
+              <i class="pi pi-spin pi-spinner"></i>
               <span>در حال ذخیره...</span>
             } @else {
-              <span>{{ isCreateMode() ? 'ثبت و تعریف کاربر جدید' : 'ذخیره تغییرات کاربر و دسترسی‌ها' }}</span>
+              <i class="pi pi-check"></i>
+              <span>ثبت</span>
             }
           </button>
 

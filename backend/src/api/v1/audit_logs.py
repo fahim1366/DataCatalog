@@ -6,7 +6,7 @@ from datetime import datetime
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.src.api.dependencies.rbac import UserContext, get_current_user
@@ -37,15 +37,14 @@ async def require_view_audit_logs_permission(
     if user_ctx.is_superadmin:
         return user_ctx
 
-    if not user_ctx.role_ids:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Forbidden: User lacks VIEW_AUDIT_LOGS permission.",
-        )
+    principal_filter = or_(
+        PermissionRule.role_id.in_(user_ctx.role_ids) if user_ctx.role_ids else False,
+        PermissionRule.user_id == user_ctx.user_id,
+    )
 
     # 1. Check explicit DENY
     deny_stmt = select(1).where(
-        PermissionRule.role_id.in_(user_ctx.role_ids),
+        principal_filter,
         PermissionRule.action == PermissionAction.VIEW_AUDIT_LOGS,
         PermissionRule.effect == PermissionEffect.DENY,
     )
@@ -58,7 +57,7 @@ async def require_view_audit_logs_permission(
 
     # 2. Check ALLOW
     allow_stmt = select(1).where(
-        PermissionRule.role_id.in_(user_ctx.role_ids),
+        principal_filter,
         PermissionRule.action == PermissionAction.VIEW_AUDIT_LOGS,
         PermissionRule.effect == PermissionEffect.ALLOW,
     )
@@ -96,6 +95,7 @@ async def list_audit_logs(
     ),
     entity_id: Optional[uuid.UUID] = Query(None, description="Filter by entity ID"),
     actor_id: Optional[uuid.UUID] = Query(None, description="Filter by actor ID"),
+    actor_username: Optional[str] = Query(None, description="Filter by actor username"),
     action: Optional[str] = Query(None, description="Filter by action name"),
     start_time: Optional[datetime] = Query(
         None, description="Filter by starting timestamp (inclusive)"
@@ -125,6 +125,7 @@ async def list_audit_logs(
         entity_type=entity_type,
         entity_id=entity_id,
         actor_id=actor_id,
+        actor_username=actor_username,
         action=action,
         start_time=start_time,
         end_time=end_time,

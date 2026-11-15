@@ -8,26 +8,42 @@ import {
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
+import { RouterModule } from '@angular/router';
 import { UserManagementService } from '../services/user-management.service';
 import { RoleManagementService } from '../services/role-management.service';
-import { GroupManagementService } from '../services/group-management.service';
 import {
-  DirectPermissionRule,
-  EffectivePermissionRow,
-  GroupItem,
   PhysicalDatabaseNode,
+  PhysicalSchemaNode,
   RoleItem,
-  UserActivityItem,
   UserCreateDto,
-  UserDetailData,
   UserItem,
   UserUpdateDto,
 } from '../models/access-control.models';
 
+export function splitFullName(fullName: string): { firstName: string; lastName: string } {
+  const parts = (fullName || '').trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return { firstName: '', lastName: '' };
+  if (parts.length === 1) return { firstName: parts[0], lastName: '' };
+  if (parts.length === 2) return { firstName: parts[0], lastName: parts[1] };
+  if (parts.length === 3) {
+    return { firstName: `${parts[0]} ${parts[1]}`, lastName: parts[2] };
+  }
+  return {
+    firstName: `${parts[0]} ${parts[1]}`,
+    lastName: parts.slice(2).join(' '),
+  };
+}
+
+export interface UserRowViewModel {
+  user: UserItem;
+  firstName: string;
+  lastName: string;
+}
+
 @Component({
   selector: 'app-user-management',
   standalone: true,
-  imports: [CommonModule, FormsModule],
+  imports: [CommonModule, FormsModule, RouterModule],
   templateUrl: './user-management.component.html',
   styleUrls: ['./user-management.component.css'],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -35,383 +51,553 @@ import {
 export class UserManagementComponent implements OnInit {
   private userService = inject(UserManagementService);
   private roleService = inject(RoleManagementService);
-  private groupService = inject(GroupManagementService);
 
   // Users grid state
-  users = signal<UserItem[]>([]);
+  rawUsers = signal<UserItem[]>([]);
   totalUsers = signal<number>(0);
   currentPage = signal<number>(1);
-  pageSize = signal<number>(10);
-  totalPages = signal<number>(1);
-  searchQuery = signal<string>('');
-  selectedRoleId = signal<string>('');
-  selectedGroupId = signal<string>('');
-  selectedStatus = signal<string>('');
+  pageSize = signal<number>(5);
+  availablePageSizes = [5, 10, 20, 50];
+
+  // Column search filters
+  filterFirstName = signal<string>('');
+  filterLastName = signal<string>('');
+  filterUsername = signal<string>('');
+  filterEmail = signal<string>('');
+
   isLoading = signal<boolean>(false);
+  isSaving = signal<boolean>(false);
   errorMessage = signal<string | null>(null);
   successMessage = signal<string | null>(null);
 
-  // Reference data
+  // Available roles for selection
   allRoles = signal<RoleItem[]>([]);
-  allGroups = signal<GroupItem[]>([]);
+  selectedRoleToAdd = signal<string>('');
 
-  // Selected User & Details Panel (6 Tabs)
-  selectedUser = signal<UserItem | null>(null);
-  activeTab = signal<'info' | 'roles' | 'groups' | 'databases' | 'effective' | 'activity'>('info');
-  userDetails = signal<UserDetailData | null>(null);
-  isLoadingDetails = signal<boolean>(false);
-
-  // Tab 4: Database Access Tree
+  // Category & Physical Databases Tree
+  categoryTree = signal<any[]>([]);
+  allConnections = signal<any[]>([]);
   physicalTree = signal<PhysicalDatabaseNode[]>([]);
-  expandedNodes = signal<Set<string>>(new Set());
-  // Mapping: `${resourceType}:${resourceId}` -> Set of actions (VIEW_METADATA, EDIT_DESCRIPTION, MANAGE_TAGS, MANAGE_CONNECTIONS)
-  permissionDraft = signal<Map<string, Set<string>>>(new Map());
-  isSavingPermissions = signal<boolean>(false);
+  expandedDbNodes = signal<Set<string>>(new Set());
+  expandedCategoryIds = signal<Set<string>>(new Set());
 
-  // Tab 5: Effective Permissions Matrix
-  effectivePermissions = signal<EffectivePermissionRow[]>([]);
-  effSearch = signal<string>('');
-  effAction = signal<string>('');
-  isLoadingEffective = signal<boolean>(false);
+  // Sub-tabs in bottom detail panel
+  activeDetailTab = signal<'databases' | 'permissions'>('databases');
 
-  // Tab 6: User Audit Activity
-  userActivities = signal<UserActivityItem[]>([]);
-  isLoadingActivity = signal<boolean>(false);
-
-  // Modals state
-  showCreateModal = signal<boolean>(false);
-  showEditModal = signal<boolean>(false);
-  showResetPasswordModal = signal<boolean>(false);
-
-  // Create User Form
-  newUser: UserCreateDto = {
-    username: '',
-    email: '',
-    full_name: '',
-    password: '',
-    phone: '',
-    is_superadmin: false,
-    role_ids: [],
-    group_ids: [],
-  };
-
-  // Edit User Form
-  editUserDto: UserUpdateDto = {};
-
-  // Reset Password Form
-  newPassword = '';
-  confirmPassword = '';
-  passwordError = '';
-
-  // Role / Group Quick Assignment in Tabs
-  newRoleIdToAssign = '';
-  newGroupIdToAssign = '';
-
-  readonly permissionActions = [
-    { key: 'VIEW_METADATA', label: 'مشاهده متاداده' },
-    { key: 'EDIT_DESCRIPTION', label: 'ویرایش توضیحات' },
-    { key: 'MANAGE_TAGS', label: 'مدیریت برچسب‌ها' },
-    { key: 'MANAGE_CONNECTIONS', label: 'مدیریت اتصال' },
+  // Direct 8-Module Administrative Permissions
+  readonly directPermissionDefs = [
+    { action: 'MANAGE_CATEGORIES', label: 'مدیریت موضوعات و دسته‌بندی‌ها', desc: 'تعریف، ویرایش و حذف ساختار درختی موضوعات' },
+    { action: 'MANAGE_CONNECTIONS', label: 'مدیریت پایگاه‌های داده', desc: 'افزودن و ویرایش اطلاعات اتصال پایگاه‌های داده' },
+    { action: 'MANAGE_USERS', label: 'مدیریت کاربران', desc: 'افزودن، ویرایش و غیرفعال‌سازی حساب‌های کاربری' },
+    { action: 'MANAGE_ROLES', label: 'مدیریت نقش‌ها و مجوزها', desc: 'تعریف و ویرایش نقش‌های سازمانی و انتساب مجوزها' },
+    { action: 'MANAGE_SCHEDULES', label: 'مدیریت زمان‌بندی کاتالوگ', desc: 'تنظیم الگوهای کرون و اجرای همگام‌سازی بلادرنگ' },
+    { action: 'VIEW_AUDIT_LOGS', label: 'مشاهده لاگ‌های ممیزی', desc: 'مشاهده تاریخچه ورود، تغییرات امنیتی و رخدادها' },
+    { action: 'EXPORT_REPORTS', label: 'گزارش‌گیری کاتالوگ داده', desc: 'خروجی اکسل و JSON از متاداده پایگاه‌های داده' },
+    { action: 'EDIT_DESCRIPTION', label: 'ویرایش توضیحات و هوش مصنوعی', desc: 'ویرایش توضیحات جداول/ستون‌ها و تایید پیشنهادهای هوش مصنوعی' },
   ];
+  userDirectPermissions = signal<Set<string>>(new Set());
+
+  // Master-Detail selection & Form state
+  selectedUser = signal<UserItem | null>(null);
+  isCreateMode = signal<boolean>(false);
+  isEditMode = signal<boolean>(false);
+  isFormEditable = computed<boolean>(() => this.isCreateMode() || this.isEditMode());
+
+  // Form Fields
+  formFirstName = signal<string>('');
+  formLastName = signal<string>('');
+  formEmail = signal<string>('');
+  formUsername = signal<string>('');
+  formPhone = signal<string>('');
+  formPassword = signal<string>('');
+  formSelectedRoleIds = signal<string[]>([]);
+  formSelectedDatabaseIds = signal<Set<string>>(new Set());
+
+  // Filtered and Paginated View Models
+  filteredUsers = computed<UserRowViewModel[]>(() => {
+    const list = this.rawUsers() || [];
+    const fnFilter = this.filterFirstName().trim().toLowerCase();
+    const lnFilter = this.filterLastName().trim().toLowerCase();
+    const unFilter = this.filterUsername().trim().toLowerCase();
+    const emFilter = this.filterEmail().trim().toLowerCase();
+
+    return list
+      .map((u) => {
+        const { firstName, lastName } = splitFullName(u.full_name);
+        return { user: u, firstName, lastName };
+      })
+      .filter((row) => {
+        if (fnFilter && !(row.firstName || '').toLowerCase().includes(fnFilter)) return false;
+        if (lnFilter && !(row.lastName || '').toLowerCase().includes(lnFilter)) return false;
+        if (unFilter && !(row.user.username || '').toLowerCase().includes(unFilter)) return false;
+        if (emFilter && !(row.user.email || '').toLowerCase().includes(emFilter)) return false;
+        return true;
+      });
+  });
+
+  paginatedUsers = computed<UserRowViewModel[]>(() => {
+    const all = this.filteredUsers();
+    const start = (this.currentPage() - 1) * this.pageSize();
+    return all.slice(start, start + this.pageSize());
+  });
+
+  totalPages = computed<number>(() => {
+    const count = this.filteredUsers().length;
+    return Math.max(1, Math.ceil(count / this.pageSize()));
+  });
+
+  pageDisplayStart = computed<number>(() => {
+    if (this.filteredUsers().length === 0) return 0;
+    return (this.currentPage() - 1) * this.pageSize() + 1;
+  });
+
+  pageDisplayEnd = computed<number>(() => {
+    return Math.min(this.currentPage() * this.pageSize(), this.filteredUsers().length);
+  });
 
   readonly Math = Math;
-  readonly Object = Object;
 
   ngOnInit(): void {
     this.loadUsers();
-    this.loadReferenceData();
+    this.loadRoles();
     this.loadPhysicalTree();
-  }
-
-  loadReferenceData(): void {
-    this.roleService.getAllRolesList().subscribe({
-      next: (roles) => this.allRoles.set(roles),
-      error: () => {},
-    });
-    this.groupService.getGroups({}).subscribe({
-      next: (res) => {
-        const items = Array.isArray(res) ? res : res.items || [];
-        this.allGroups.set(items);
-      },
-      error: () => {},
-    });
-  }
-
-  loadPhysicalTree(): void {
-    this.userService.getPhysicalTree().subscribe({
-      next: (tree) => {
-        this.physicalTree.set(tree);
-        // Expand first connection by default
-        if (tree.length > 0) {
-          const s = new Set<string>();
-          s.add(`db:${tree[0].id}`);
-          this.expandedNodes.set(s);
-        }
-      },
-      error: () => {},
-    });
   }
 
   loadUsers(): void {
     this.isLoading.set(true);
     this.errorMessage.set(null);
 
-    this.userService
-      .getUsers({
-        page: this.currentPage(),
-        page_size: this.pageSize(),
-        search: this.searchQuery() || undefined,
-        role_id: this.selectedRoleId() || undefined,
-        group_id: this.selectedGroupId() || undefined,
-        status: this.selectedStatus() || undefined,
-      })
-      .subscribe({
-        next: (resp) => {
-          this.isLoading.set(false);
-          if (Array.isArray(resp)) {
-            this.users.set(resp);
-            this.totalUsers.set(resp.length);
-            this.totalPages.set(1);
-          } else {
-            this.users.set(resp.items);
-            this.totalUsers.set(resp.total);
-            this.totalPages.set(resp.total_pages);
+    this.userService.getUsers({ page: 1, page_size: 1000 }).subscribe({
+      next: (resp) => {
+        this.isLoading.set(false);
+        const items = Array.isArray(resp) ? resp : resp.items || [];
+        this.rawUsers.set(items);
+        this.totalUsers.set(items.length);
+
+        // If a user was previously selected, refresh selection
+        const current = this.selectedUser();
+        if (current) {
+          const fresh = items.find((u) => u.id === current.id);
+          if (fresh) {
+            this.selectUser(fresh);
           }
-
-          // If currently selected user was reloaded, update reference
-          const current = this.selectedUser();
-          if (current) {
-            const updated = this.users().find((u) => u.id === current.id);
-            if (updated) {
-              this.selectedUser.set(updated);
-            }
-          }
-        },
-        error: (err) => {
-          this.isLoading.set(false);
-          this.errorMessage.set(err?.error?.detail || 'خطا در بارگذاری لیست کاربران.');
-        },
-      });
-  }
-
-  onSearch(): void {
-    this.currentPage.set(1);
-    this.loadUsers();
-  }
-
-  onFilterChange(): void {
-    this.currentPage.set(1);
-    this.loadUsers();
-  }
-
-  goToPage(p: number): void {
-    if (p >= 1 && p <= this.totalPages()) {
-      this.currentPage.set(p);
-      this.loadUsers();
-    }
-  }
-
-  selectUser(user: UserItem): void {
-    this.selectedUser.set(user);
-    this.loadUserDetails(user.id);
-    this.loadUserDirectPermissions(user.id);
-    if (this.activeTab() === 'effective') {
-      this.loadEffectivePermissions(user.id);
-    } else if (this.activeTab() === 'activity') {
-      this.loadUserActivity(user.id);
-    }
-  }
-
-  switchTab(tab: 'info' | 'roles' | 'groups' | 'databases' | 'effective' | 'activity'): void {
-    this.activeTab.set(tab);
-    const user = this.selectedUser();
-    if (!user) return;
-
-    if (tab === 'effective') {
-      this.loadEffectivePermissions(user.id);
-    } else if (tab === 'activity') {
-      this.loadUserActivity(user.id);
-    } else if (tab === 'databases') {
-      this.loadUserDirectPermissions(user.id);
-    }
-  }
-
-  loadUserDetails(userId: string): void {
-    this.isLoadingDetails.set(true);
-    this.userService.getUserDetails(userId).subscribe({
-      next: (details) => {
-        this.userDetails.set(details);
-        this.isLoadingDetails.set(false);
+        } else if (items.length > 0 && !this.isCreateMode()) {
+          this.selectUser(items[0]);
+        }
       },
-      error: () => this.isLoadingDetails.set(false),
+      error: (err) => {
+        this.isLoading.set(false);
+        this.showError(err?.error?.detail || 'خطا در بارگذاری لیست کاربران.');
+      },
     });
   }
 
-  loadUserDirectPermissions(userId: string): void {
-    this.userService.getUserDirectPermissions(userId).subscribe({
-      next: (rules) => {
-        const draft = new Map<string, Set<string>>();
-        for (const r of rules) {
-          if (r.resource_id) {
-            const key = `${r.resource_type}:${r.resource_id}`;
-            if (!draft.has(key)) {
-              draft.set(key, new Set());
+  loadRoles(): void {
+    this.roleService.getAllRolesList().subscribe({
+      next: (roles) => this.allRoles.set(roles),
+      error: () => {},
+    });
+  }
+
+  loadPhysicalTree(): void {
+    this.userService.getCategoryTree().subscribe({
+      next: (tree) => {
+        this.categoryTree.set(tree || []);
+        const rootIds = new Set<string>();
+        const collectIds = (nodes: any[]) => {
+          for (const n of nodes) {
+            rootIds.add(n.id);
+            if (n.children && n.children.length > 0) {
+              collectIds(n.children);
             }
-            draft.get(key)!.add(r.action);
           }
-        }
-        this.permissionDraft.set(draft);
+        };
+        collectIds(tree || []);
+        this.expandedCategoryIds.set(rootIds);
+      },
+      error: () => {},
+    });
+
+    this.userService.getAllConnections().subscribe({
+      next: (conns) => this.allConnections.set(conns || []),
+      error: () => {},
+    });
+
+    this.userService.getPhysicalTree().subscribe({
+      next: (tree) => {
+        this.physicalTree.set(tree);
+        const initial = new Set<string>();
+        tree.forEach((db) => initial.add(`db:${db.id}`));
+        this.expandedDbNodes.set(initial);
       },
       error: () => {},
     });
   }
 
-  loadEffectivePermissions(userId: string): void {
-    this.isLoadingEffective.set(true);
-    this.userService
-      .getUserEffectivePermissions(userId, this.effSearch() || undefined, this.effAction() || undefined)
-      .subscribe({
-        next: (rows) => {
-          this.effectivePermissions.set(rows);
-          this.isLoadingEffective.set(false);
-        },
-        error: () => this.isLoadingEffective.set(false),
-      });
-  }
-
-  loadUserActivity(userId: string): void {
-    this.isLoadingActivity.set(true);
-    this.userService.getUserActivity(userId, 50).subscribe({
-      next: (logs) => {
-        this.userActivities.set(logs);
-        this.isLoadingActivity.set(false);
-      },
-      error: () => this.isLoadingActivity.set(false),
-    });
-  }
-
-  // --- Tree & Checkboxes (Tab 4) ---
-  toggleTreeNode(nodeKey: string): void {
-    const current = new Set(this.expandedNodes());
-    if (current.has(nodeKey)) {
-      current.delete(nodeKey);
+  toggleCategory(catId: string): void {
+    const current = new Set(this.expandedCategoryIds());
+    if (current.has(catId)) {
+      current.delete(catId);
     } else {
-      current.add(nodeKey);
+      current.add(catId);
     }
-    this.expandedNodes.set(current);
+    this.expandedCategoryIds.set(current);
   }
 
-  isNodeExpanded(nodeKey: string): boolean {
-    return this.expandedNodes().has(nodeKey);
-  }
-
-  hasPermission(resourceType: string, resourceId: string, action: string): boolean {
-    const key = `${resourceType}:${resourceId}`;
-    return this.permissionDraft().get(key)?.has(action) ?? false;
-  }
-
-  togglePermission(
-    resourceType: 'DATABASE' | 'SCHEMA' | 'TABLE',
-    resourceId: string,
-    action: string,
-    event: Event
-  ): void {
+  toggleDirectPermission(action: string, event: Event): void {
+    if (!this.isFormEditable()) return;
     const checked = (event.target as HTMLInputElement).checked;
-    const newDraft = new Map(this.permissionDraft());
-    const key = `${resourceType}:${resourceId}`;
-
-    if (!newDraft.has(key)) {
-      newDraft.set(key, new Set());
-    }
-    const actions = new Set(newDraft.get(key));
-
+    const current = new Set(this.userDirectPermissions());
     if (checked) {
-      actions.add(action);
+      current.add(action);
     } else {
-      actions.delete(action);
+      current.delete(action);
     }
-    newDraft.set(key, actions);
-
-    // Cascading selection down to descendants if requested
-    if (resourceType === 'DATABASE') {
-      const conn = this.physicalTree().find((c) => c.id === resourceId);
-      if (conn) {
-        for (const sch of conn.schemas) {
-          const schKey = `SCHEMA:${sch.id}`;
-          if (!newDraft.has(schKey)) newDraft.set(schKey, new Set());
-          const sAct = new Set(newDraft.get(schKey));
-          if (checked) sAct.add(action);
-          else sAct.delete(action);
-          newDraft.set(schKey, sAct);
-
-          for (const tbl of sch.tables) {
-            const tblKey = `TABLE:${tbl.id}`;
-            if (!newDraft.has(tblKey)) newDraft.set(tblKey, new Set());
-            const tAct = new Set(newDraft.get(tblKey));
-            if (checked) tAct.add(action);
-            else tAct.delete(action);
-            newDraft.set(tblKey, tAct);
-          }
-        }
-      }
-    } else if (resourceType === 'SCHEMA') {
-      for (const conn of this.physicalTree()) {
-        const sch = conn.schemas.find((s) => s.id === resourceId);
-        if (sch) {
-          for (const tbl of sch.tables) {
-            const tblKey = `TABLE:${tbl.id}`;
-            if (!newDraft.has(tblKey)) newDraft.set(tblKey, new Set());
-            const tAct = new Set(newDraft.get(tblKey));
-            if (checked) tAct.add(action);
-            else tAct.delete(action);
-            newDraft.set(tblKey, tAct);
-          }
-          break;
-        }
-      }
-    }
-
-    this.permissionDraft.set(newDraft);
+    this.userDirectPermissions.set(current);
   }
 
-  saveDatabasePermissions(): void {
-    const user = this.selectedUser();
-    if (!user) return;
+  selectUser(user: UserItem): void {
+    this.isCreateMode.set(false);
+    this.isEditMode.set(false);
+    this.selectedUser.set(user);
+    this.populateFormWithUser(user);
+  }
 
-    this.isSavingPermissions.set(true);
-    const permissions: { resource_type: string; resource_id: string; action: string; effect: string }[] = [];
+  startEditUser(user: UserItem, event?: Event): void {
+    if (event) {
+      event.stopPropagation();
+    }
+    this.selectUser(user);
+    this.isEditMode.set(true);
+  }
 
-    this.permissionDraft().forEach((actions, key) => {
-      const [rType, rId] = key.split(':');
-      actions.forEach((act) => {
-        permissions.push({
-          resource_type: rType,
-          resource_id: rId,
-          action: act,
-          effect: 'ALLOW',
-        });
+  enableEditMode(): void {
+    if (this.selectedUser()) {
+      this.isEditMode.set(true);
+    }
+  }
+
+  private populateFormWithUser(user: UserItem): void {
+    const { firstName, lastName } = splitFullName(user.full_name);
+    this.formFirstName.set(firstName);
+    this.formLastName.set(lastName);
+    this.formEmail.set(user.email);
+    this.formUsername.set(user.username);
+    this.formPhone.set(user.phone || '');
+    this.formPassword.set('');
+    this.formSelectedRoleIds.set([...(user.role_ids || [])]);
+
+    // Load assigned databases for this user
+    this.userService.getUserAssignedDatabases(user.id).subscribe({
+      next: (dbIds) => {
+        this.formSelectedDatabaseIds.set(new Set(dbIds));
+      },
+      error: () => {
+        this.formSelectedDatabaseIds.set(new Set());
+      },
+    });
+
+    // Load direct permissions for this user
+    this.userService.getUserDirectPermissions(user.id).subscribe({
+      next: (rules) => {
+        const perms = new Set<string>();
+        rules
+          .filter((r) => r.resource_type === 'GLOBAL')
+          .forEach((r) => perms.add(r.action));
+        this.userDirectPermissions.set(perms);
+      },
+      error: () => {
+        this.userDirectPermissions.set(new Set());
+      },
+    });
+  }
+
+  startCreateNewUser(): void {
+    this.isCreateMode.set(true);
+    this.isEditMode.set(false);
+    this.selectedUser.set(null);
+    this.formFirstName.set('');
+    this.formLastName.set('');
+    this.formEmail.set('');
+    this.formUsername.set('');
+    this.formPhone.set('');
+    this.formPassword.set('');
+    this.formSelectedRoleIds.set([]);
+    this.formSelectedDatabaseIds.set(new Set());
+    this.userDirectPermissions.set(new Set());
+    this.activeDetailTab.set('databases');
+  }
+
+  generateRandomPassword(): void {
+    const chars = 'abcdefghjkmnpqrstuvwxyzABCDEFGHJKMNPQRSTUVWXYZ23456789!@#$%';
+    let pwd = '';
+    for (let i = 0; i < 10; i++) {
+      pwd += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+    this.formPassword.set(pwd);
+  }
+
+  cancelDetailEdit(): void {
+    this.isEditMode.set(false);
+    if (this.isCreateMode()) {
+      this.isCreateMode.set(false);
+      if (this.rawUsers().length > 0) {
+        this.selectUser(this.rawUsers()[0]);
+      } else {
+        this.selectedUser.set(null);
+      }
+    } else if (this.selectedUser()) {
+      this.populateFormWithUser(this.selectedUser()!);
+    }
+  }
+
+  onFilterChanged(): void {
+    this.currentPage.set(1);
+  }
+
+  goToPage(p: number): void {
+    if (p >= 1 && p <= this.totalPages()) {
+      this.currentPage.set(p);
+    }
+  }
+
+  changePageSize(newSize: number): void {
+    this.pageSize.set(newSize);
+    this.currentPage.set(1);
+  }
+
+  // --- Role Management in Form ---
+  addRoleToUser(roleId: string): void {
+    if (!this.isFormEditable() || !roleId) return;
+    const current = new Set(this.formSelectedRoleIds());
+    current.add(roleId);
+    this.formSelectedRoleIds.set(Array.from(current));
+    this.selectedRoleToAdd.set('');
+  }
+
+  removeRoleFromUser(roleId: string): void {
+    if (!this.isFormEditable()) return;
+    const updated = this.formSelectedRoleIds().filter((id) => id !== roleId);
+    this.formSelectedRoleIds.set(updated);
+  }
+
+  getRoleName(roleId: string): string {
+    const role = this.allRoles().find((r) => r.id === roleId);
+    return role ? (role.description || role.name) : roleId;
+  }
+
+  getAvailableRolesToAdd(): RoleItem[] {
+    const assigned = new Set(this.formSelectedRoleIds());
+    return this.allRoles().filter((r) => !assigned.has(r.id));
+  }
+
+  // --- Database Tree Toggle & Checkbox Actions ---
+  toggleNodeExpanded(key: string): void {
+    const current = new Set(this.expandedDbNodes());
+    if (current.has(key)) {
+      current.delete(key);
+    } else {
+      current.add(key);
+    }
+    this.expandedDbNodes.set(current);
+  }
+
+  isNodeExpanded(key: string): boolean {
+    return this.expandedDbNodes().has(key);
+  }
+
+  isDatabaseSelected(dbId: string): boolean {
+    return this.formSelectedDatabaseIds().has(dbId);
+  }
+
+  toggleDatabaseSelection(dbId: string, event: Event): void {
+    if (!this.isFormEditable()) return;
+    const checked = (event.target as HTMLInputElement).checked;
+    const updated = new Set(this.formSelectedDatabaseIds());
+    if (checked) {
+      updated.add(dbId);
+    } else {
+      updated.delete(dbId);
+    }
+    this.formSelectedDatabaseIds.set(updated);
+  }
+
+  // --- Save / Submit Form ---
+  saveUser(): void {
+    const firstName = this.formFirstName().trim();
+    const lastName = this.formLastName().trim();
+    const username = this.formUsername().trim();
+    const email = this.formEmail().trim();
+    const fullName = `${firstName} ${lastName}`.trim() || firstName || lastName || username;
+
+    if (!fullName) {
+      this.showError('لطفاً نام یا نام خانوادگی را وارد نمایید.');
+      return;
+    }
+
+    if (!email) {
+      this.showError('لطفاً ایمیل سازمانی کاربر را وارد نمایید.');
+      return;
+    }
+
+    if (!username) {
+      this.showError('لطفاً نام کاربری را وارد نمایید.');
+      return;
+    }
+
+    if (username.length < 3) {
+      this.showError('نام کاربری باید حداقل شامل ۳ کاراکتر باشد.');
+      return;
+    }
+
+    this.isSaving.set(true);
+    this.errorMessage.set(null);
+
+    const cleanPhone = this.formPhone().trim() ? this.formPhone().trim() : undefined;
+
+    if (this.isCreateMode()) {
+      if (!this.formPassword() || this.formPassword().length < 8) {
+        this.isSaving.set(false);
+        this.showError('کلمه عبور کاربر جدید باید حداقل شامل ۸ کاراکتر باشد.');
+        return;
+      }
+
+      const createDto: UserCreateDto = {
+        username,
+        email,
+        full_name: fullName,
+        phone: cleanPhone,
+        password: this.formPassword(),
+        role_ids: this.formSelectedRoleIds(),
+      };
+
+      this.userService.createUser(createDto).subscribe({
+        next: (created) => {
+          // Assign databases
+          const dbIds = Array.from(this.formSelectedDatabaseIds());
+          this.userService.updateUserAssignedDatabases(created.id, dbIds).subscribe({
+            next: () => {
+              // Assign direct permissions
+              const permPayload = Array.from(this.userDirectPermissions()).map((act) => ({
+                resource_type: 'GLOBAL',
+                resource_id: null,
+                action: act,
+                effect: 'ALLOW',
+              }));
+              this.userService.bulkUpdateUserPermissions(created.id, permPayload).subscribe({
+                next: () => {
+                  this.isSaving.set(false);
+                  this.showSuccess(`کاربر «${created.full_name}» با موفقیت تعریف و دسترسی‌ها ثبت گردید.`);
+                  this.isCreateMode.set(false);
+                  this.currentPage.set(1);
+                  this.loadUsers();
+                  this.selectUser(created);
+                },
+                error: (err) => {
+                  this.isSaving.set(false);
+                  this.showError(`کاربر تعریف شد اما در ذخیره مجوزهای اختصاصی خطایی رخ داد: ${err?.error?.detail || err?.message || ''}`);
+                  this.isCreateMode.set(false);
+                  this.currentPage.set(1);
+                  this.loadUsers();
+                  this.selectUser(created);
+                },
+              });
+            },
+            error: (err) => {
+              this.isSaving.set(false);
+              this.showError(`کاربر «${created.full_name}» تعریف شد، اما در تخصیص دیتابیس خطایی رخ داد: ${err?.error?.detail || err?.message || ''}`);
+              this.isCreateMode.set(false);
+              this.currentPage.set(1);
+              this.loadUsers();
+              this.selectUser(created);
+            },
+          });
+        },
+        error: (err) => {
+          this.isSaving.set(false);
+          this.showError(err?.error?.detail || err?.message || 'خطا در ثبت کاربر جدید.');
+        },
       });
-    });
+    } else {
+      const user = this.selectedUser();
+      if (!user) {
+        this.isSaving.set(false);
+        this.showError('لطفاً ابتدا یک کاربر را از جدول انتخاب نمایید.');
+        return;
+      }
 
-    this.userService.bulkUpdateUserPermissions(user.id, permissions).subscribe({
-      next: () => {
-        this.isSavingPermissions.set(false);
-        this.showSuccess('تغییرات دسترسی با موفقیت در پایگاه‌داده ذخیره شد.');
-        this.loadUserDetails(user.id);
-        this.loadEffectivePermissions(user.id);
-      },
-      error: (err) => {
-        this.isSavingPermissions.set(false);
-        this.showError(err?.error?.detail || 'خطا در ذخیره دسترسی‌ها.');
-      },
-    });
+      const updateDto: UserUpdateDto = {
+        username,
+        full_name: fullName,
+        email,
+        phone: this.formPhone().trim() ? this.formPhone().trim() : '',
+        role_ids: this.formSelectedRoleIds(),
+      };
+
+      this.userService.updateUser(user.id, updateDto).subscribe({
+        next: (updated) => {
+          const dbIds = Array.from(this.formSelectedDatabaseIds());
+          this.userService.updateUserAssignedDatabases(updated.id, dbIds).subscribe({
+            next: () => {
+              const permPayload = Array.from(this.userDirectPermissions()).map((act) => ({
+                resource_type: 'GLOBAL',
+                resource_id: null,
+                action: act,
+                effect: 'ALLOW',
+              }));
+              this.userService.bulkUpdateUserPermissions(updated.id, permPayload).subscribe({
+                next: () => {
+                  // If password was provided, reset it
+                  if (this.formPassword() && this.formPassword().length >= 8) {
+                    this.userService.resetPassword(user.id, this.formPassword()).subscribe({
+                      next: () => {
+                        this.isSaving.set(false);
+                        this.isEditMode.set(false);
+                        this.showSuccess(`اطلاعات، مجوزها و دسترسی‌های کاربر «${updated.full_name}» با موفقیت ذخیره شد.`);
+                        this.loadUsers();
+                      },
+                      error: (err) => {
+                        this.isSaving.set(false);
+                        this.isEditMode.set(false);
+                        this.showError(`اطلاعات کاربر ذخیره شد اما بازنشانی رمز عبور با خطا مواجه شد: ${err?.error?.detail || err?.message || ''}`);
+                        this.loadUsers();
+                      },
+                    });
+                  } else {
+                    this.isSaving.set(false);
+                    this.isEditMode.set(false);
+                    this.showSuccess(`اطلاعات، مجوزها و دسترسی‌های کاربر «${updated.full_name}» با موفقیت به‌روزرسانی شد.`);
+                    this.loadUsers();
+                  }
+                },
+                error: (err) => {
+                  this.isSaving.set(false);
+                  this.showError(`اطلاعات کاربر ذخیره شد اما در ثبت مجوزهای اختصاصی خطایی رخ داد: ${err?.error?.detail || err?.message || ''}`);
+                  this.loadUsers();
+                },
+              });
+            },
+            error: (err) => {
+              this.isSaving.set(false);
+              this.showError(`اطلاعات کاربر ذخیره شد اما به‌روزرسانی دسترسی‌های پایگاه داده با خطا مواجه گردید: ${err?.error?.detail || err?.message || ''}`);
+              this.loadUsers();
+            },
+          });
+        },
+        error: (err) => {
+          this.isSaving.set(false);
+          this.showError(err?.error?.detail || err?.message || 'خطا در ویرایش اطلاعات کاربر.');
+        },
+      });
+    }
   }
 
-  // --- User CRUD & Status Actions ---
-  toggleStatus(user: UserItem): void {
+  // --- Row Actions: Delete & Status ---
+  toggleUserStatus(user: UserItem, event: Event): void {
+    event.stopPropagation();
     const nextStatus = user.status === 'ACTIVE' ? 'SUSPENDED' : 'ACTIVE';
     this.userService.updateUserStatus(user.id, nextStatus).subscribe({
-      next: (up) => {
+      next: () => {
         this.showSuccess(`وضعیت کاربر «${user.full_name}» به ${nextStatus === 'ACTIVE' ? 'فعال' : 'معلق'} تغییر یافت.`);
         this.loadUsers();
       },
@@ -419,114 +605,8 @@ export class UserManagementComponent implements OnInit {
     });
   }
 
-  openCreateModal(): void {
-    this.newUser = {
-      username: '',
-      email: '',
-      full_name: '',
-      password: '',
-      phone: '',
-      is_superadmin: false,
-      role_ids: [],
-      group_ids: [],
-    };
-    this.showCreateModal.set(true);
-  }
-
-  closeCreateModal(): void {
-    this.showCreateModal.set(false);
-  }
-
-  submitCreateUser(): void {
-    if (!this.newUser.username || !this.newUser.email || !this.newUser.full_name || !this.newUser.password) {
-      this.showError('لطفاً کلیه فیلدهای الزامی را تکمیل فرمایید.');
-      return;
-    }
-    if (this.newUser.password.length < 8) {
-      this.showError('کلمه عبور باید حداقل شامل ۸ کاراکتر باشد.');
-      return;
-    }
-
-    this.userService.createUser(this.newUser).subscribe({
-      next: (created) => {
-        this.showSuccess(`کاربر «${created.full_name}» با موفقیت تعریف شد.`);
-        this.closeCreateModal();
-        this.loadUsers();
-        this.selectUser(created);
-      },
-      error: (err) => this.showError(err?.error?.detail || 'خطا در ایجاد کاربر جدید.'),
-    });
-  }
-
-  openEditModal(user: UserItem): void {
-    this.selectedUser.set(user);
-    this.editUserDto = {
-      full_name: user.full_name,
-      email: user.email,
-      phone: user.phone || '',
-      status: user.status as any,
-      is_superadmin: user.is_superadmin,
-      role_ids: [...user.role_ids],
-      group_ids: [...user.group_ids],
-    };
-    this.showEditModal.set(true);
-  }
-
-  closeEditModal(): void {
-    this.showEditModal.set(false);
-  }
-
-  submitEditUser(): void {
-    const user = this.selectedUser();
-    if (!user) return;
-
-    this.userService.updateUser(user.id, this.editUserDto).subscribe({
-      next: (updated) => {
-        this.showSuccess(`اطلاعات کاربر «${updated.full_name}» با موفقیت به‌روزرسانی شد.`);
-        this.closeEditModal();
-        this.loadUsers();
-        this.selectUser(updated);
-      },
-      error: (err) => this.showError(err?.error?.detail || 'خطا در ویرایش اطلاعات کاربر.'),
-    });
-  }
-
-  openResetPasswordModal(user: UserItem): void {
-    this.selectedUser.set(user);
-    this.newPassword = '';
-    this.confirmPassword = '';
-    this.passwordError = '';
-    this.showResetPasswordModal.set(true);
-  }
-
-  closeResetPasswordModal(): void {
-    this.showResetPasswordModal.set(false);
-  }
-
-  submitResetPassword(): void {
-    this.passwordError = '';
-    if (!this.newPassword || this.newPassword.length < 8) {
-      this.passwordError = 'کلمه عبور باید حداقل ۸ کاراکتر باشد.';
-      return;
-    }
-    if (this.newPassword !== this.confirmPassword) {
-      this.passwordError = 'کلمه عبور و تکرار آن یکسان نیستند.';
-      return;
-    }
-
-    const user = this.selectedUser();
-    if (!user) return;
-
-    this.userService.resetPassword(user.id, this.newPassword).subscribe({
-      next: () => {
-        this.showSuccess(`کلمه عبور کاربر «${user.full_name}» با موفقیت تغییر یافت.`);
-        this.closeResetPasswordModal();
-      },
-      error: (err) => this.showError(err?.error?.detail || 'خطا در تغییر کلمه عبور.'),
-    });
-  }
-
-  deleteUser(user: UserItem): void {
+  deleteUser(user: UserItem, event: Event): void {
+    event.stopPropagation();
     if (!confirm(`آیا از حذف کامل حساب کاربری «${user.full_name} (${user.username})» اطمینان دارید؟`)) {
       return;
     }
@@ -543,74 +623,7 @@ export class UserManagementComponent implements OnInit {
     });
   }
 
-  // --- Role & Group Tab Operations ---
-  assignRoleToUser(): void {
-    const user = this.selectedUser();
-    if (!user || !this.newRoleIdToAssign) return;
-
-    const currentRoles = new Set(user.role_ids);
-    currentRoles.add(this.newRoleIdToAssign);
-
-    this.userService.updateUser(user.id, { role_ids: Array.from(currentRoles) }).subscribe({
-      next: (up) => {
-        this.newRoleIdToAssign = '';
-        this.showSuccess('نقش جدید به کاربر افزوده شد.');
-        this.selectUser(up);
-        this.loadUsers();
-      },
-      error: (err) => this.showError(err?.error?.detail || 'خطا در انتساب نقش.'),
-    });
-  }
-
-  removeRoleFromUser(roleId: string): void {
-    const user = this.selectedUser();
-    if (!user) return;
-
-    const currentRoles = user.role_ids.filter((r) => r !== roleId);
-    this.userService.updateUser(user.id, { role_ids: currentRoles }).subscribe({
-      next: (up) => {
-        this.showSuccess('نقش از کاربر حذف گردید.');
-        this.selectUser(up);
-        this.loadUsers();
-      },
-      error: (err) => this.showError(err?.error?.detail || 'خطا در حذف نقش.'),
-    });
-  }
-
-  assignGroupToUser(): void {
-    const user = this.selectedUser();
-    if (!user || !this.newGroupIdToAssign) return;
-
-    const currentGroups = new Set(user.group_ids);
-    currentGroups.add(this.newGroupIdToAssign);
-
-    this.userService.updateUserGroups(user.id, Array.from(currentGroups)).subscribe({
-      next: () => {
-        this.newGroupIdToAssign = '';
-        this.showSuccess('کاربر به گروه اضافه شد.');
-        this.loadUserDetails(user.id);
-        this.loadUsers();
-      },
-      error: (err) => this.showError(err?.error?.detail || 'خطا در عضویت در گروه.'),
-    });
-  }
-
-  removeGroupFromUser(groupId: string): void {
-    const user = this.selectedUser();
-    if (!user) return;
-
-    const currentGroups = user.group_ids.filter((g) => g !== groupId);
-    this.userService.updateUserGroups(user.id, currentGroups).subscribe({
-      next: () => {
-        this.showSuccess('عضویت کاربر در گروه لغو شد.');
-        this.loadUserDetails(user.id);
-        this.loadUsers();
-      },
-      error: (err) => this.showError(err?.error?.detail || 'خطا در لغو عضویت گروه.'),
-    });
-  }
-
-  // --- Notification helpers ---
+  // --- Helpers ---
   showSuccess(msg: string): void {
     this.successMessage.set(msg);
     setTimeout(() => this.successMessage.set(null), 4000);
@@ -619,37 +632,5 @@ export class UserManagementComponent implements OnInit {
   showError(msg: string): void {
     this.errorMessage.set(msg);
     setTimeout(() => this.errorMessage.set(null), 5000);
-  }
-
-  formatDate(dateStr?: string | null): string {
-    if (!dateStr) return '—';
-    try {
-      const d = new Date(dateStr);
-      return new Intl.DateTimeFormat('fa-IR', {
-        dateStyle: 'medium',
-        timeStyle: 'short',
-      }).format(d);
-    } catch {
-      return dateStr;
-    }
-  }
-
-  getSourceBadgeClass(sourceType: string): string {
-    switch (sourceType) {
-      case 'SUPERADMIN':
-        return 'badge-superadmin';
-      case 'DIRECT_USER':
-        return 'badge-direct';
-      case 'ROLE':
-        return 'badge-role';
-      case 'GROUP':
-        return 'badge-group';
-      case 'PARENT_RESOURCE':
-        return 'badge-parent';
-      case 'CATEGORY':
-        return 'badge-category';
-      default:
-        return 'badge-deny';
-    }
   }
 }

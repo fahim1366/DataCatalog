@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from datetime import datetime
 from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -51,7 +52,14 @@ class TableItem(BaseModel):
     table_type: str
     row_count_estimate: int
     size_bytes: int
+    source_description: Optional[str] = None
+    approved_description: Optional[str] = None
     effective_description: Optional[str] = None
+    ai_suggested_description: Optional[str] = None
+    description_source: str = "SOURCE_DB"
+    curated_by_id: Optional[uuid.UUID] = None
+    curated_by_username: Optional[str] = None
+    curated_at: Optional[datetime] = None
     owner: Optional[str] = None
     status: str
     tags: List[TagItem] = Field(default_factory=list)
@@ -80,6 +88,11 @@ class ColumnItem(BaseModel):
     source_description: Optional[str] = None
     approved_description: Optional[str] = None
     effective_description: Optional[str] = None
+    ai_suggested_description: Optional[str] = None
+    description_source: str = "SOURCE_DB"
+    curated_by_id: Optional[uuid.UUID] = None
+    curated_by_username: Optional[str] = None
+    curated_at: Optional[datetime] = None
     classification_level: str
     status: str
     tags: List[TagItem] = Field(default_factory=list)
@@ -99,6 +112,11 @@ class TableDetail(BaseModel):
     source_description: Optional[str] = None
     approved_description: Optional[str] = None
     effective_description: Optional[str] = None
+    ai_suggested_description: Optional[str] = None
+    description_source: str = "SOURCE_DB"
+    curated_by_id: Optional[uuid.UUID] = None
+    curated_by_username: Optional[str] = None
+    curated_at: Optional[datetime] = None
     owner: Optional[str] = None
     status: str
     columns: List[ColumnItem] = Field(default_factory=list)

@@ -1,179 +1,553 @@
 <div class="connections-container">
+  <!-- Page Header -->
   <header class="connections-header">
     <div class="header-left">
-      <h1 class="page-title">مدیریت اتصالات و زمان‌بندی همگام‌سازی (Database Connections)</h1>
-      <p class="page-subtitle">
-        مدیریت امن شناسنامه و پروفایل اتصالات دیتابیسی با رمزنگاری پاکتی متقارن AES-256-GCM و همگام‌سازی خودکار بر اساس زمان‌بندی Cron.
-      </p>
+      <h1 class="page-title">مدیریت پایگاه‌های داده و منابع اطلاعاتی (Databases)</h1>
     </div>
     <div class="header-actions">
       <button
         type="button"
-        class="btn-primary btn-add-connection"
+        class="btn-primary btn-with-icon btn-add-connection"
         *hasPermission="'MANAGE_CONNECTIONS'"
         (click)="openCreateDialog()"
       >
-        + ثبت اتصال جدید (+ Register Connection)
+        <i class="pi pi-plus"></i>
+        <span>ثبت پایگاه‌داده جدید</span>
       </button>
     </div>
   </header>
 
   @if (errorMessage()) {
     <div class="alert-banner alert-error" role="alert">
-      {{ errorMessage() }}
+      <i class="pi pi-exclamation-triangle"></i>
+      <span>{{ errorMessage() }}</span>
     </div>
   }
 
-  @if (isLoading()) {
-    <div class="loading-state">
-      <div class="spinner"></div>
-      <p>در حال بارگذاری پروفایل‌های اتصال (Loading connection profiles)...</p>
-    </div>
-  } @else if (connections().length === 0) {
-    <div class="empty-state">
-      <h3>هیچ اتصال پایگاه داده‌ای ثبت نشده است</h3>
-      <p>جهت تعریف اولین منبع داده‌ای، بر روی دکمه «ثبت اتصال جدید» کلیک نمایید.</p>
-    </div>
-  } @else {
-    <div class="connections-grid">
-      @for (conn of connections(); track conn.id) {
-        <div class="connection-card">
-          <div class="card-header">
-            <div class="title-group">
-              <span class="engine-badge engine-{{ conn.engine_type.toLowerCase() }}">
-                {{ conn.engine_type }}
-              </span>
-              <h2 class="connection-name">{{ conn.name }}</h2>
-            </div>
-            <div class="status-group">
-              @if (conn.is_active) {
-                <span class="status-badge badge-active">فعال (Active)</span>
-              } @else {
-                <span class="status-badge badge-inactive">غیرفعال (Inactive)</span>
-              }
-            </div>
-          </div>
+  <!-- Split View: Topics Tree Sidebar + Database Content Area -->
+  <div class="connections-workspace">
+    <!-- Sidebar: Topics Tree -->
+    <aside class="topics-tree-panel">
+      <div class="topics-panel-header">
+        <div class="topics-title-row">
+          <i class="pi pi-sitemap panel-icon"></i>
+          <h2 class="panel-title">ساختار درختی موضوعات</h2>
+        </div>
 
-          <div class="card-body">
-            <div class="property-grid">
-              <div class="property-item">
-                <span class="property-label">آدرس سرور (Endpoint)</span>
-                <span class="property-value font-mono">{{ conn.host }}:{{ conn.port }}</span>
-              </div>
-              <div class="property-item">
-                <span class="property-label">پایگاه داده (Database)</span>
-                <span class="property-value font-mono">{{ conn.database_name }}</span>
-              </div>
-              @if (conn.default_schema) {
-                <div class="property-item">
-                  <span class="property-label">اسکیما (Schema)</span>
-                  <span class="property-value">{{ conn.default_schema }}</span>
-                </div>
-              }
-              <div class="property-item">
-                <span class="property-label">مالک (Owner)</span>
-                <span class="property-value">{{ conn.owner }}</span>
-              </div>
+        <div class="tree-search-box">
+          <i class="pi pi-search tree-search-icon"></i>
+          <input
+            type="text"
+            class="tree-search-control"
+            placeholder="جستجو..."
+            [value]="categorySearch()"
+            (input)="onCategorySearchInput($event)"
+          />
+        </div>
+      </div>
+
+      <div class="topics-tree-body">
+        <button
+          type="button"
+          class="tree-item-all"
+          [class.active]="selectedCategory() === null"
+          (click)="selectCategory(null)"
+        >
+          <i class="pi pi-database all-icon"></i>
+          <span class="all-text">همه پایگاه‌های داده سازمان</span>
+          <span class="count-pill">{{ connections().length }}</span>
+        </button>
+
+        <div class="topics-hierarchy-list">
+          @if (isLoadingTree()) {
+            <div class="tree-loading">
+              <span class="tree-spinner"></span>
+              <span>در حال بارگذاری درخت موضوعات...</span>
             </div>
-
-            @if (conn.sync_schedule) {
-              <div class="schedule-section">
-                <div class="schedule-header">
-                  <span class="schedule-title">زمان‌بندی همگام‌سازی (Automated Sync Schedule)</span>
-                  @if (conn.sync_schedule.last_run_status) {
-                    <span
-                      class="schedule-badge schedule-status-{{ conn.sync_schedule.last_run_status.toLowerCase() }}"
-                    >
-                      {{ conn.sync_schedule.last_run_status }}
-                    </span>
-                  }
-                </div>
-                <div class="schedule-details">
-                  <div class="cron-display font-mono">
-                    <span class="cron-icon">⏱</span>
-                    <code>{{ conn.sync_schedule.cron_expression }}</code>
-                  </div>
-                  @if (conn.sync_schedule.last_run_message) {
-                    <div class="schedule-message">
-                      {{ conn.sync_schedule.last_run_message }}
-                    </div>
-                  }
-                </div>
-              </div>
-            }
-
-            @if (testResults()[conn.id]; as result) {
-              <div class="test-result-container">
-                @if (result.success) {
-                  <div class="test-result-indicator test-result-success">
-                    <span class="indicator-icon">✓</span>
-                    <div class="indicator-text">
-                      <strong>Connected</strong>: {{ result.message }} ({{ result.latency_ms.toFixed(1) }}ms)
-                    </div>
-                  </div>
+          } @else if (flattenedCategoryTree().length === 0) {
+            <div class="tree-empty">موضوعی یافت نشد.</div>
+          } @else {
+            @for (item of flattenedCategoryTree(); track item.node.id) {
+              <div
+                class="tree-node-item"
+                [class.is-leaf]="item.isLeaf"
+                [class.is-parent]="!item.isLeaf"
+                [class.is-selected]="selectedCategory()?.id === item.node.id"
+                [style.padding-right.px]="10 + (item.level * 18)"
+                (click)="selectCategory(item.node)"
+              >
+                @if (!item.isLeaf) {
+                  <!-- Branch / Parent Node -->
+                  <button
+                    type="button"
+                    class="btn-toggle-branch"
+                    (click)="toggleExpandCategory(item.node.id); $event.stopPropagation()"
+                    [attr.aria-label]="expandedCategoryIds().has(item.node.id) ? 'بستن زیرشاخه' : 'باز کردن زیرشاخه'"
+                  >
+                    <i
+                      class="pi"
+                      [ngClass]="expandedCategoryIds().has(item.node.id) ? 'pi-chevron-down' : 'pi-chevron-left'"
+                    ></i>
+                  </button>
+                  <i
+                    class="pi node-icon folder-icon"
+                    [ngClass]="expandedCategoryIds().has(item.node.id) ? 'pi-folder-open' : 'pi-folder'"
+                  ></i>
+                  <span class="node-label parent-label">{{ item.node.name }}</span>
                 } @else {
-                  <div class="test-result-indicator test-result-failure">
-                    <span class="indicator-icon">✕</span>
-                    <div class="indicator-text">
-                      <strong>Ping Failed</strong>: {{ result.message }}
-                      @if (result.diagnostic_details) {
-                        <div class="diagnostic-code">
-                          {{ result.diagnostic_details | json }}
-                        </div>
-                      }
-                    </div>
-                  </div>
+                  <!-- Leaf Node -->
+                  <i class="pi pi-file node-icon leaf-icon"></i>
+                  <span class="node-label leaf-label">{{ item.node.name }}</span>
+                  <span class="leaf-db-count" [class.has-dbs]="item.dbCount > 0">
+                    {{ item.dbCount }}
+                  </span>
+
+                  <button
+                    type="button"
+                    class="btn-quick-add-db"
+                    *hasPermission="'MANAGE_CONNECTIONS'"
+                    (click)="openCreateDialog(item.node.id); $event.stopPropagation()"
+                    title="افزودن پایگاه‌داده به این برگ موضوعی"
+                    aria-label="افزودن پایگاه‌داده به این برگ موضوعی"
+                  >
+                    <i class="pi pi-plus"></i>
+                  </button>
                 }
               </div>
             }
+          }
+        </div>
+      </div>
+    </aside>
+
+    <!-- Main Content Area -->
+    <main class="database-content-area">
+      <!-- Section Header -->
+      <div class="content-header">
+        <div class="content-header-info">
+          @if (selectedCategory(); as cat) {
+            <div class="current-selection-badge">
+              <i class="pi pi-file"></i>
+              <span>موضوع انتخاب‌شده:</span>
+              <strong>{{ cat.name }}</strong>
+            </div>
+            <h2 class="content-title">پایگاه‌های داده اختصاص یافته به «{{ cat.name }}»</h2>
+            @if (cat.description) {
+              <p class="content-desc">{{ cat.description }}</p>
+            }
+          } @else {
+            <h2 class="content-title">همه پایگاه‌های داده سازمان</h2>
+            <p class="content-desc">فهرست تمامی دیتابیس‌های ثبت‌شده و زمان‌بندی همگام‌سازی آن‌ها</p>
+          }
+        </div>
+
+        @if (selectedCategory(); as cat) {
+          <button
+            type="button"
+            class="btn-primary btn-with-icon"
+            *hasPermission="'MANAGE_CONNECTIONS'"
+            (click)="openCreateDialog(cat.id)"
+          >
+            <i class="pi pi-plus"></i>
+            <span>افزودن پایگاه‌داده به این موضوع</span>
+          </button>
+        }
+      </div>
+
+      <!-- Table Card -->
+      <div class="table-card">
+        <!-- Toolbar -->
+        <div class="table-toolbar">
+          <div class="filter-box filter-search">
+            <i class="pi pi-search filter-icon"></i>
+            <input
+              type="text"
+              class="filter-input"
+              placeholder="جستجو در نام، سرور، دیتابیس یا مالک..."
+              [ngModel]="searchTerm()"
+              (ngModelChange)="searchTerm.set($event); onFilterChanged()"
+            />
           </div>
 
-          <div class="card-footer">
+          <select
+            class="filter-select"
+            [ngModel]="engineFilter()"
+            (ngModelChange)="engineFilter.set($event); onFilterChanged()"
+          >
+            <option value="ALL">همه موتورها</option>
+            @for (eng of availableEngines(); track eng) {
+              <option [value]="eng">{{ eng }}</option>
+            }
+          </select>
+
+          <select
+            class="filter-select"
+            [ngModel]="statusFilter()"
+            (ngModelChange)="statusFilter.set($event); onFilterChanged()"
+          >
+            <option value="ALL">همه وضعیت‌ها</option>
+            <option value="ACTIVE">فعال</option>
+            <option value="INACTIVE">غیرفعال</option>
+          </select>
+        </div>
+
+        <div class="table-responsive">
+          <table class="master-table">
+            <thead>
+              <tr>
+                <th class="th-toggle"></th>
+                <th class="th-num">ردیف</th>
+                <th class="th-sortable" (click)="toggleSort('name')">
+                  نام پایگاه‌داده <i class="pi sort-arrows" [ngClass]="sortIcon('name')"></i>
+                </th>
+                <th>موضوع</th>
+                <th class="th-sortable" (click)="toggleSort('host')">
+                  سرور <i class="pi sort-arrows" [ngClass]="sortIcon('host')"></i>
+                </th>
+                <th class="th-sortable" (click)="toggleSort('database_name')">
+                  دیتابیس / اسکیما <i class="pi sort-arrows" [ngClass]="sortIcon('database_name')"></i>
+                </th>
+                <th class="th-sortable" (click)="toggleSort('owner')">
+                  مالک <i class="pi sort-arrows" [ngClass]="sortIcon('owner')"></i>
+                </th>
+                <th>همگام‌سازی</th>
+                <th class="th-center">وضعیت</th>
+                <th class="th-actions">عملیات</th>
+              </tr>
+            </thead>
+
+            <tbody>
+              @if (isLoading()) {
+                <tr>
+                  <td colspan="10" class="td-state">
+                    <div class="spinner"></div>
+                    <span>در حال بارگذاری لیست پایگاه‌های داده...</span>
+                  </td>
+                </tr>
+              } @else if (tableConnections().length === 0) {
+                <tr>
+                  <td colspan="10" class="td-state">
+                    <i class="pi pi-database empty-icon"></i>
+                    @if (selectedCategory(); as cat) {
+                      <p class="empty-title">هیچ پایگاه‌داده‌ای با این مشخصات برای «{{ cat.name }}» یافت نشد.</p>
+                    } @else {
+                      <p class="empty-title">هیچ پایگاه‌داده‌ای با این مشخصات یافت نشد.</p>
+                    }
+                    <button
+                      type="button"
+                      class="btn-primary btn-with-icon mt-2"
+                      *hasPermission="'MANAGE_CONNECTIONS'"
+                      (click)="openCreateDialog(selectedCategory()?.id)"
+                    >
+                      <i class="pi pi-plus"></i>
+                      <span>ثبت پایگاه‌داده جدید</span>
+                    </button>
+                  </td>
+                </tr>
+              } @else {
+                @for (conn of paginatedConnections(); track conn.id; let idx = $index) {
+                  <tr class="connection-row" [class.row-expanded]="expandedRowIds().has(conn.id)">
+                    <td class="td-toggle">
+                      <button
+                        type="button"
+                        class="btn-row-toggle"
+                        (click)="toggleRow(conn.id)"
+                        [attr.aria-label]="expandedRowIds().has(conn.id) ? 'بستن جزئیات' : 'نمایش جزئیات'"
+                        [attr.aria-expanded]="expandedRowIds().has(conn.id)"
+                      >
+                        <i
+                          class="pi"
+                          [ngClass]="expandedRowIds().has(conn.id) ? 'pi-chevron-down' : 'pi-chevron-left'"
+                        ></i>
+                      </button>
+                    </td>
+                    <td class="td-num">{{ (safePage() - 1) * pageSize() + idx + 1 }}</td>
+
+                    <td>
+                      <div class="name-cell">
+                        <span class="engine-badge engine-{{ conn.engine_type.toLowerCase() }}">
+                          {{ conn.engine_type }}
+                        </span>
+                        <span class="connection-name">{{ conn.name }}</span>
+                      </div>
+                    </td>
+
+                    <td>
+                      @if (conn.category_name) {
+                        <span class="topic-chip">
+                          <i class="pi pi-file"></i>
+                          <span>{{ conn.category_name }}</span>
+                        </span>
+                      } @else {
+                        <span class="muted">—</span>
+                      }
+                    </td>
+
+                    <td class="td-mono td-ltr">{{ conn.host }}:{{ conn.port }}</td>
+
+                    <td>
+                      <div class="db-cell">
+                        <span class="td-mono">{{ conn.database_name }}</span>
+                        @if (conn.default_schema) {
+                          <span class="schema-hint">{{ conn.default_schema }}</span>
+                        }
+                      </div>
+                    </td>
+
+                    <td>{{ conn.owner || '—' }}</td>
+
+                    <td>
+                      @if (conn.sync_schedule) {
+                        <div class="sync-cell">
+                          <code class="cron-code">{{ conn.sync_schedule.cron_expression }}</code>
+                          @if (conn.sync_schedule.last_run_status) {
+                            <span
+                              class="schedule-badge schedule-status-{{ conn.sync_schedule.last_run_status.toLowerCase() }}"
+                            >
+                              {{ conn.sync_schedule.last_run_status }}
+                            </span>
+                          }
+                        </div>
+                      } @else {
+                        <span class="muted">—</span>
+                      }
+                    </td>
+
+                    <td class="td-center">
+                      <div class="status-cell">
+                        @if (conn.is_active) {
+                          <span class="status-badge badge-active">فعال (Active)</span>
+                        } @else {
+                          <span class="status-badge badge-inactive">غیرفعال (Inactive)</span>
+                        }
+
+                        @if (testResults()[conn.id]; as result) {
+                          @if (result.success) {
+                            <span class="ping-badge ping-ok test-result-indicator test-result-success" [title]="result.message">
+                              <i class="pi pi-check-circle"></i>
+                              <span>{{ result.latency_ms.toFixed(1) }}ms - {{ result.message }}</span>
+                            </span>
+                          } @else {
+                            <span class="ping-badge ping-fail test-result-failure" [title]="result.message">
+                              <i class="pi pi-times-circle"></i>
+                              <span>{{ result.message || 'خطا' }}</span>
+                            </span>
+                          }
+                        }
+                      </div>
+                    </td>
+
+                    <td class="td-actions">
+                      <button
+                        type="button"
+                        class="action-icon-btn action-test btn-test-connection"
+                        [disabled]="testingConnectionId() === conn.id"
+                        (click)="onTestConnection(conn.id)"
+                        title="تست اتصال"
+                        aria-label="تست اتصال"
+                      >
+                        @if (testingConnectionId() === conn.id) {
+                          <i class="pi pi-spin pi-spinner"></i>
+                        } @else {
+                          <i class="pi pi-bolt"></i>
+                        }
+                      </button>
+
+                      <button
+                        type="button"
+                        class="action-icon-btn action-edit btn-edit-connection"
+                        *hasPermission="'MANAGE_CONNECTIONS'"
+                        (click)="openEditDialog(conn)"
+                        title="ویرایش اطلاعات پایگاه‌داده"
+                        aria-label="ویرایش اطلاعات پایگاه‌داده"
+                      >
+                        <i class="pi pi-pencil"></i>
+                      </button>
+
+                      <button
+                        type="button"
+                        class="action-icon-btn action-delete"
+                        *hasPermission="'MANAGE_CONNECTIONS'"
+                        (click)="requestDelete(conn)"
+                        title="حذف پایگاه‌داده"
+                        aria-label="حذف پایگاه‌داده"
+                      >
+                        <i class="pi pi-trash"></i>
+                      </button>
+                    </td>
+                  </tr>
+
+                  <!-- Expandable details row -->
+                  @if (expandedRowIds().has(conn.id)) {
+                    <tr class="details-row">
+                      <td colspan="10">
+                        <div class="details-grid">
+                          <div class="detail-block">
+                            <span class="detail-label">آدرس کامل (Endpoint)</span>
+                            <span class="detail-value td-mono td-ltr">{{ conn.host }}:{{ conn.port }}/{{ conn.database_name }}</span>
+                          </div>
+
+                          @if (conn.default_schema) {
+                            <div class="detail-block">
+                              <span class="detail-label">اسکیمای پیش‌فرض</span>
+                              <span class="detail-value td-mono">{{ conn.default_schema }}</span>
+                            </div>
+                          }
+
+                          @if (conn.sync_schedule?.last_run_message) {
+                            <div class="detail-block detail-wide">
+                              <span class="detail-label">پیام آخرین همگام‌سازی</span>
+                              <span class="detail-value">{{ conn.sync_schedule?.last_run_message }}</span>
+                            </div>
+                          }
+
+                          @if (testResults()[conn.id]; as result) {
+                            <div class="detail-block detail-wide">
+                              <span class="detail-label">نتیجه آخرین تست اتصال</span>
+                              @if (result.success) {
+                                <div class="test-result-indicator test-result-success">
+                                  <i class="pi pi-check-circle"></i>
+                                  <div>
+                                    <strong>Connected</strong>: {{ result.message }}
+                                    ({{ result.latency_ms.toFixed(1) }}ms)
+                                  </div>
+                                </div>
+                              } @else {
+                                <div class="test-result-indicator test-result-failure">
+                                  <i class="pi pi-times-circle"></i>
+                                  <div>
+                                    <strong>Ping Failed</strong>: {{ result.message }}
+                                    @if (result.diagnostic_details) {
+                                      <div class="diagnostic-code">{{ result.diagnostic_details | json }}</div>
+                                    }
+                                  </div>
+                                </div>
+                              }
+                            </div>
+                          }
+                        </div>
+                      </td>
+                    </tr>
+                  }
+                }
+              }
+            </tbody>
+          </table>
+        </div>
+
+        <!-- Pagination Footer -->
+        <div class="table-pagination-footer">
+          <div class="pagination-info">
+            نمایش گزینه‌های {{ pageDisplayStart() }} تا {{ pageDisplayEnd() }} از {{ tableConnections().length }} گزینه
+          </div>
+
+          <div class="pagination-controls">
+            <!-- RTL: صفحه نخست سمت راست است -->
             <button
               type="button"
-              class="btn-test-connection"
-              [disabled]="testingConnectionId() === conn.id"
-              (click)="onTestConnection(conn.id)"
+              class="page-nav-btn"
+              [disabled]="safePage() === 1"
+              (click)="goToPage(1)"
+              title="صفحه نخست"
+              aria-label="صفحه نخست"
             >
-              @if (testingConnectionId() === conn.id) {
-                <span class="btn-spinner"></span>
-                <span>Testing Ping...</span>
-              } @else {
-                <span>⚡ Test Connection</span>
-              }
+              <i class="pi pi-angle-double-right"></i>
+            </button>
+            <button
+              type="button"
+              class="page-nav-btn"
+              [disabled]="safePage() === 1"
+              (click)="goToPage(safePage() - 1)"
+              title="صفحه قبلی"
+              aria-label="صفحه قبلی"
+            >
+              <i class="pi pi-angle-right"></i>
             </button>
 
-            <div class="management-actions">
-              <button
-                type="button"
-                class="btn-secondary btn-sm btn-edit-connection"
-                *hasPermission="'MANAGE_CONNECTIONS'"
-                (click)="openEditDialog(conn)"
-                title="ویرایش اتصال"
-              >
-                ✏️ ویرایش
-              </button>
-              <button
-                type="button"
-                class="btn-danger btn-sm btn-delete-connection"
-                *hasPermission="'MANAGE_CONNECTIONS'"
-                (click)="onDeleteConnection(conn.id)"
-                title="حذف اتصال"
-              >
-                🗑️ حذف
-              </button>
-            </div>
+            @for (p of [].constructor(totalPages()); track $index; let pIdx = $index) {
+              @if (pIdx + 1 >= safePage() - 2 && pIdx + 1 <= safePage() + 2) {
+                <button
+                  type="button"
+                  class="page-num-btn"
+                  [class.active]="safePage() === pIdx + 1"
+                  (click)="goToPage(pIdx + 1)"
+                >
+                  {{ pIdx + 1 }}
+                </button>
+              }
+            }
+
+            <button
+              type="button"
+              class="page-nav-btn"
+              [disabled]="safePage() === totalPages()"
+              (click)="goToPage(safePage() + 1)"
+              title="صفحه بعدی"
+              aria-label="صفحه بعدی"
+            >
+              <i class="pi pi-angle-left"></i>
+            </button>
+            <button
+              type="button"
+              class="page-nav-btn"
+              [disabled]="safePage() === totalPages()"
+              (click)="goToPage(totalPages())"
+              title="صفحه آخر"
+              aria-label="صفحه آخر"
+            >
+              <i class="pi pi-angle-double-left"></i>
+            </button>
+          </div>
+
+          <div class="pagination-size-selector">
+            <label>تعداد در صفحه:</label>
+            <select
+              [ngModel]="pageSize()"
+              (ngModelChange)="changePageSize($event)"
+              class="page-size-select"
+            >
+              @for (sz of availablePageSizes; track sz) {
+                <option [value]="sz">{{ sz }}</option>
+              }
+            </select>
           </div>
         </div>
-      }
-    </div>
-  }
+      </div>
+    </main>
+  </div>
 
+  <!-- Database Dialog (Create / Edit with Leaf Category Picker) -->
   @if (showDialog()) {
     <app-connection-dialog
       [connectionToEdit]="connectionToEdit()"
+      [preselectedCategoryId]="preselectedCategoryId()"
       (save)="onSaveConnection($event)"
       (cancel)="closeDialog()"
     ></app-connection-dialog>
+  }
+
+  <!-- Delete Confirmation Dialog -->
+  @if (connectionToDelete(); as target) {
+    <div class="confirm-backdrop" (click)="cancelDelete()">
+      <div class="confirm-card" role="alertdialog" aria-modal="true" (click)="$event.stopPropagation()">
+        <header class="confirm-header">
+          <i class="pi pi-exclamation-triangle confirm-icon"></i>
+          <h3>حذف پایگاه‌داده</h3>
+        </header>
+        <div class="confirm-body">
+          <p>
+            آیا از حذف پایگاه‌داده <strong>«{{ target.name }}»</strong> و زمان‌بندی همگام‌سازی آن اطمینان دارید؟
+          </p>
+          <p class="confirm-note">این عملیات غیرقابل بازگشت است.</p>
+        </div>
+        <footer class="confirm-footer">
+          <button type="button" class="btn-secondary" (click)="cancelDelete()">انصراف</button>
+          <button type="button" class="btn-danger-solid btn-with-icon" (click)="confirmDelete()">
+            <i class="pi pi-trash"></i>
+            <span>حذف قطعی</span>
+          </button>
+        </footer>
+      </div>
+    </div>
   }
 </div>

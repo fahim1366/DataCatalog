@@ -83,7 +83,7 @@ export class UserManagementService {
 
   bulkUpdateUserPermissions(
     id: string,
-    permissions: { resource_type: string; resource_id: string; action: string; effect: string }[]
+    permissions: { resource_type: string; resource_id?: string | null; action: string; effect: string }[]
   ): Observable<DirectPermissionRule[]> {
     return this.http.post<DirectPermissionRule[]>(`${this.baseUrl}/${id}/permissions/bulk`, {
       permissions,
@@ -112,7 +112,25 @@ export class UserManagementService {
     return this.http.get<UserActivityItem[]>(`${this.baseUrl}/${id}/activity`, { params });
   }
 
+  getUserAssignedDatabases(userId: string): Observable<string[]> {
+    return this.http.get<string[]>(`${this.baseUrl}/${userId}/databases`);
+  }
+
+  updateUserAssignedDatabases(userId: string, databaseIds: string[]): Observable<string[]> {
+    return this.http.put<string[]>(`${this.baseUrl}/${userId}/databases`, {
+      database_ids: databaseIds,
+    });
+  }
+
   getPhysicalTree(): Observable<PhysicalDatabaseNode[]> {
     return this.http.get<PhysicalDatabaseNode[]>('/api/v1/tables/tree/physical');
+  }
+
+  getCategoryTree(): Observable<any[]> {
+    return this.http.get<any[]>('/api/v1/categories/tree');
+  }
+
+  getAllConnections(): Observable<any[]> {
+    return this.http.get<any[]>('/api/v1/connections');
   }
 }

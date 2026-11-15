@@ -329,3 +329,111 @@ async def test_list_and_get_connections_mask_credentials(
     finally:
         app.dependency_overrides.pop(get_db_session, None)
 
+
+@pytest.mark.asyncio
+async def test_database_category_assignment_leaf_only(
+    test_db_session: AsyncSession, admin_auth_data: dict
+):
+    """
+    Asserts that database connections can only be assigned to leaf categories (برگ‌ها)
+    and that category_id and category_name are correctly serialized and updated.
+    """
+    from backend.src.models.rbac import Category
+
+    async def override_db():
+        yield test_db_session
+
+    app.dependency_overrides[get_db_session] = override_db
+    transport = ASGITransport(app=app)
+    suffix = admin_auth_data["suffix"]
+
+    # 1. Create parent category and child leaf category
+    parent_cat = Category(
+        id=uuid.uuid4(),
+        name=f"Parent_Topic_{suffix}",
+        status="ACTIVE",
+    )
+    test_db_session.add(parent_cat)
+    await test_db_session.flush()
+
+    leaf_cat = Category(
+        id=uuid.uuid4(),
+        name=f"Leaf_Topic_{suffix}",
+        parent_id=parent_cat.id,
+        status="ACTIVE",
+    )
+    test_db_session.add(leaf_cat)
+    await test_db_session.flush()
+
+    try:
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            # 2. Reject assignment to parent category (non-leaf)
+            invalid_res = await client.post(
+                "/api/v1/connections",
+                json={
+                    "name": f"Conn_Parent_Reject_{suffix}",
+                    "engine_type": "POSTGRESQL",
+                    "host": "localhost",
+                    "port": 5432,
+                    "database_name": "test_db",
+                    "category_id": str(parent_cat.id),
+                    "credentials": {"username": "postgres", "password": "password"},
+                },
+                headers=admin_auth_data["headers"],
+            )
+            assert invalid_res.status_code == 422
+            assert "برگ" in invalid_res.text
+
+            # 3. Allow assignment to leaf category
+            valid_res = await client.post(
+                "/api/v1/connections",
+                json={
+                    "name": f"Conn_Leaf_Success_{suffix}",
+                    "engine_type": "POSTGRESQL",
+                    "host": "localhost",
+                    "port": 5432,
+                    "database_name": "test_db",
+                    "category_id": str(leaf_cat.id),
+                    "credentials": {"username": "postgres", "password": "password"},
+                },
+                headers=admin_auth_data["headers"],
+            )
+            assert valid_res.status_code == 201
+            conn_data = valid_res.json()
+            assert conn_data["category_id"] == str(leaf_cat.id)
+            assert conn_data["category_name"] == leaf_cat.name
+            conn_id = conn_data["id"]
+
+            # 4. Verify in list
+            list_res = await client.get("/api/v1/connections", headers=admin_auth_data["headers"])
+            assert list_res.status_code == 200
+            matching = [c for c in list_res.json() if c["id"] == conn_id]
+            assert len(matching) == 1
+            assert matching[0]["category_id"] == str(leaf_cat.id)
+            assert matching[0]["category_name"] == leaf_cat.name
+
+            # 5. Create another leaf and update database connection to it
+            leaf_cat_2 = Category(
+                id=uuid.uuid4(),
+                name=f"Leaf_Topic_2_{suffix}",
+                parent_id=parent_cat.id,
+                status="ACTIVE",
+            )
+            test_db_session.add(leaf_cat_2)
+            await test_db_session.flush()
+
+            update_res = await client.put(
+                f"/api/v1/connections/{conn_id}",
+                json={
+                    "name": f"Conn_Leaf_Success_Updated_{suffix}",
+                    "category_id": str(leaf_cat_2.id),
+                },
+                headers=admin_auth_data["headers"],
+            )
+            assert update_res.status_code == 200
+            assert update_res.json()["category_id"] == str(leaf_cat_2.id)
+            assert update_res.json()["category_name"] == leaf_cat_2.name
+    finally:
+        app.dependency_overrides.pop(get_db_session, None)
+
+

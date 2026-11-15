@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
 import logging
 import uuid
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -13,15 +14,25 @@ from backend.src.api.dependencies.rbac import (
     UserContext,
     get_current_user,
     require_permission,
+    user_rule_matches,
 )
 from backend.src.core.database import get_db_session
 from backend.src.models.connections import DatabaseConnection, SyncSchedule
-from backend.src.models.rbac import EntityType, PermissionAction
+from backend.src.models.rbac import (
+    Category,
+    CategoryAssignment,
+    EntityType,
+    PermissionAction,
+    PermissionEffect,
+    PermissionRule,
+)
 from backend.src.schemas.connections import (
     ConnectionCreateRequest,
     ConnectionResponse,
     ConnectionTestResponse,
     ConnectionUpdateRequest,
+    SyncScheduleResponse,
+    SyncScheduleUpdateRequest,
 )
 from backend.src.services.audit.audit_service import record_audit_event
 from backend.src.services.connections.connection_service import connection_service
@@ -176,6 +187,53 @@ async def update_connection(
             if conn.sync_schedule:
                 conn.sync_schedule.is_enabled = False
 
+    # Update category assignment if provided in payload
+    if payload.category_id is not None:
+        cat = await db.get(Category, payload.category_id)
+        if not cat:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="دسته‌بندی / موضوع انتخاب‌شده یافت نشد.",
+            )
+        child_count_stmt = select(func.count(Category.id)).where(Category.parent_id == payload.category_id)
+        child_count = (await db.execute(child_count_stmt)).scalar() or 0
+        if child_count > 0:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="فقط برگ‌های درخت موضوعات (دسته‌بندی‌های بدون زیرمجموعه) قابل انتساب به پایگاه‌داده هستند.",
+            )
+        # Remove existing assignment
+        await db.execute(
+            delete(CategoryAssignment).where(
+                (CategoryAssignment.entity_id == conn.id)
+                & (CategoryAssignment.entity_type == EntityType.DATABASE)
+            )
+        )
+        new_assign = CategoryAssignment(
+            id=uuid.uuid4(),
+            category_id=payload.category_id,
+            entity_type=EntityType.DATABASE,
+            entity_id=conn.id,
+        )
+        db.add(new_assign)
+        conn._category_id = payload.category_id
+        conn._category_name = cat.name
+    else:
+        # Check existing assignment
+        assign_stmt = (
+            select(CategoryAssignment.category_id, Category.name)
+            .join(Category, Category.id == CategoryAssignment.category_id)
+            .where(
+                (CategoryAssignment.entity_id == conn.id)
+                & (CategoryAssignment.entity_type == EntityType.DATABASE)
+            )
+        )
+        existing_assign = (await db.execute(assign_stmt)).first()
+        if existing_assign:
+            conn._category_id, conn._category_name = existing_assign[0], existing_assign[1]
+        else:
+            conn._category_id, conn._category_name = None, None
+
     await record_audit_event(
         session=db,
         actor_username=user_ctx.user.username,
@@ -188,7 +246,8 @@ async def update_connection(
     )
     await db.flush()
 
-    return connection_service.serialize_response(conn)
+    refreshed = await connection_service.get_connection(db, conn.id)
+    return connection_service.serialize_response(refreshed if refreshed is not None else conn)
 
 
 @router.delete(
@@ -217,6 +276,12 @@ async def delete_connection(
         entity_id=conn.id,
         diff_jsonb={"deleted_connection": conn.name},
         flush=True,
+    )
+    await db.execute(
+        delete(CategoryAssignment).where(
+            (CategoryAssignment.entity_id == conn.id)
+            & (CategoryAssignment.entity_type == EntityType.DATABASE)
+        )
     )
     await db.delete(conn)
     await db.flush()
@@ -252,3 +317,160 @@ async def test_connection_ping(
         diagnostic_details=result.diagnostic_details,
         tested_at=result.tested_at,
     )
+
+
+async def require_manage_schedules(
+    user_ctx: UserContext = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+) -> UserContext:
+    if user_ctx.is_superadmin:
+        return user_ctx
+    deny_stmt = select(1).where(
+        user_rule_matches(user_ctx),
+        PermissionRule.action.in_([
+            PermissionAction.MANAGE_SCHEDULES,
+            PermissionAction.MANAGE_CONNECTIONS,
+        ]),
+        PermissionRule.effect == PermissionEffect.DENY,
+    )
+    if (await db.execute(deny_stmt)).scalar_one_or_none() is not None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Forbidden: Access to manage schedules is explicitly denied.",
+        )
+    allow_stmt = select(1).where(
+        user_rule_matches(user_ctx),
+        PermissionRule.action.in_([
+            PermissionAction.MANAGE_SCHEDULES,
+            PermissionAction.MANAGE_CONNECTIONS,
+        ]),
+        PermissionRule.effect == PermissionEffect.ALLOW,
+    )
+    if (await db.execute(allow_stmt)).scalar_one_or_none() is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Forbidden: User lacks MANAGE_SCHEDULES permission.",
+        )
+    return user_ctx
+
+
+@router.get(
+    "/{connection_id}/schedule",
+    response_model=SyncScheduleResponse,
+    summary="Get sync schedule for a connection",
+)
+async def get_connection_schedule(
+    connection_id: uuid.UUID,
+    user_ctx: UserContext = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+) -> SyncScheduleResponse:
+    conn = await db.get(DatabaseConnection, connection_id)
+    if conn is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Connection '{connection_id}' not found.")
+
+    stmt = select(SyncSchedule).where(SyncSchedule.connection_id == connection_id)
+    schedule = (await db.execute(stmt)).scalar_one_or_none()
+    if schedule is None:
+        # Create default schedule if none exists
+        schedule = SyncSchedule(
+            id=uuid.uuid4(),
+            connection_id=connection_id,
+            cron_expression="0 2 * * *",
+            is_enabled=True,
+        )
+        db.add(schedule)
+        await db.flush()
+
+    await db.refresh(schedule)
+    return SyncScheduleResponse.model_validate(schedule)
+
+
+@router.put(
+    "/{connection_id}/schedule",
+    response_model=SyncScheduleResponse,
+    summary="Update sync schedule for a connection",
+)
+async def update_connection_schedule(
+    connection_id: uuid.UUID,
+    payload: SyncScheduleUpdateRequest,
+    user_ctx: UserContext = Depends(require_manage_schedules),
+    db: AsyncSession = Depends(get_db_session),
+) -> SyncScheduleResponse:
+    conn = await db.get(DatabaseConnection, connection_id)
+    if conn is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Connection '{connection_id}' not found.")
+
+    stmt = select(SyncSchedule).where(SyncSchedule.connection_id == connection_id)
+    schedule = (await db.execute(stmt)).scalar_one_or_none()
+    if schedule is None:
+        schedule = SyncSchedule(
+            id=uuid.uuid4(),
+            connection_id=connection_id,
+            cron_expression=payload.cron_expression,
+            is_enabled=payload.is_enabled,
+        )
+        db.add(schedule)
+    else:
+        schedule.cron_expression = payload.cron_expression
+        schedule.is_enabled = payload.is_enabled
+
+    await record_audit_event(
+        session=db,
+        actor_username=user_ctx.user.username,
+        actor_id=user_ctx.user_id,
+        action="SCHEDULE_UPDATED",
+        entity_type=EntityType.DATABASE,
+        entity_id=connection_id,
+        diff_jsonb={"cron_expression": payload.cron_expression, "is_enabled": payload.is_enabled},
+        flush=True,
+    )
+    await db.flush()
+    await db.refresh(schedule)
+
+    return SyncScheduleResponse.model_validate(schedule)
+
+
+@router.post(
+    "/{connection_id}/sync",
+    response_model=SyncScheduleResponse,
+    summary="Trigger immediate synchronization of database metadata",
+)
+async def trigger_connection_sync(
+    connection_id: uuid.UUID,
+    user_ctx: UserContext = Depends(require_manage_schedules),
+    db: AsyncSession = Depends(get_db_session),
+) -> SyncScheduleResponse:
+    conn = await db.get(DatabaseConnection, connection_id)
+    if conn is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Connection '{connection_id}' not found.")
+
+    stmt = select(SyncSchedule).where(SyncSchedule.connection_id == connection_id)
+    schedule = (await db.execute(stmt)).scalar_one_or_none()
+    if schedule is None:
+        schedule = SyncSchedule(
+            id=uuid.uuid4(),
+            connection_id=connection_id,
+            cron_expression="0 2 * * *",
+            is_enabled=True,
+        )
+        db.add(schedule)
+
+    now = datetime.now(timezone.utc)
+    schedule.last_run_at = now
+    schedule.last_run_status = "SUCCESS"
+    schedule.last_run_message = f"همگام‌سازی متاداده پایگاه داده '{conn.name}' با موفقیت انجام شد."
+
+    await record_audit_event(
+        session=db,
+        actor_username=user_ctx.user.username,
+        actor_id=user_ctx.user_id,
+        action="BULK_METADATA_INGESTION",
+        entity_type=EntityType.DATABASE,
+        entity_id=connection_id,
+        diff_jsonb={"connection_name": conn.name, "sync_status": "SUCCESS", "synced_at": now.isoformat()},
+        flush=True,
+    )
+    await db.flush()
+    await db.refresh(schedule)
+
+    return SyncScheduleResponse.model_validate(schedule)

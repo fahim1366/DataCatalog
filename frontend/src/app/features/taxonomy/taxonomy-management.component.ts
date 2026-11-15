@@ -18,7 +18,6 @@ import { HttpClient } from '@angular/common/http';
 import { TreeTableModule } from 'primeng/treetable';
 import { TreeNode } from 'primeng/api';
 
-import { TagChipComponent } from '../catalog/components/tag-chip/tag-chip.component';
 import { TagItem, CategoryTreeNode } from '../catalog/models/catalog.models';
 import {
   CategoryService,
@@ -32,9 +31,12 @@ export interface CategoryRowData {
   description?: string | null;
   parent_id?: string | null;
   status: 'ACTIVE' | 'INACTIVE';
+  children_count: number;
+  assigned_databases_count: number;
   assigned_tables_count: number;
   tables?: any[];
   databases?: any[];
+  is_leaf?: boolean;
 }
 
 @Component({
@@ -45,7 +47,6 @@ export interface CategoryRowData {
     FormsModule,
     ReactiveFormsModule,
     TreeTableModule,
-    TagChipComponent,
   ],
   templateUrl: './taxonomy-management.component.html',
   styleUrls: ['./taxonomy-management.component.css'],
@@ -160,7 +161,6 @@ export class TaxonomyManagementComponent implements OnInit {
 
   ngOnInit(): void {
     this.loadCategoryTree();
-    this.loadTags();
   }
 
   // ==========================================
@@ -190,12 +190,23 @@ export class TaxonomyManagementComponent implements OnInit {
   ): TreeNode<CategoryRowData>[] {
     return nodes.map((node) => {
       const isExpanded = expandedKeys.has(node.id);
+      const children = node.children && node.children.length > 0
+        ? this.buildTreeNodes(node.children, expandedKeys)
+        : [];
+
       const rowData: CategoryRowData = {
         id: node.id,
         name: node.name,
         description: node.description,
         parent_id: node.parent_id,
         status: (node.status as 'ACTIVE' | 'INACTIVE') || 'ACTIVE',
+        children_count: node.children_count !== undefined ? node.children_count : children.length,
+        assigned_databases_count:
+          node.assigned_databases_count !== undefined
+            ? node.assigned_databases_count
+            : node.databases
+              ? node.databases.length
+              : 0,
         assigned_tables_count:
           node.assigned_tables_count !== undefined
             ? node.assigned_tables_count
@@ -204,11 +215,8 @@ export class TaxonomyManagementComponent implements OnInit {
               : 0,
         tables: node.tables || [],
         databases: node.databases || [],
+        is_leaf: children.length === 0,
       };
-
-      const children = node.children && node.children.length > 0
-        ? this.buildTreeNodes(node.children, expandedKeys)
-        : [];
 
       return {
         key: node.id,
@@ -506,7 +514,8 @@ export class TaxonomyManagementComponent implements OnInit {
     const cat = this.categoryToDelete();
     if (!cat) return;
 
-    if (this.deleteSubcategoryCount() > 0 || this.deleteTableCount() > 0) {
+    if (this.deleteSubcategoryCount() > 0) {
+      this.showToast('امکان حذف دسته‌بندی دارای زیرمجموعه وجود ندارد', 'error');
       return;
     }
 
@@ -517,6 +526,7 @@ export class TaxonomyManagementComponent implements OnInit {
         this.loadCategoryTree();
       },
       error: (err) => {
+        this.closeDeleteModal();
         this.showToast(this.extractErrorMessage(err, 'امکان حذف این دسته‌بندی وجود ندارد'), 'error');
       },
     });

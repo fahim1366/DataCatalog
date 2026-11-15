@@ -168,3 +168,48 @@ async def test_duplicate_user_raises_integrity_error(db_session: AsyncSession):
     db_session.add(u2)
     with pytest.raises(IntegrityError):
         await db_session.flush()
+
+
+@pytest.mark.asyncio
+async def test_user_database_and_direct_permissions_coexist(db_session: AsyncSession):
+    """Test that direct database access and direct global permissions coexist on a user without conflict."""
+    uname = f"coexist_user_{uuid.uuid4().hex[:8]}"
+    user = User(
+        username=uname,
+        email=f"{uname}@corp.internal",
+        hashed_password="hashed_pw_coexist",
+        full_name="Coexist User",
+        status=UserStatus.ACTIVE,
+    )
+    db_session.add(user)
+    await db_session.flush()
+
+    db_id = uuid.uuid4()
+    # 1. Database permission
+    rule_db = PermissionRule(
+        user_id=user.id,
+        resource_type=ResourceType.DATABASE,
+        resource_id=db_id,
+        action=PermissionAction.VIEW_METADATA,
+        effect=PermissionEffect.ALLOW,
+    )
+    db_session.add(rule_db)
+
+    # 2. Global permission
+    rule_global = PermissionRule(
+        user_id=user.id,
+        resource_type=ResourceType.GLOBAL,
+        resource_id=None,
+        action=PermissionAction.MANAGE_CATEGORIES,
+        effect=PermissionEffect.ALLOW,
+    )
+    db_session.add(rule_global)
+    await db_session.flush()
+
+    # Query both
+    user_rules = (
+        await db_session.execute(select(PermissionRule).where(PermissionRule.user_id == user.id))
+    ).scalars().all()
+    assert len(user_rules) == 2
+    r_types = {r.resource_type for r in user_rules}
+    assert r_types == {ResourceType.DATABASE, ResourceType.GLOBAL}

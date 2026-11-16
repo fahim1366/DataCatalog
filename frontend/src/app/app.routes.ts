@@ -11,6 +11,7 @@ import { permissionGuard } from './core/guards/permission.guard';
 import { UserManagementComponent } from './features/access-control/users/user-management.component';
 import { RoleManagementComponent } from './features/access-control/roles/role-management.component';
 import { ScheduleManagementComponent } from './features/schedules/schedule-management.component';
+import { SyncMonitorComponent } from './features/sync-monitor/sync-monitor.component';
 
 export const routes: Routes = [
   {
@@ -40,6 +41,12 @@ export const routes: Routes = [
     component: ScheduleManagementComponent,
     canActivate: [authGuard],
     title: 'زمان‌بندی بروزرسانی کاتالوگ داده (Sync Schedules)',
+  },
+  {
+    path: 'sync-monitor',
+    component: SyncMonitorComponent,
+    canActivate: [authGuard],
+    title: 'مانیتورینگ همگام‌سازی متادیتا - سامانه داده',
   },
   {
     path: 'taxonomy',

@@ -18,6 +18,7 @@ from backend.src.api.dependencies.rbac import (
 )
 from backend.src.core.database import get_db_session
 from backend.src.models.connections import DatabaseConnection, SyncSchedule
+from backend.src.models.sync_jobs import SyncJob, SyncJobStatus, SyncTriggerType
 from backend.src.models.rbac import (
     Category,
     CategoryAssignment,
@@ -34,6 +35,16 @@ from backend.src.schemas.connections import (
     SyncScheduleResponse,
     SyncScheduleUpdateRequest,
 )
+from backend.src.schemas.sync_jobs import (
+    CircuitBreakerStatusResponse,
+    ConnectionDiagnosticTestResponse,
+    SyncJobListResponse,
+    SyncJobResponse,
+)
+from backend.src.api.v1.sync_jobs import decode_sync_cursor, encode_sync_cursor
+from backend.src.core.celery_app import QUEUE_PRIORITY
+from backend.src.services.workers.circuit_breaker import circuit_breaker_manager
+from backend.src.services.workers.tasks import manual_metadata_sync_task, test_connection_sync
 from backend.src.services.audit.audit_service import record_audit_event
 from backend.src.services.connections.connection_service import connection_service
 from backend.src.services.connections.cron_validator import validate_cron_expression
@@ -289,33 +300,46 @@ async def delete_connection(
 
 @router.post(
     "/{connection_id}/test",
-    response_model=ConnectionTestResponse,
-    summary="Execute live dialect connection ping test",
+    response_model=ConnectionDiagnosticTestResponse,
+    summary="Execute live dialect connection ping and diagnostic test",
 )
 async def test_connection_ping(
     connection_id: uuid.UUID,
     user_ctx: UserContext = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session),
-) -> ConnectionTestResponse:
+) -> ConnectionDiagnosticTestResponse:
     """
     Executes a transient dialect connectivity test bounded by a strict 5.0s timeout.
-    Returns structured latency and diagnostic error payload.
-    Credentials decrypted strictly in memory.
+    Returns structured latency, reachability, and diagnostic error payload.
+    Credentials decrypted strictly in memory. Resets circuit breaker on success.
     """
-    result = await connection_service.test_connection(session=db, connection_id=connection_id)
-    if result is None:
+    conn = await db.get(DatabaseConnection, connection_id)
+    if conn is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Connection '{connection_id}' not found.",
         )
 
-    return ConnectionTestResponse(
-        success=result.success,
-        latency_ms=result.latency_ms,
-        dialect=result.dialect,
-        message=result.message,
-        diagnostic_details=result.diagnostic_details,
-        tested_at=result.tested_at,
+    result = await test_connection_sync(connection_id=connection_id, session=db)
+    if result.get("success"):
+        await circuit_breaker_manager.reset_circuit_breaker(session=db, connection_id=connection_id)
+
+    tested_at_val = result.get("tested_at")
+    if isinstance(tested_at_val, str):
+        tested_at_dt = datetime.fromisoformat(tested_at_val)
+    elif isinstance(tested_at_val, datetime):
+        tested_at_dt = tested_at_val
+    else:
+        tested_at_dt = datetime.now(timezone.utc)
+
+    return ConnectionDiagnosticTestResponse(
+        success=bool(result.get("success")),
+        latency_ms=float(result.get("latency_ms", 0.0)),
+        dialect=str(result.get("dialect", "POSTGRESQL")),
+        server_version=result.get("server_version"),
+        message=str(result.get("message", "")),
+        diagnostic_details=result.get("diagnostic_details"),
+        tested_at=tested_at_dt,
     )
 
 
@@ -432,45 +456,169 @@ async def update_connection_schedule(
 
 @router.post(
     "/{connection_id}/sync",
-    response_model=SyncScheduleResponse,
+    response_model=SyncJobResponse,
+    status_code=status.HTTP_202_ACCEPTED,
     summary="Trigger immediate synchronization of database metadata",
 )
 async def trigger_connection_sync(
     connection_id: uuid.UUID,
     user_ctx: UserContext = Depends(require_manage_schedules),
     db: AsyncSession = Depends(get_db_session),
-) -> SyncScheduleResponse:
+) -> SyncJobResponse:
     conn = await db.get(DatabaseConnection, connection_id)
     if conn is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Connection '{connection_id}' not found.")
 
+    # Concurrency guard: 409 Conflict if active sync is already queued or running
+    active_stmt = select(SyncJob).where(
+        SyncJob.connection_id == connection_id,
+        SyncJob.status.in_([SyncJobStatus.QUEUED.value, SyncJobStatus.RUNNING.value]),
+    )
+    active_job = (await db.execute(active_stmt)).scalar_one_or_none()
+    if active_job is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"A sync job is already queued or running for connection '{conn.name}'.",
+        )
+
     stmt = select(SyncSchedule).where(SyncSchedule.connection_id == connection_id)
     schedule = (await db.execute(stmt)).scalar_one_or_none()
+
+    job = SyncJob(
+        id=uuid.uuid4(),
+        connection_id=connection_id,
+        schedule_id=schedule.id if schedule else None,
+        status=SyncJobStatus.QUEUED.value,
+        triggered_by=SyncTriggerType.MANUAL.value,
+    )
+    db.add(job)
+    await db.flush()
+    await db.refresh(job)
+
+    try:
+        manual_metadata_sync_task.apply_async(
+            args=[str(connection_id), str(job.id)],
+            queue=QUEUE_PRIORITY,
+            retry=False,
+        )
+    except Exception as exc:
+        logger.warning("Could not dispatch Celery task (%s). Job remains QUEUED.", exc)
+
+    await record_audit_event(
+        session=db,
+        actor_username=user_ctx.user.username,
+        actor_id=user_ctx.user_id,
+        action="TRIGGER_MANUAL_SYNC",
+        entity_type=EntityType.DATABASE,
+        entity_id=connection_id,
+        diff_jsonb={"job_id": str(job.id), "status": SyncJobStatus.QUEUED.value},
+        flush=True,
+    )
+    await db.flush()
+
+    return SyncJobResponse.model_validate(job)
+
+
+@router.post(
+    "/{connection_id}/circuit-breaker/reset",
+    response_model=CircuitBreakerStatusResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Reset tripped circuit breaker",
+)
+async def reset_circuit_breaker(
+    connection_id: uuid.UUID,
+    user_ctx: UserContext = Depends(require_manage_schedules),
+    db: AsyncSession = Depends(get_db_session),
+) -> CircuitBreakerStatusResponse:
+    conn = await db.get(DatabaseConnection, connection_id)
+    if conn is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Connection '{connection_id}' not found.")
+
+    schedule = await circuit_breaker_manager.reset_circuit_breaker(session=db, connection_id=connection_id)
     if schedule is None:
         schedule = SyncSchedule(
             id=uuid.uuid4(),
             connection_id=connection_id,
             cron_expression="0 2 * * *",
             is_enabled=True,
+            circuit_state="CLOSED",
+            consecutive_failures=0,
         )
         db.add(schedule)
-
-    now = datetime.now(timezone.utc)
-    schedule.last_run_at = now
-    schedule.last_run_status = "SUCCESS"
-    schedule.last_run_message = f"همگام‌سازی متاداده پایگاه داده '{conn.name}' با موفقیت انجام شد."
+        await db.flush()
+        await db.refresh(schedule)
 
     await record_audit_event(
         session=db,
         actor_username=user_ctx.user.username,
         actor_id=user_ctx.user_id,
-        action="BULK_METADATA_INGESTION",
+        action="RESET_CIRCUIT_BREAKER",
         entity_type=EntityType.DATABASE,
         entity_id=connection_id,
-        diff_jsonb={"connection_name": conn.name, "sync_status": "SUCCESS", "synced_at": now.isoformat()},
+        diff_jsonb={"circuit_state": "CLOSED", "consecutive_failures": 0},
         flush=True,
     )
     await db.flush()
-    await db.refresh(schedule)
 
-    return SyncScheduleResponse.model_validate(schedule)
+    return CircuitBreakerStatusResponse(
+        connection_id=connection_id,
+        circuit_state=schedule.circuit_state,
+        consecutive_failures=schedule.consecutive_failures,
+        cooldown_until=schedule.cooldown_until,
+    )
+
+
+@router.get(
+    "/{connection_id}/jobs",
+    response_model=SyncJobListResponse,
+    summary="List execution history for a connection",
+)
+async def list_connection_sync_jobs(
+    connection_id: uuid.UUID,
+    limit: int = Query(20, ge=1, le=100, description="Items limit"),
+    cursor: Optional[str] = Query(None, description="Keyset cursor token"),
+    user_ctx: UserContext = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+) -> SyncJobListResponse:
+    conn = await db.get(DatabaseConnection, connection_id)
+    if conn is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Connection '{connection_id}' not found.",
+        )
+
+    count_stmt = select(func.count(SyncJob.id)).where(SyncJob.connection_id == connection_id)
+    total_res = await db.execute(count_stmt)
+    total = total_res.scalar() or 0
+
+    query = (
+        select(SyncJob)
+        .where(SyncJob.connection_id == connection_id)
+        .order_by(SyncJob.created_at.desc(), SyncJob.id.desc())
+    )
+
+    if cursor:
+        try:
+            cursor_dt, cursor_id = decode_sync_cursor(cursor)
+            query = query.where(
+                or_(
+                    SyncJob.created_at < cursor_dt,
+                    (SyncJob.created_at == cursor_dt) & (SyncJob.id < cursor_id),
+                )
+            )
+        except Exception:
+            logger.warning("Invalid cursor token provided: %s", cursor)
+
+    query = query.limit(limit + 1)
+    res = await db.execute(query)
+    rows = list(res.scalars().all())
+
+    next_cursor = None
+    if len(rows) > limit:
+        next_item = rows[limit - 1]
+        next_cursor = encode_sync_cursor(next_item.created_at, next_item.id)
+        rows = rows[:limit]
+
+    items = [SyncJobResponse.model_validate(row) for row in rows]
+    return SyncJobListResponse(items=items, total=total, next_cursor=next_cursor)
+

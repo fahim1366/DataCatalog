@@ -257,5 +257,23 @@ describe('VersionDiffComponent (T034: Angular Schema Diff Viewer Component)', ()
       expect(header.nativeElement.textContent).toContain('Version 2');
     });
   });
+
+  describe('Sync Job History Linkage & Structural DDL Changes (T085)', () => {
+    it('should render sync job linkage banner and badges when syncJobId is provided', async () => {
+      const syncJobId = '77777777-7777-7777-7777-777777777777';
+      fixture.componentRef.setInput('diffData', mockDiffResponse);
+      fixture.componentRef.setInput('syncJobId', syncJobId);
+      fixture.detectChanges();
+      await fixture.whenStable();
+
+      const syncBanner = fixture.debugElement.query(By.css('.sync-job-linkage-banner'));
+      expect(syncBanner).toBeTruthy();
+      expect(syncBanner.nativeElement.textContent).toContain('همگام‌سازی');
+      expect(syncBanner.nativeElement.textContent).toContain(syncJobId.substring(0, 8));
+
+      const syncBadges = fixture.debugElement.queryAll(By.css('.sync-origin-badge'));
+      expect(syncBadges.length).toBeGreaterThanOrEqual(1);
+    });
+  });
 });
 

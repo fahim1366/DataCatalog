@@ -36,6 +36,7 @@ export class VersionDiffComponent implements OnInit {
   readonly v1 = input<number | null>(null);
   readonly v2 = input<number | null>(null);
   readonly availableVersions = input<TableVersionItem[]>([]);
+  readonly syncJobId = input<string | null>(null);
 
   // Toolbar & Table Selection State
   readonly availableTables = signal<Array<{ id: string; name: string; schema_name?: string }>>([]);

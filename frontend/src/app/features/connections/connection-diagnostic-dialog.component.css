@@ -1,0 +1,373 @@
+.modal-backdrop {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(15, 23, 42, 0.65);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1050;
+  animation: fadeIn 0.15s ease-out;
+}
+
+.modal-dialog {
+  background: #ffffff;
+  border-radius: 12px;
+  width: 90%;
+  max-width: 680px;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.2), 0 10px 10px -5px rgba(0, 0, 0, 0.1);
+  border: 1px solid #e2e8f0;
+  font-family: 'Vazirmatn', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  overflow: hidden;
+}
+
+.modal-header {
+  padding: 16px 20px;
+  border-bottom: 1px solid #e2e8f0;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  background-color: #f8fafc;
+}
+
+.header-titles {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.diag-dialog-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.diag-dialog-title h3 {
+  margin: 0;
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.header-icon {
+  font-size: 1.25rem;
+}
+
+.meta-tags {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.dialect-badge {
+  background: #e0f2fe;
+  color: #0369a1;
+  padding: 2px 8px;
+  border-radius: 6px;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.host-badge {
+  background: #f1f5f9;
+  color: #475569;
+  padding: 2px 8px;
+  border-radius: 6px;
+  font-size: 0.75rem;
+  direction: ltr;
+}
+
+.btn-close {
+  background: transparent;
+  border: none;
+  font-size: 1.2rem;
+  color: #94a3b8;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 6px;
+  transition: all 0.2s;
+}
+
+.btn-close:hover {
+  background: #e2e8f0;
+  color: #0f172a;
+}
+
+.modal-body {
+  padding: 20px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.cb-card {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 16px;
+  border-radius: 8px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+}
+
+.cb-card.cb-closed {
+  border-color: #bbf7d0;
+  background: #f0fdf4;
+}
+
+.cb-card.cb-open {
+  border-color: #fecaca;
+  background: #fef2f2;
+}
+
+.cb-info {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.cb-icon {
+  font-size: 1.5rem;
+}
+
+.cb-title-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.cb-badge {
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.cb-badge-closed {
+  background: #22c55e;
+  color: #ffffff;
+}
+
+.cb-badge-open {
+  background: #ef4444;
+  color: #ffffff;
+}
+
+.cb-badge-half_open {
+  background: #f59e0b;
+  color: #ffffff;
+}
+
+.cb-desc {
+  margin: 4px 0 0 0;
+  font-size: 0.82rem;
+  color: #64748b;
+}
+
+.btn-reset-cb {
+  background: #d97706;
+  color: #ffffff;
+  border: none;
+  padding: 6px 12px;
+  border-radius: 6px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.btn-reset-cb:hover:not(:disabled) {
+  background: #b45309;
+}
+
+.loading-box {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px;
+  border-radius: 8px;
+  background: #eff6ff;
+  color: #1e40af;
+  font-size: 0.9rem;
+}
+
+.spinner {
+  width: 20px;
+  height: 20px;
+  border: 3px solid rgba(30, 64, 175, 0.2);
+  border-top-color: #1e40af;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.diag-section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.section-title {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: #334155;
+}
+
+.diag-checklist {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.diag-checklist-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  transition: all 0.2s;
+}
+
+.diag-checklist-item.passed {
+  border-color: #bbf7d0;
+  background: #f0fdf4;
+}
+
+.diag-checklist-item.failed {
+  border-color: #fecaca;
+  background: #fef2f2;
+}
+
+.item-status-icon {
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  margin-left: 10px;
+}
+
+.icon-success {
+  color: #16a34a;
+}
+
+.icon-failure {
+  color: #dc2626;
+}
+
+.icon-pending {
+  color: #94a3b8;
+}
+
+.item-details {
+  flex: 1;
+}
+
+.item-title {
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: #0f172a;
+}
+
+.item-sub {
+  font-size: 0.78rem;
+  color: #64748b;
+  margin-top: 2px;
+}
+
+.item-badge {
+  font-size: 0.72rem;
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: #e2e8f0;
+  color: #64748b;
+}
+
+.item-badge.badge-ok {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.diag-result-card {
+  padding: 12px 16px;
+  border-radius: 8px;
+  font-size: 0.88rem;
+}
+
+.diag-result-card.result-success {
+  background: #ecfdf5;
+  border: 1px solid #a7f3d0;
+  color: #065f46;
+}
+
+.diag-result-card.result-failure {
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  color: #991b1b;
+}
+
+.res-version {
+  margin-top: 4px;
+  font-size: 0.8rem;
+}
+
+.modal-footer {
+  padding: 14px 20px;
+  border-top: 1px solid #e2e8f0;
+  background-color: #f8fafc;
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.btn {
+  padding: 8px 16px;
+  border-radius: 6px;
+  font-size: 0.88rem;
+  font-weight: 600;
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: all 0.2s;
+}
+
+.btn-secondary {
+  background: #ffffff;
+  border-color: #cbd5e1;
+  color: #334155;
+}
+
+.btn-secondary:hover {
+  background: #f1f5f9;
+}
+
+.btn-primary {
+  background: #2563eb;
+  color: #ffffff;
+}
+
+.btn-primary:hover:not(:disabled) {
+  background: #1d4ed8;
+}
+
+.btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.mono-font {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}

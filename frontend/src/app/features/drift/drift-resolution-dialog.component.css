@@ -1,0 +1,292 @@
+.modal-backdrop {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(15, 23, 42, 0.65);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1060;
+}
+
+.modal-dialog {
+  background: #ffffff;
+  border-radius: 12px;
+  width: 92%;
+  max-width: 780px;
+  max-height: 92vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.2);
+  border: 1px solid #e2e8f0;
+  font-family: 'Vazirmatn', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  overflow: hidden;
+}
+
+.modal-header {
+  padding: 16px 20px;
+  border-bottom: 1px solid #e2e8f0;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  background: #f8fafc;
+}
+
+.diag-dialog-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.diag-dialog-title h3 {
+  margin: 0;
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.table-name-badge {
+  font-size: 0.8rem;
+  background: #e2e8f0;
+  padding: 2px 8px;
+  border-radius: 4px;
+  color: #334155;
+  margin-top: 4px;
+  display: inline-block;
+}
+
+.btn-close {
+  background: transparent;
+  border: none;
+  font-size: 1.2rem;
+  color: #94a3b8;
+  cursor: pointer;
+}
+
+.modal-body {
+  padding: 20px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.section-title {
+  margin: 0 0 10px 0;
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: #334155;
+}
+
+.diff-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+
+.diff-card {
+  border-radius: 8px;
+  border: 1px solid #e2e8f0;
+  overflow: hidden;
+  background: #ffffff;
+}
+
+.approved-card {
+  border-color: #bbf7d0;
+}
+
+.source-card {
+  border-color: #fed7aa;
+}
+
+.diff-card-header {
+  padding: 8px 12px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.approved-card .diff-card-header {
+  background: #f0fdf4;
+  color: #166534;
+}
+
+.source-card .diff-card-header {
+  background: #fff7ed;
+  color: #9a3412;
+}
+
+.badge {
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 0.72rem;
+}
+
+.badge-approved {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.badge-source {
+  background: #ffedd5;
+  color: #c2410c;
+}
+
+.diff-card-body {
+  padding: 12px;
+  font-size: 0.85rem;
+  min-height: 80px;
+}
+
+.diff-text {
+  margin: 0;
+  line-height: 1.6;
+}
+
+.radio-options-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.drift-radio-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  cursor: pointer;
+  background: #f8fafc;
+  transition: all 0.2s;
+}
+
+.drift-radio-option.selected {
+  border-color: #2563eb;
+  background: #eff6ff;
+}
+
+.drift-radio-option input[type="radio"] {
+  margin-top: 3px;
+  accent-color: #2563eb;
+}
+
+.option-content {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.option-content strong {
+  font-size: 0.88rem;
+  color: #0f172a;
+}
+
+.option-desc {
+  font-size: 0.8rem;
+  color: #64748b;
+}
+
+.custom-editor-box {
+  margin-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.editor-label {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: #334155;
+}
+
+.custom-textarea {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 10px 12px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  font-family: inherit;
+  font-size: 0.85rem;
+  resize: vertical;
+}
+
+.columns-drift-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.col-drift-item {
+  padding: 10px 12px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+}
+
+.col-name {
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: #1e293b;
+  margin-bottom: 4px;
+}
+
+.col-diff-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  font-size: 0.8rem;
+}
+
+.col-label {
+  display: block;
+  color: #64748b;
+  font-weight: 600;
+}
+
+.modal-footer {
+  padding: 12px 20px;
+  border-top: 1px solid #e2e8f0;
+  background: #f8fafc;
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.btn {
+  padding: 8px 16px;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: all 0.2s;
+}
+
+.btn-secondary {
+  background: #ffffff;
+  border: 1px solid #cbd5e1;
+  color: #334155;
+}
+
+.btn-secondary:hover {
+  background: #f1f5f9;
+}
+
+.btn-primary {
+  background: #2563eb;
+  color: #ffffff;
+}
+
+.btn-primary:hover:not(:disabled) {
+  background: #1d4ed8;
+}
+
+.mono-font {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}

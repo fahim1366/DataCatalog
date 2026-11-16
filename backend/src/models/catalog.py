@@ -28,6 +28,7 @@ from backend.src.models.rbac import EntityType
 if TYPE_CHECKING:
     from backend.src.models.connections import DatabaseConnection
     from backend.src.models.identity import User
+    from backend.src.models.statistics import TableStatisticsHistory
     from backend.src.models.versioning import SchemaChangeLog, TableVersion
 
 
@@ -159,6 +160,9 @@ class CatalogTable(Base):
     custom_properties: Mapped[dict] = mapped_column(
         JSONB, nullable=False, server_default=text("'{}'::jsonb")
     )
+    description_drift_detected: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=text("false")
+    )
     search_vector: Mapped[Optional[str]] = mapped_column(
         TSVECTOR,
         Computed(
@@ -196,6 +200,12 @@ class CatalogTable(Base):
         back_populates="table",
         cascade="all, delete-orphan",
         order_by="desc(SchemaChangeLog.created_at)",
+    )
+    statistics_history: Mapped[List["TableStatisticsHistory"]] = relationship(
+        "TableStatisticsHistory",
+        back_populates="table",
+        cascade="all, delete-orphan",
+        order_by="desc(TableStatisticsHistory.recorded_at)",
     )
 
     __table_args__ = (
@@ -294,6 +304,9 @@ class CatalogColumn(Base):
         nullable=False,
         default=LifecycleStatus.ACTIVE,
         server_default=text("'ACTIVE'"),
+    )
+    description_drift_detected: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=text("false")
     )
     search_vector: Mapped[Optional[str]] = mapped_column(
         TSVECTOR,

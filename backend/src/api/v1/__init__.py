@@ -13,6 +13,9 @@ from backend.src.api.v1.tables import router as tables_router
 from backend.src.api.v1.tags import router as tags_router
 from backend.src.api.v1.users import router as users_router
 from backend.src.api.v1.versions import router as versions_router
+from backend.src.api.v1.sync_jobs import router as sync_jobs_router
+from backend.src.api.v1.drift import router as drift_router
+from backend.src.api.v1.statistics import router as statistics_router
 
 api_v1_router = APIRouter()
 api_v1_router.include_router(auth_router)
@@ -29,5 +32,8 @@ api_v1_router.include_router(tables_router)
 api_v1_router.include_router(tags_router)
 api_v1_router.include_router(users_router)
 api_v1_router.include_router(versions_router)
+api_v1_router.include_router(sync_jobs_router)
+api_v1_router.include_router(drift_router)
+api_v1_router.include_router(statistics_router)
 
 __all__ = ["api_v1_router"]

@@ -36,6 +36,8 @@ class BulkIngestionRequest(BaseModel):
     schema_name: str = Field(..., max_length=255)
     schema_description: Optional[str] = None
     tables: List[IngestTablePayload] = Field(default_factory=list)
+    sync_job_id: Optional[uuid.UUID] = None
+    failed_schemas: Optional[List[str]] = None
 
 
 class BulkIngestionResponse(BaseModel):

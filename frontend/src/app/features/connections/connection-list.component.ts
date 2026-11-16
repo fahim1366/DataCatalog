@@ -10,6 +10,8 @@ import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ConnectionService } from './services/connection.service';
 import { ConnectionDialogComponent } from './connection-dialog.component';
+import { ConnectionDiagnosticDialogComponent } from './connection-diagnostic-dialog.component';
+import { SyncJobService } from '../../core/services/sync-job.service';
 import { HasPermissionDirective } from '../../core/directives/has-permission.directive';
 import {
   ConnectionCreateRequest,
@@ -31,19 +33,30 @@ export type SortDirection = 'asc' | 'desc';
 @Component({
   selector: 'app-connection-list',
   standalone: true,
-  imports: [CommonModule, FormsModule, ConnectionDialogComponent, HasPermissionDirective],
+  imports: [
+    CommonModule,
+    FormsModule,
+    ConnectionDialogComponent,
+    ConnectionDiagnosticDialogComponent,
+    HasPermissionDirective,
+  ],
   templateUrl: './connection-list.component.html',
   styleUrls: ['./connection-list.component.css'],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class ConnectionListComponent implements OnInit {
   private readonly connectionService = inject(ConnectionService);
+  private readonly syncJobService = inject(SyncJobService);
 
   readonly connections = signal<DatabaseConnection[]>([]);
   readonly categoryTree = signal<CategoryTreeNode[]>([]);
   readonly isLoading = signal<boolean>(false);
   readonly isLoadingTree = signal<boolean>(false);
   readonly showDialog = signal<boolean>(false);
+  readonly showDiagnosticDialog = signal<boolean>(false);
+  readonly diagnosticConnection = signal<DatabaseConnection | null>(null);
+  readonly syncingConnectionId = signal<string | null>(null);
+  readonly syncSuccessMessage = signal<string | null>(null);
   readonly connectionToEdit = signal<DatabaseConnection | null>(null);
   readonly preselectedCategoryId = signal<string | null>(null);
   readonly testingConnectionId = signal<string | null>(null);
@@ -409,6 +422,31 @@ export class ConnectionListComponent implements OnInit {
         const msg = err instanceof Error ? err.message : 'خطا در حذف اتصال دیتابیس';
         this.errorMessage.set(msg);
         this.connectionToDelete.set(null);
+      },
+    });
+  }
+
+  // ───── Diagnostic Dialog & Manual Sync ─────
+  openDiagnosticDialog(conn: DatabaseConnection): void {
+    this.diagnosticConnection.set(conn);
+    this.showDiagnosticDialog.set(true);
+  }
+
+  onManualSync(conn: DatabaseConnection): void {
+    this.syncingConnectionId.set(conn.id);
+    this.syncSuccessMessage.set(null);
+
+    this.syncJobService.triggerSync(conn.id).subscribe({
+      next: (job) => {
+        this.syncingConnectionId.set(null);
+        this.syncSuccessMessage.set(`همگام‌سازی دستی برای «${conn.name}» با موفقیت در صف پردازش قرار گرفت (شناسه جاب: ${job.id})`);
+        setTimeout(() => this.syncSuccessMessage.set(null), 5000);
+      },
+      error: (err: unknown) => {
+        this.syncingConnectionId.set(null);
+        const msg = err instanceof Error ? err.message : 'خطا در ثبت درخواست همگام‌سازی دستی';
+        this.errorMessage.set(msg);
+        setTimeout(() => this.errorMessage.set(null), 5000);
       },
     });
   }

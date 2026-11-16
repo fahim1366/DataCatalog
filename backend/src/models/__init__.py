@@ -21,6 +21,8 @@ from backend.src.models.rbac import (
     PermissionRule,
     ResourceType,
 )
+from backend.src.models.statistics import TableStatisticsHistory
+from backend.src.models.sync_jobs import SyncJob, SyncJobStatus, SyncTriggerType
 from backend.src.models.versioning import (
     SchemaChangeLog,
     SchemaChangeType,
@@ -49,6 +51,11 @@ __all__ = [
     "DatabaseConnection",
     "DatabaseEngine",
     "SyncSchedule",
+    # Sync Jobs & Statistics
+    "SyncJob",
+    "SyncJobStatus",
+    "SyncTriggerType",
+    "TableStatisticsHistory",
     # Catalog
     "DatabaseSchema",
     "CatalogTable",

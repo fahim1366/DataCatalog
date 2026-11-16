@@ -37,6 +37,28 @@ from backend.src.schemas.reports import (
     DatabaseCompletenessItem,
     ReportRefreshResponse,
 )
+from backend.src.schemas.sync_jobs import (
+    CircuitBreakerStatusResponse,
+    CircuitStateEnum,
+    ConnectionDiagnosticTestResponse,
+    SyncJobDetailResponse,
+    SyncJobListResponse,
+    SyncJobResponse,
+    SyncJobStatusEnum,
+    SyncTriggerTypeEnum,
+)
+from backend.src.schemas.drift import (
+    ColumnDriftDetail,
+    ColumnDriftResolutionRequest,
+    DescriptionDriftDetailResponse,
+    DescriptionDriftResolutionResponse,
+    DriftResolutionActionEnum,
+    ResolveDescriptionDriftRequest,
+)
+from backend.src.schemas.statistics import (
+    TableStatisticPoint,
+    TableStatisticsHistoryResponse,
+)
 
 __all__ = [
     "KeysetPageInfo",
@@ -67,4 +89,20 @@ __all__ = [
     "ClassificationBreakdownItem",
     "ClassificationReport",
     "ReportRefreshResponse",
+    "CircuitBreakerStatusResponse",
+    "CircuitStateEnum",
+    "ConnectionDiagnosticTestResponse",
+    "SyncJobDetailResponse",
+    "SyncJobListResponse",
+    "SyncJobResponse",
+    "SyncJobStatusEnum",
+    "SyncTriggerTypeEnum",
+    "ColumnDriftDetail",
+    "ColumnDriftResolutionRequest",
+    "DescriptionDriftDetailResponse",
+    "DescriptionDriftResolutionResponse",
+    "DriftResolutionActionEnum",
+    "ResolveDescriptionDriftRequest",
+    "TableStatisticPoint",
+    "TableStatisticsHistoryResponse",
 ]

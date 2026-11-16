@@ -378,6 +378,13 @@
       >
         تاریخچه و تغییرات اسکیما ({{ tableHistory().length }})
       </button>
+      <button
+        class="tab-btn"
+        [class.active]="activeInspectorTab() === 'statistics'"
+        (click)="activeInspectorTab.set('statistics')"
+      >
+        آمار و رشد داده
+      </button>
     </div>
 
     <div class="inspector-body">
@@ -387,6 +394,15 @@
           <p>در حال بارگذاری جزئیات و ساختار ستون‌ها...</p>
         </div>
       } @else if (selectedTable()) {
+        @if (selectedTable()?.description_drift_detected) {
+          <app-drift-banner
+            [tableId]="selectedTable()?.id || null"
+            [tableName]="selectedTable()?.name || ''"
+            [driftDetected]="true"
+            (openResolution)="openDriftResolution()"
+          ></app-drift-banner>
+        }
+
         <!-- TAB 1: COLUMNS -->
         @if (activeInspectorTab() === 'columns') {
           <div class="columns-grid-wrapper">
@@ -616,8 +632,22 @@
             </div>
           </div>
         }
+
+        <!-- TAB 4: TABLE STATISTICS -->
+        @if (activeInspectorTab() === 'statistics') {
+          <div class="statistics-tab-content" style="padding: 10px 0;">
+            <app-table-statistics-chart [tableId]="selectedTable()!.id"></app-table-statistics-chart>
+          </div>
+        }
       }
     </div>
+
+    <!-- Drift Conflict Resolution Dialog -->
+    <app-drift-resolution-dialog
+      [(visible)]="showDriftResolution"
+      [tableId]="selectedTable()?.id || null"
+      (resolved)="onDriftResolved()"
+    ></app-drift-resolution-dialog>
   </aside>
 }
 

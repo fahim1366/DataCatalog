@@ -96,6 +96,7 @@ export interface TableDetail {
   curated_at?: string | null;
   owner?: string | null;
   status: string;
+  description_drift_detected?: boolean;
   columns: ColumnItem[];
   tags: TagItem[];
   categories?: string[];

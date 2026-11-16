@@ -1,0 +1,197 @@
+@if (visible) {
+  <div class="modal-backdrop" (click)="close()">
+    <div class="modal-dialog" (click)="$event.stopPropagation()" dir="rtl">
+      <!-- Modal Header -->
+      <div class="modal-header">
+        <div class="header-titles">
+          <div class="diag-dialog-title">
+            <span class="header-icon">🩺</span>
+            <h3>آزمون تشخیصی و سلامت اتصال: {{ connection?.name }} ({{ connection?.engine_type }})</h3>
+          </div>
+          <div class="meta-tags">
+            <span class="dialect-badge mono-font">{{ connection?.engine_type }}</span>
+            <span class="host-badge mono-font">{{ connection?.host }}:{{ connection?.port }}/{{ connection?.database_name }}</span>
+          </div>
+        </div>
+        <button class="btn-close" (click)="close()" aria-label="بستن">✕</button>
+      </div>
+
+      <!-- Modal Body -->
+      <div class="modal-body">
+        <!-- Circuit Breaker Status Banner -->
+        <div class="cb-card" [class.cb-open]="circuitState() === 'OPEN'" [class.cb-closed]="circuitState() === 'CLOSED'">
+          <div class="cb-info">
+            <span class="cb-icon">⚡</span>
+            <div>
+              <div class="cb-title-row">
+                <strong>وضعیت مدارشکن (Circuit Breaker):</strong>
+                <span class="cb-badge cb-badge-{{ circuitState().toLowerCase() }}">{{ circuitState() }}</span>
+              </div>
+              <p class="cb-desc">
+                تعداد خطاهای متوالی: <strong class="mono-font">{{ consecutiveFailures() }}</strong>
+                @if (cooldownUntil()) {
+                  <span> — دوره تعلیق تا: <span class="mono-font">{{ cooldownUntil() }}</span></span>
+                }
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            class="btn btn-warning btn-sm btn-reset-cb"
+            [disabled]="isResetting()"
+            (click)="resetCircuitBreakerAction()"
+          >
+            @if (isResetting()) {
+              <span>در حال بازنشانی...</span>
+            } @else {
+              <span>بازنشانی مدارشکن (Reset)</span>
+            }
+          </button>
+        </div>
+
+        @if (isLoading()) {
+          <div class="loading-box">
+            <div class="spinner"></div>
+            <span>در حال ارسال پینگ و بررسی شاخص‌های ۵ گانه اتصال...</span>
+          </div>
+        } @else if (errorMessage()) {
+          <div class="error-banner">
+            <span class="error-icon">⚠️</span>
+            <div>
+              <strong>خطا در بررسی سلامت اتصال:</strong>
+              <p>{{ errorMessage() }}</p>
+            </div>
+          </div>
+        }
+
+        <!-- 5-Point Diagnostic Checklist -->
+        <div class="diag-section">
+          <h4 class="section-title">چک‌لیست سلامت لایه‌های اتصال (۵ شاخص اصلی)</h4>
+
+          <div class="diag-checklist">
+            <!-- 1. TCP Connection -->
+            <div class="diag-checklist-item" [class.passed]="testResult()?.success" [class.failed]="testResult() && !testResult()?.success">
+              <div class="item-status-icon">
+                @if (testResult()?.success) {
+                  <span class="icon-success">✓</span>
+                } @else if (testResult()) {
+                  <span class="icon-failure">✕</span>
+                } @else {
+                  <span class="icon-pending">○</span>
+                }
+              </div>
+              <div class="item-details">
+                <div class="item-title">برقراری ارتباط شبکه و پروتکل TCP</div>
+                <div class="item-sub">بررسی پاسخ‌دهی سرور و پورت در زمان کمتر از ۵ ثانیه</div>
+              </div>
+              <span class="item-badge" [class.badge-ok]="testResult()?.success">TCP Status</span>
+            </div>
+
+            <!-- 2. Auth & Credentials -->
+            <div class="diag-checklist-item" [class.passed]="testResult()?.success" [class.failed]="testResult() && !testResult()?.success">
+              <div class="item-status-icon">
+                @if (testResult()?.success) {
+                  <span class="icon-success">✓</span>
+                } @else if (testResult()) {
+                  <span class="icon-failure">✕</span>
+                } @else {
+                  <span class="icon-pending">○</span>
+                }
+              </div>
+              <div class="item-details">
+                <div class="item-title">احراز هویت و مجوزهای کاربری (Authentication)</div>
+                <div class="item-sub">تأیید نام‌کاربری و رمزعبور رمزنگاری شده پاکت (Envelope Decryption)</div>
+              </div>
+              <span class="item-badge" [class.badge-ok]="testResult()?.success">Auth</span>
+            </div>
+
+            <!-- 3. SSL / TLS Security -->
+            <div class="diag-checklist-item" [class.passed]="testResult()?.success" [class.failed]="testResult() && !testResult()?.success">
+              <div class="item-status-icon">
+                @if (testResult()?.success) {
+                  <span class="icon-success">✓</span>
+                } @else if (testResult()) {
+                  <span class="icon-failure">✕</span>
+                } @else {
+                  <span class="icon-pending">○</span>
+                }
+              </div>
+              <div class="item-details">
+                <div class="item-title">امنیت و رمزنگاری داده‌ها (SSL / TLS Handshake)</div>
+                <div class="item-sub">ارتباط امن با پایگاه داده مبدا با گواهی معتبر</div>
+              </div>
+              <span class="item-badge" [class.badge-ok]="testResult()?.success">SSL / TLS</span>
+            </div>
+
+            <!-- 4. Read-Only Mode Verification -->
+            <div class="diag-checklist-item" [class.passed]="testResult()?.success" [class.failed]="testResult() && !testResult()?.success">
+              <div class="item-status-icon">
+                @if (testResult()?.success) {
+                  <span class="icon-success">✓</span>
+                } @else if (testResult()) {
+                  <span class="icon-failure">✕</span>
+                } @else {
+                  <span class="icon-pending">○</span>
+                }
+              </div>
+              <div class="item-details">
+                <div class="item-title">سطح دسترسی فقط خواندنی (Read-Only Mode)</div>
+                <div class="item-sub">بررسی عدم وجود دسترسی‌های تغییر اسکیما (DDL Write) جهت امنیت</div>
+              </div>
+              <span class="item-badge" [class.badge-ok]="testResult()?.success">Read-Only</span>
+            </div>
+
+            <!-- 5. Latency & Performance -->
+            <div class="diag-checklist-item" [class.passed]="testResult()?.success" [class.failed]="testResult() && !testResult()?.success">
+              <div class="item-status-icon">
+                @if (testResult()?.success) {
+                  <span class="icon-success">✓</span>
+                } @else if (testResult()) {
+                  <span class="icon-failure">✕</span>
+                } @else {
+                  <span class="icon-pending">○</span>
+                }
+              </div>
+              <div class="item-details">
+                <div class="item-title">میزان تأخیر رفت‌وبرگشت (Latency)</div>
+                <div class="item-sub">
+                  تأخیر پاسخ پینگ:
+                  @if (testResult()) {
+                    <strong class="mono-font">{{ testResult()?.latency_ms?.toFixed(1) }} میلی‌ثانیه</strong>
+                  } @else {
+                    <span class="text-muted">در انتظار سنجش</span>
+                  }
+                </div>
+              </div>
+              <span class="item-badge" [class.badge-ok]="testResult()?.success">Latency</span>
+            </div>
+          </div>
+        </div>
+
+        @if (testResult(); as res) {
+          <div class="diag-result-card" [class.result-success]="res.success" [class.result-failure]="!res.success">
+            <div class="res-msg">
+              <strong>نتیجه: </strong>
+              <span>{{ res.message }}</span>
+            </div>
+            @if (res.server_version) {
+              <div class="res-version mono-font">نسخه سرور: {{ res.server_version }}</div>
+            }
+          </div>
+        }
+      </div>
+
+      <!-- Modal Footer -->
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" (click)="close()">بستن</button>
+        <button type="button" class="btn btn-primary" (click)="runDiagnostic()" [disabled]="isLoading()">
+          @if (isLoading()) {
+            <span>در حال بررسی...</span>
+          } @else {
+            <span>اجرای مجدد آزمون اتصال</span>
+          }
+        </button>
+      </div>
+    </div>
+  </div>
+}

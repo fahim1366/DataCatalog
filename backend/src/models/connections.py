@@ -23,6 +23,7 @@ from backend.src.models.base import Base
 
 if TYPE_CHECKING:
     from backend.src.models.catalog import DatabaseSchema
+    from backend.src.models.sync_jobs import SyncJob
 
 
 class DatabaseEngine(str, enum.Enum):
@@ -85,6 +86,11 @@ class DatabaseConnection(Base):
         back_populates="connection",
         cascade="all, delete-orphan",
     )
+    sync_jobs: Mapped[List["SyncJob"]] = relationship(
+        "SyncJob",
+        back_populates="connection",
+        cascade="all, delete-orphan",
+    )
 
 
 class SyncSchedule(Base):
@@ -102,6 +108,15 @@ class SyncSchedule(Base):
     cron_expression: Mapped[str] = mapped_column(String(100), nullable=False)
     is_enabled: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=True, server_default=text("true")
+    )
+    consecutive_failures: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default=text("0")
+    )
+    circuit_state: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="CLOSED", server_default=text("'CLOSED'")
+    )
+    cooldown_until: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
     )
     last_run_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True), nullable=True
@@ -124,5 +139,8 @@ class SyncSchedule(Base):
 
     connection: Mapped["DatabaseConnection"] = relationship(
         "DatabaseConnection", back_populates="sync_schedule"
+    )
+    sync_jobs: Mapped[List["SyncJob"]] = relationship(
+        "SyncJob", back_populates="schedule"
     )
 

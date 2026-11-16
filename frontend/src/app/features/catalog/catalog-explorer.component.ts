@@ -22,6 +22,9 @@ import {
 } from './models/catalog.models';
 import { InlineDescEditorComponent } from './components/inline-desc-editor/inline-desc-editor.component';
 import { TagChipComponent } from './components/tag-chip/tag-chip.component';
+import { DriftBannerComponent } from '../drift/drift-banner.component';
+import { DriftResolutionDialogComponent } from '../drift/drift-resolution-dialog.component';
+import { TableStatisticsChartComponent } from './table-statistics-chart.component';
 import { HasPermissionDirective } from '../../core/directives/has-permission.directive';
 import { RbacService } from '../../core/auth/rbac.service';
 
@@ -34,6 +37,9 @@ import { RbacService } from '../../core/auth/rbac.service';
     ScrollingModule,
     InlineDescEditorComponent,
     TagChipComponent,
+    DriftBannerComponent,
+    DriftResolutionDialogComponent,
+    TableStatisticsChartComponent,
     HasPermissionDirective,
   ],
   templateUrl: './catalog-explorer.component.html',
@@ -68,9 +74,21 @@ export class CatalogExplorerComponent implements OnInit {
   // Table Detail Inspector Drawer
   selectedTable = signal<TableDetail | null>(null);
   selectedTableId = signal<string | null>(null);
-  activeInspectorTab = signal<'columns' | 'metadata' | 'history'>('columns');
+  activeInspectorTab = signal<'columns' | 'metadata' | 'history' | 'statistics'>('columns');
   isInspectorLoading = signal<boolean>(false);
   tableHistory = signal<ChangeLogItem[]>([]);
+  showDriftResolution = signal<boolean>(false);
+
+  openDriftResolution(): void {
+    this.showDriftResolution.set(true);
+  }
+
+  onDriftResolved(): void {
+    const tid = this.selectedTableId();
+    if (tid) {
+      this.inspectTable(tid);
+    }
+  }
 
   // Bulk Ingestion Modal
   isIngestionModalOpen = signal<boolean>(false);

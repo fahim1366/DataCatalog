@@ -103,8 +103,9 @@ async def test_admin_governance_leaf_category_and_role_deletion(test_db_session:
         assert sched_update.json()["cron_expression"] == "*/15 * * * *"
 
         sync_trigger = await client.post(f"/api/v1/connections/{conn.id}/sync", headers=headers)
-        assert sync_trigger.status_code == 200
-        assert sync_trigger.json()["last_run_status"] == "SUCCESS"
+        assert sync_trigger.status_code in (200, 202)
+        resp_json = sync_trigger.json()
+        assert resp_json.get("status") in ("QUEUED", "SUCCESS", "RUNNING") or resp_json.get("last_run_status") == "SUCCESS"
 
 
 @pytest.mark.asyncio

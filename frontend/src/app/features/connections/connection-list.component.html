@@ -154,6 +154,13 @@
         }
       </div>
 
+      @if (syncSuccessMessage(); as msg) {
+        <div class="alert-banner alert-success" style="margin-bottom: 16px; display: flex; align-items: center; gap: 8px; padding: 12px 16px; background: #ecfdf5; border: 1px solid #a7f3d0; border-radius: 8px; color: #065f46;">
+          <i class="pi pi-check-circle" style="font-size: 1.2rem;"></i>
+          <span>{{ msg }}</span>
+        </div>
+      }
+
       <!-- Table Card -->
       <div class="table-card">
         <!-- Toolbar -->
@@ -338,6 +345,32 @@
                     </td>
 
                     <td class="td-actions">
+                      <button
+                        type="button"
+                        class="action-icon-btn action-diagnostic btn-diagnostic"
+                        (click)="openDiagnosticDialog(conn)"
+                        title="آزمون سلامت اتصال و مدارشکن"
+                        aria-label="آزمون سلامت اتصال و مدارشکن"
+                      >
+                        <i class="pi pi-heart-fill" style="color: #0284c7;"></i>
+                      </button>
+
+                      <button
+                        type="button"
+                        class="action-icon-btn action-sync btn-manual-sync"
+                        *hasPermission="'MANAGE_SCHEDULES'"
+                        [disabled]="syncingConnectionId() === conn.id"
+                        (click)="onManualSync(conn)"
+                        title="همگام‌سازی دستی"
+                        aria-label="همگام‌سازی دستی"
+                      >
+                        @if (syncingConnectionId() === conn.id) {
+                          <i class="pi pi-spin pi-spinner" style="color: #16a34a;"></i>
+                        } @else {
+                          <i class="pi pi-sync" style="color: #16a34a;"></i>
+                        }
+                      </button>
+
                       <button
                         type="button"
                         class="action-icon-btn action-test btn-test-connection"
@@ -550,4 +583,11 @@
       </div>
     </div>
   }
+
+  <!-- Connection Diagnostic Dialog (T080) -->
+  <app-connection-diagnostic-dialog
+    [(visible)]="showDiagnosticDialog"
+    [connection]="diagnosticConnection()"
+    (circuitBreakerReset)="loadConnections()"
+  ></app-connection-diagnostic-dialog>
 </div>

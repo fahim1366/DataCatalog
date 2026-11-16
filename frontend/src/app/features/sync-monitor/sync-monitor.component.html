@@ -1,0 +1,190 @@
+<div class="sync-monitor-page" dir="rtl">
+  <!-- Header Title & Polling Controls -->
+  <header class="page-header">
+    <div class="header-titles">
+      <div class="title-with-badge">
+        <h2>مانیتورینگ زنده همگام‌سازی متادیتا (Sync Job Monitor)</h2>
+        <span class="live-dot" [class.live-active]="isPollingActive()"></span>
+        <span class="live-text">{{ isPollingActive() ? 'در حال پایش زنده (هر ۳ ثانیه)' : 'پایش متوقف شده است' }}</span>
+      </div>
+      <p class="subtitle">
+        نظارت بر فرآیندهای استخراج و درون‌ریزی توزیع‌شده (Celery Bulk Ingestion) و مدیریت خطاها
+      </p>
+    </div>
+
+    <div class="header-actions">
+      <!-- Polling Toggle Button -->
+      <button
+        type="button"
+        class="btn btn-outline"
+        (click)="togglePolling()"
+      >
+        @if (isPollingActive()) {
+          <span>⏸️ توقف پایش خودکار</span>
+        } @else {
+          <span>▶️ ادامه پایش زنده</span>
+        }
+      </button>
+
+      <!-- Refresh Now Button -->
+      <button
+        type="button"
+        class="btn btn-primary"
+        (click)="fetchJobsOnce()"
+        [disabled]="isLoading()"
+      >
+        <span>🔄 به‌روزرسانی فوری</span>
+      </button>
+    </div>
+  </header>
+
+  <!-- Notification Banners -->
+  @if (successMessage(); as msg) {
+    <div class="alert-banner alert-success">
+      <i class="pi pi-check-circle"></i>
+      <span>{{ msg }}</span>
+    </div>
+  }
+
+  @if (errorMessage(); as msg) {
+    <div class="alert-banner alert-danger">
+      <i class="pi pi-exclamation-triangle"></i>
+      <span>{{ msg }}</span>
+    </div>
+  }
+
+  <!-- Filters Toolbar -->
+  <div class="toolbar-card">
+    <div class="filter-group">
+      <label class="filter-label">فیلتر بر اساس وضعیت:</label>
+      <select
+        class="form-select"
+        [ngModel]="selectedStatus()"
+        (ngModelChange)="onStatusFilterChange($event)"
+      >
+        <option value="ALL">همه وضعیت‌ها ({{ totalJobs() }})</option>
+        <option value="RUNNING">در حال اجرا (RUNNING)</option>
+        <option value="QUEUED">در صف انتظار (QUEUED)</option>
+        <option value="SUCCESS">موفق (SUCCESS)</option>
+        <option value="PARTIAL_FAILURE">شکست جزئی (PARTIAL_FAILURE)</option>
+        <option value="FAILED">شکست‌خورده (FAILED)</option>
+      </select>
+    </div>
+
+    <div class="stats-summary">
+      <span class="summary-pill">مجموع جاب‌ها: <strong>{{ totalJobs() }}</strong></span>
+    </div>
+  </div>
+
+  <!-- Data Table -->
+  <div class="table-card">
+    <div class="table-responsive">
+      <table class="monitor-table">
+        <thead>
+          <tr>
+            <th>ردیف</th>
+            <th>شناسه جاب</th>
+            <th>نوع محرک</th>
+            <th>وضعیت</th>
+            <th>زمان ثبت و شروع</th>
+            <th>مدت زمان</th>
+            <th>آمار اسکن</th>
+            <th>پیام / خطا</th>
+            <th class="th-actions">عملیات</th>
+          </tr>
+        </thead>
+        <tbody>
+          @if (jobs().length === 0) {
+            <tr>
+              <td colspan="9" class="td-empty">
+                @if (isLoading()) {
+                  <span>در حال بارگذاری اطلاعات جاب‌های همگام‌سازی...</span>
+                } @else {
+                  <span>هیچ جاب همگام‌سازی با این وضعیت یافت نشد.</span>
+                }
+              </td>
+            </tr>
+          } @else {
+            @for (job of jobs(); track job.id; let idx = $index) {
+              <tr class="sync-job-row" [class.row-failed]="job.status === 'FAILED'" [class.row-partial]="job.status === 'PARTIAL_FAILURE'">
+                <td class="td-num text-muted">{{ idx + 1 }}</td>
+                <td>
+                  <span class="mono-font fw-bold" [title]="job.id">{{ job.id.substring(0, 8) }}...</span>
+                </td>
+                <td>
+                  <span class="trigger-label">{{ getTriggerLabel(job.triggered_by) }}</span>
+                </td>
+                <td>
+                  <span class="badge {{ getStatusBadgeClass(job.status) }}">
+                    {{ job.status }}
+                  </span>
+                </td>
+                <td>
+                  <div class="date-stack">
+                    <span class="persian-date">{{ formatPersianDate(job.started_at || job.created_at) }}</span>
+                  </div>
+                </td>
+                <td class="mono-font">
+                  @if (job.duration_ms) {
+                    <span>{{ (job.duration_ms / 1000).toFixed(2) }} ثانیه</span>
+                  } @else {
+                    <span class="text-muted">—</span>
+                  }
+                </td>
+                <td>
+                  <div class="metrics-cell mono-font">
+                    <span>📊 {{ job.tables_scanned }} جدول / {{ job.columns_scanned }} ستون</span>
+                    @if (job.changes_detected > 0) {
+                      <span class="changes-badge">+{{ job.changes_detected }} تغییر</span>
+                    }
+                  </div>
+                </td>
+                <td class="td-error">
+                  @if (job.error_message) {
+                    <span class="error-snippet" [title]="job.error_message">{{ job.error_message }}</span>
+                  } @else {
+                    <span class="text-muted">—</span>
+                  }
+                </td>
+                <td class="td-actions">
+                  <!-- Diagnostic Detail Button -->
+                  <button
+                    type="button"
+                    class="action-btn btn-diag"
+                    (click)="openDiagnostics(job.id)"
+                    title="مشاهده جزئیات خطا و تشخیص"
+                  >
+                    🔍 تشخیص
+                  </button>
+
+                  <!-- Retry Button (for Failed or Partial Failure jobs) -->
+                  @if (job.status === 'FAILED' || job.status === 'PARTIAL_FAILURE') {
+                    <button
+                      type="button"
+                      class="action-btn btn-retry"
+                      [disabled]="retryingJobId() === job.id"
+                      (click)="onRetryJob(job)"
+                      title="تلاش مجدد برای اجرای جاب"
+                    >
+                      @if (retryingJobId() === job.id) {
+                        <span>در حال تکرار...</span>
+                      } @else {
+                        <span>🔄 تکرار</span>
+                      }
+                    </button>
+                  }
+                </td>
+              </tr>
+            }
+          }
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Diagnostic Drawer / Modal -->
+  <app-sync-job-diagnostic-modal
+    [(visible)]="showDiagModal"
+    [jobId]="selectedJobIdForDiag()"
+  ></app-sync-job-diagnostic-modal>
+</div>

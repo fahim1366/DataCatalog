@@ -1,0 +1,639 @@
+openapi: 3.1.0
+info:
+  title: Enterprise Data Catalog API (Phase 2 - Connectors, Workers & Dynamic Scheduler)
+  version: 2.0.0
+  description: >
+    Phase 2 API extensions for the Enterprise Data Catalog. Adds distributed worker orchestration,
+    dynamic Beat cron scheduling, high-speed metadata ingestion with PostgreSQL UNNEST,
+    ephemeral connector extraction, description drift resolution, and sync job execution monitoring.
+servers:
+  - url: http://localhost:8000
+    description: Local Development Server
+
+paths:
+  /api/v1/connections/{connection_id}/test:
+    post:
+      summary: Execute live connection ping and diagnostic test
+      description: >
+        Connects ephemerally to the target database with a 5-second timeout, verifies
+        network reachability, credentials (decrypted strictly in memory), SSL/TLS status,
+        and transaction read-only enforcement. Resets circuit breaker on success.
+      tags:
+        - Connections
+      parameters:
+        - name: connection_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Structured connectivity test result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConnectionDiagnosticTestResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+
+  /api/v1/connections/{connection_id}/sync:
+    post:
+      summary: Trigger manual metadata synchronization
+      description: >
+        Enqueues an immediate background extraction and ingestion job for the specified
+        connection on the priority Celery queue. Returns the registered SyncJob record.
+      tags:
+        - Synchronization
+      parameters:
+        - name: connection_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '202':
+          description: Sync job enqueued successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SyncJobResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '409':
+          description: Sync already running for this connection
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/connections/{connection_id}/circuit-breaker/reset:
+    post:
+      summary: Reset tripped circuit breaker
+      description: >
+        Manually resets an OPEN or HALF_OPEN circuit breaker to CLOSED and clears
+        the consecutive failures counter for the connection schedule.
+      tags:
+        - Synchronization
+      parameters:
+        - name: connection_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Circuit breaker reset successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CircuitBreakerStatusResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+
+  /api/v1/connections/{connection_id}/jobs:
+    get:
+      summary: List execution history for a connection
+      description: Keyset or paginated list of sync jobs for a specific connection.
+      tags:
+        - Synchronization
+      parameters:
+        - name: connection_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+            maximum: 100
+        - name: cursor
+          in: query
+          description: Keyset cursor for pagination
+          schema:
+            type: string
+      responses:
+        '200':
+          description: List of sync job runs
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SyncJobListResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+
+  /api/v1/sync-jobs:
+    get:
+      summary: Global Sync Job Monitor
+      description: >
+        Returns global execution history across all databases, filterable by status,
+        trigger type, and date range. Designed for real-time polling in the UI.
+      tags:
+        - Synchronization
+      parameters:
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [QUEUED, RUNNING, SUCCESS, PARTIAL_FAILURE, FAILED]
+        - name: connection_id
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+            maximum: 100
+        - name: cursor
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Filtered sync job list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SyncJobListResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /api/v1/sync-jobs/{job_id}:
+    get:
+      summary: Get detailed sync job diagnostics
+      description: >
+        Retrieves full sync job details including schema-level partial failures,
+        error traces, tables/columns counts, and duration breakdown.
+      tags:
+        - Synchronization
+      parameters:
+        - name: job_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Detailed sync job record
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SyncJobDetailResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+
+  /api/v1/sync-jobs/{job_id}/retry:
+    post:
+      summary: Retry a failed sync job
+      description: Re-enqueues a failed or partially failed sync job with RETRY trigger.
+      tags:
+        - Synchronization
+      parameters:
+        - name: job_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '202':
+          description: Retry job enqueued
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SyncJobResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+
+  /api/v1/tables/{table_id}/drift:
+    get:
+      summary: Inspect table description drift details
+      description: >
+        Returns side-by-side comparison between native source database comment and
+        curated approved description for a table and its columns.
+      tags:
+        - Governance
+      parameters:
+        - name: table_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Description drift comparison payload
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DescriptionDriftDetailResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+
+  /api/v1/tables/{table_id}/drift/resolve:
+    post:
+      summary: Resolve table description drift
+      description: >
+        Resolves description drift on a table by choosing an action: RETAIN_APPROVED,
+        OVERWRITE_WITH_SOURCE, or MERGE_CUSTOM. Resets drift flag.
+      tags:
+        - Governance
+      parameters:
+        - name: table_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ResolveDescriptionDriftRequest'
+      responses:
+        '200':
+          description: Drift resolved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DescriptionDriftResolutionResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+
+  /api/v1/tables/{table_id}/statistics:
+    get:
+      summary: Time-series statistical history for a table
+      description: >
+        Returns time-series history of estimated row counts and size in bytes
+        from table_statistics_history without structural version clutter.
+      tags:
+        - Catalog
+      parameters:
+        - name: table_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 30
+            maximum: 100
+      responses:
+        '200':
+          description: Time-series statistical records
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TableStatisticsHistoryResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+
+components:
+  schemas:
+    ConnectionDiagnosticTestResponse:
+      type: object
+      required:
+        - success
+        - latency_ms
+        - dialect
+        - message
+        - tested_at
+      properties:
+        success:
+          type: boolean
+        latency_ms:
+          type: number
+          format: float
+        dialect:
+          type: string
+          example: "POSTGRESQL"
+        server_version:
+          type: string
+          nullable: true
+          example: "PostgreSQL 16.2 on x86_64"
+        message:
+          type: string
+          example: "اتصال با موفقیت برقرار شد."
+        diagnostic_details:
+          type: object
+          properties:
+            tcp_reachable:
+              type: boolean
+            auth_valid:
+              type: boolean
+            read_only_supported:
+              type: boolean
+            statement_timeout_ms:
+              type: integer
+            ssl_active:
+              type: boolean
+        tested_at:
+          type: string
+          format: date-time
+
+    SyncJobResponse:
+      type: object
+      required:
+        - id
+        - connection_id
+        - status
+        - triggered_by
+        - created_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        connection_id:
+          type: string
+          format: uuid
+        schedule_id:
+          type: string
+          format: uuid
+          nullable: true
+        status:
+          type: string
+          enum: [QUEUED, RUNNING, SUCCESS, PARTIAL_FAILURE, FAILED]
+        triggered_by:
+          type: string
+          enum: [SCHEDULE, MANUAL, RETRY]
+        started_at:
+          type: string
+          format: date-time
+          nullable: true
+        completed_at:
+          type: string
+          format: date-time
+          nullable: true
+        duration_ms:
+          type: integer
+          nullable: true
+        tables_scanned:
+          type: integer
+        tables_created:
+          type: integer
+        tables_updated:
+          type: integer
+        tables_deleted:
+          type: integer
+        columns_scanned:
+          type: integer
+        changes_detected:
+          type: integer
+        error_message:
+          type: string
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+
+    SyncJobDetailResponse:
+      allOf:
+        - $ref: '#/components/schemas/SyncJobResponse'
+        - type: object
+          required:
+            - error_trace_jsonb
+          properties:
+            connection_name:
+              type: string
+            error_trace_jsonb:
+              type: object
+              properties:
+                failed_schemas:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      schema_name:
+                        type: string
+                      error_code:
+                        type: string
+                      error_message:
+                        type: string
+                exception_stack:
+                  type: string
+                  nullable: true
+
+    SyncJobListResponse:
+      type: object
+      required:
+        - items
+        - total
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/SyncJobResponse'
+        total:
+          type: integer
+        next_cursor:
+          type: string
+          nullable: true
+
+    CircuitBreakerStatusResponse:
+      type: object
+      required:
+        - connection_id
+        - circuit_state
+        - consecutive_failures
+      properties:
+        connection_id:
+          type: string
+          format: uuid
+        circuit_state:
+          type: string
+          enum: [CLOSED, OPEN, HALF_OPEN]
+        consecutive_failures:
+          type: integer
+        cooldown_until:
+          type: string
+          format: date-time
+          nullable: true
+
+    DescriptionDriftDetailResponse:
+      type: object
+      required:
+        - table_id
+        - table_name
+        - drift_detected
+      properties:
+        table_id:
+          type: string
+          format: uuid
+        table_name:
+          type: string
+        table_source_description:
+          type: string
+          nullable: true
+        table_approved_description:
+          type: string
+          nullable: true
+        drift_detected:
+          type: boolean
+        column_drifts:
+          type: array
+          items:
+            type: object
+            required:
+              - column_id
+              - column_name
+              - drift_detected
+            properties:
+              column_id:
+                type: string
+                format: uuid
+              column_name:
+                type: string
+              source_description:
+                type: string
+                nullable: true
+              approved_description:
+                type: string
+                nullable: true
+              drift_detected:
+                type: boolean
+
+    ResolveDescriptionDriftRequest:
+      type: object
+      required:
+        - resolution_action
+      properties:
+        resolution_action:
+          type: string
+          enum: [RETAIN_APPROVED, OVERWRITE_WITH_SOURCE, CUSTOM_MERGE]
+        custom_description:
+          type: string
+          nullable: true
+          description: Required when resolution_action is CUSTOM_MERGE
+        column_resolutions:
+          type: array
+          items:
+            type: object
+            required:
+              - column_id
+              - resolution_action
+            properties:
+              column_id:
+                type: string
+                format: uuid
+              resolution_action:
+                type: string
+                enum: [RETAIN_APPROVED, OVERWRITE_WITH_SOURCE, CUSTOM_MERGE]
+              custom_description:
+                type: string
+                nullable: true
+
+    DescriptionDriftResolutionResponse:
+      type: object
+      required:
+        - success
+        - message
+        - resolved_at
+      properties:
+        success:
+          type: boolean
+        message:
+          type: string
+        resolved_at:
+          type: string
+          format: date-time
+
+    TableStatisticsHistoryResponse:
+      type: object
+      required:
+        - table_id
+        - data_points
+      properties:
+        table_id:
+          type: string
+          format: uuid
+        data_points:
+          type: array
+          items:
+            type: object
+            required:
+              - recorded_at
+              - row_count_estimate
+              - size_bytes
+            properties:
+              recorded_at:
+                type: string
+                format: date-time
+              row_count_estimate:
+                type: integer
+              size_bytes:
+                type: integer
+              sync_job_id:
+                type: string
+                format: uuid
+                nullable: true
+
+    ErrorResponse:
+      type: object
+      required:
+        - detail
+      properties:
+        detail:
+          type: string
+
+  responses:
+    UnauthorizedError:
+      description: Authentication required or token expired
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+
+    ForbiddenError:
+      description: User lacks sufficient permissions
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+
+    NotFoundError:
+      description: Requested resource was not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'

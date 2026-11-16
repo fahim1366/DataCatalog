@@ -4,7 +4,7 @@ import logging
 from typing import Any, Dict, List, Optional, Tuple
 import uuid
 
-from sqlalchemy import desc, func, select
+from sqlalchemy import desc, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -353,6 +353,176 @@ class VersionService:
 
         await session.flush()
         return version
+
+    async def capture_versions_batch(
+        self,
+        session: AsyncSession,
+        table_ids: List[uuid.UUID],
+        actor_id: Optional[uuid.UUID] = None,
+        actor_username: Optional[str] = None,
+    ) -> List[TableVersion]:
+        """
+        High-performance batch version capture for multiple tables.
+        Executes exactly 3 bulk queries regardless of table count:
+        1. Fetch latest version per table using DISTINCT ON.
+        2. Fetch all tables.
+        3. Fetch all active columns for all tables.
+        Assembles snapshots in memory and persists newly created versions and deltas.
+        """
+        if not table_ids:
+            return []
+
+        # 1. Fetch latest versions for all tables in one query
+        latest_versions_stmt = text("""
+            SELECT DISTINCT ON (table_id) id, table_id, version_num, snapshot_jsonb
+            FROM table_versions
+            WHERE table_id = ANY(CAST(:table_ids AS uuid[]))
+            ORDER BY table_id, version_num DESC;
+        """)
+        latest_res = await session.execute(latest_versions_stmt, {"table_ids": table_ids})
+        latest_by_table: Dict[uuid.UUID, Any] = {}
+        for row in latest_res.fetchall():
+            latest_by_table[row[1]] = row
+
+        # 2. Fetch all tables in one query
+        tables_stmt = (
+            select(CatalogTable)
+            .where(CatalogTable.id.in_(table_ids))
+            .execution_options(populate_existing=True)
+        )
+        tables_res = await session.execute(tables_stmt)
+        tables_by_id = {t.id: t for t in tables_res.scalars().all()}
+
+        # 3. Fetch all active columns for all tables in one query
+        cols_stmt = (
+            select(CatalogColumn)
+            .where(
+                CatalogColumn.table_id.in_(table_ids),
+                CatalogColumn.status != LifecycleStatus.DELETED,
+            )
+            .execution_options(populate_existing=True)
+            .order_by(CatalogColumn.table_id, CatalogColumn.ordinal_position.asc())
+        )
+        cols_res = await session.execute(cols_stmt)
+        cols_by_table: Dict[uuid.UUID, List[CatalogColumn]] = {t_id: [] for t_id in table_ids}
+        for col in cols_res.scalars().all():
+            if col.table_id in cols_by_table:
+                cols_by_table[col.table_id].append(col)
+
+        # 4. Process each table in memory
+        versions_created: List[TableVersion] = []
+        logs_created: List[SchemaChangeLog] = []
+
+        for tbl_id in table_ids:
+            table = tables_by_id.get(tbl_id)
+            if not table:
+                continue
+
+            columns = cols_by_table.get(tbl_id, [])
+            table_type_str = (
+                table.table_type.value
+                if hasattr(table.table_type, "value")
+                else str(table.table_type)
+            )
+            status_str = (
+                table.status.value
+                if hasattr(table.status, "value")
+                else str(table.status)
+            )
+
+            columns_data = []
+            for col in columns:
+                cls_level = (
+                    col.classification_level.value
+                    if hasattr(col.classification_level, "value")
+                    else str(col.classification_level)
+                )
+                col_status = (
+                    col.status.value
+                    if hasattr(col.status, "value")
+                    else str(col.status)
+                )
+                columns_data.append(
+                    {
+                        "id": str(col.id),
+                        "name": col.name,
+                        "ordinal_position": col.ordinal_position,
+                        "data_type": col.data_type,
+                        "raw_data_type": col.raw_data_type,
+                        "is_nullable": col.is_nullable,
+                        "is_primary_key": col.is_primary_key,
+                        "is_foreign_key": col.is_foreign_key,
+                        "default_value": col.default_value,
+                        "source_description": col.source_description,
+                        "classification_level": cls_level,
+                        "status": col_status,
+                    }
+                )
+
+            current_snapshot = {
+                "table_id": str(table.id),
+                "name": table.name,
+                "table_type": table_type_str,
+                "row_count_estimate": table.row_count_estimate,
+                "size_bytes": table.size_bytes,
+                "source_description": table.source_description,
+                "owner": table.owner,
+                "status": status_str,
+                "columns": columns_data,
+            }
+
+            latest_row = latest_by_table.get(tbl_id)
+            if not latest_row:
+                new_version = TableVersion(
+                    id=uuid.uuid4(),
+                    table_id=tbl_id,
+                    version_num=1,
+                    snapshot_jsonb=current_snapshot,
+                    created_by=actor_id,
+                )
+                versions_created.append(new_version)
+            else:
+                latest_v_num = latest_row[2]
+                latest_snapshot = latest_row[3]
+                deltas = self.compute_column_deltas(latest_snapshot, current_snapshot)
+                if not deltas:
+                    continue
+
+                new_version = TableVersion(
+                    id=uuid.uuid4(),
+                    table_id=tbl_id,
+                    version_num=latest_v_num + 1,
+                    snapshot_jsonb=current_snapshot,
+                    created_by=actor_id,
+                )
+                versions_created.append(new_version)
+
+                for delta in deltas:
+                    raw_type = delta["change_type"]
+                    enum_type = (
+                        SchemaChangeType.COLUMN_DROPPED
+                        if raw_type == "COLUMN_REMOVED"
+                        else SchemaChangeType(raw_type)
+                    )
+                    log = SchemaChangeLog(
+                        id=uuid.uuid4(),
+                        table_id=tbl_id,
+                        version_id=new_version.id,
+                        change_type=enum_type,
+                        column_name=delta["column_name"],
+                        old_value=delta["old_value"],
+                        new_value=delta["new_value"],
+                        actor_id=actor_id,
+                    )
+                    logs_created.append(log)
+
+        if versions_created:
+            session.add_all(versions_created)
+        if logs_created:
+            session.add_all(logs_created)
+        await session.flush()
+
+        return versions_created
 
     async def get_versions(
         self, session: AsyncSession, table_id: uuid.UUID

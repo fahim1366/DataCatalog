@@ -127,6 +127,18 @@
       </div>
     </header>
 
+    @if (syncJobId()) {
+      <div class="sync-job-linkage-banner" dir="rtl">
+        <div class="linkage-content">
+          <span class="linkage-icon">⚡</span>
+          <div class="linkage-text">
+            <strong>منشأ تغییرات: همگام‌سازی خودکار دیتابیس</strong>
+            <span>این مقایسه نسخه، تغییرات ساختاری DDL اعمال‌شده توسط جاب همگام‌سازی <code class="mono-font">{{ syncJobId()?.substring(0, 8) }}</code> را نمایش می‌دهد.</span>
+          </div>
+        </div>
+      </div>
+    }
+
     @if (isEmpty()) {
       <div class="diff-empty-state">
         <div class="empty-icon">✓</div>
@@ -223,6 +235,9 @@
                       <span class="diff-badge badge-removed badge-red">REMOVED</span>
                     } @else {
                       <span class="diff-badge badge-modified badge-amber">MODIFIED</span>
+                    }
+                    @if (syncJobId()) {
+                      <span class="sync-origin-badge">ناشی از همگام‌سازی</span>
                     }
                   </td>
                 </tr>

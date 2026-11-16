@@ -32,6 +32,7 @@ class SchemaChangeType(str, enum.Enum):
     DESCRIPTION_UPDATED = "DESCRIPTION_UPDATED"
     TAG_ASSIGNED = "TAG_ASSIGNED"
     TAG_REMOVED = "TAG_REMOVED"
+    DESCRIPTION_DRIFT = "DESCRIPTION_DRIFT"
 
 
 class TableVersion(Base):

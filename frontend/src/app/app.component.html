@@ -157,6 +157,16 @@
               <span class="nav-icon">⏱️</span>
               <span class="nav-text">زمان‌بندی بروزرسانی</span>
             </a>
+            <a
+              class="nav-item"
+              routerLink="/sync-monitor"
+              routerLinkActive="active"
+              id="nav-sync-monitor"
+              *hasPermission="'MANAGE_SCHEDULES'"
+            >
+              <span class="nav-icon">📡</span>
+              <span class="nav-text">پایش همگام‌سازی (Sync Monitor)</span>
+            </a>
           </div>
 
           <div class="nav-divider"></div>

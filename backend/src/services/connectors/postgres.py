@@ -1,0 +1,413 @@
+from __future__ import annotations
+
+import asyncio
+import logging
+import time
+import urllib.parse
+from typing import Any, Dict, List, Optional, Type
+
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
+from sqlalchemy.pool import NullPool, Pool
+
+from backend.src.models.connections import DatabaseEngine
+from backend.src.services.connectors.base import (
+    BaseMetadataConnector,
+    ColumnMetadata,
+    ConnectionTestResult,
+    ForeignKeyMetadata,
+    SchemaExtractionResult,
+    SchemaMetadata,
+    TableMetadata,
+    TableStatisticsMetadata,
+)
+from backend.src.services.connectors.registry import default_connector_registry
+
+logger = logging.getLogger(__name__)
+
+
+class PostgresConnector(BaseMetadataConnector):
+    """
+    High-performance native PostgreSQL metadata connector.
+
+    Introspects native PostgreSQL system catalogs (pg_catalog) directly,
+    bypassing slow ANSI information_schema views. Guarantees zero N+1 queries.
+    Uses ephemeral connections with NullPool and strict session timeouts.
+    """
+
+    QUERIES: Dict[str, str] = {
+        "SCHEMAS": """
+            SELECT 
+                n.nspname AS schema_name,
+                pg_catalog.pg_get_userbyid(n.nspowner) AS owner,
+                d.description AS description
+            FROM pg_catalog.pg_namespace n
+            LEFT JOIN pg_catalog.pg_description d ON d.objoid = n.oid AND d.objsubid = 0
+            WHERE n.nspname NOT IN ('pg_catalog', 'information_schema')
+              AND n.nspname NOT LIKE 'pg_temp%'
+              AND n.nspname NOT LIKE 'pg_toast%'
+            ORDER BY n.nspname;
+        """,
+        "TABLES": """
+            SELECT 
+                c.relname AS table_name,
+                CASE c.relkind 
+                    WHEN 'r' THEN 'TABLE'
+                    WHEN 'v' THEN 'VIEW'
+                    WHEN 'm' THEN 'MATERIALIZED_VIEW'
+                    WHEN 'p' THEN 'PARTITIONED_TABLE'
+                    WHEN 'f' THEN 'EXTERNAL_TABLE'
+                    ELSE 'TABLE'
+                END AS table_type,
+                GREATEST(COALESCE(s.n_live_tup, 0), COALESCE(c.reltuples::bigint, 0), 0) AS row_count_estimate,
+                pg_catalog.pg_total_relation_size(c.oid) AS size_bytes,
+                d.description AS source_description,
+                pg_catalog.pg_get_userbyid(c.relowner) AS owner
+            FROM pg_catalog.pg_class c
+            JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+            LEFT JOIN pg_catalog.pg_stat_user_tables s ON s.relid = c.oid
+            LEFT JOIN pg_catalog.pg_description d ON d.objoid = c.oid AND d.objsubid = 0
+            WHERE n.nspname = :schema_name 
+              AND c.relkind IN ('r', 'v', 'm', 'p', 'f')
+            ORDER BY c.relname;
+        """,
+        "COLUMNS": """
+            SELECT 
+                c.relname AS table_name,
+                a.attname AS column_name,
+                a.attnum AS ordinal_position,
+                pg_catalog.format_type(a.atttypid, a.atttypmod) AS data_type,
+                t.typname AS raw_data_type,
+                NOT a.attnotnull AS is_nullable,
+                COALESCE(pk.is_pk, false) AS is_primary_key,
+                COALESCE(fk.is_fk, false) AS is_foreign_key,
+                pg_catalog.pg_get_expr(ad.adbin, ad.adrelid) AS default_value,
+                d.description AS source_description
+            FROM pg_catalog.pg_attribute a
+            JOIN pg_catalog.pg_class c ON c.oid = a.attrelid
+            JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+            JOIN pg_catalog.pg_type t ON t.oid = a.atttypid
+            LEFT JOIN pg_catalog.pg_attrdef ad ON ad.adrelid = a.attrelid AND ad.adnum = a.attnum
+            LEFT JOIN pg_catalog.pg_description d ON d.objoid = a.attrelid AND d.objsubid = a.attnum
+            LEFT JOIN (
+                SELECT DISTINCT conrelid, unnest(conkey) AS attnum, true AS is_pk
+                FROM pg_catalog.pg_constraint
+                WHERE contype = 'p' AND connamespace = (SELECT oid FROM pg_catalog.pg_namespace WHERE nspname = :schema_name)
+            ) pk ON pk.conrelid = a.attrelid AND pk.attnum = a.attnum
+            LEFT JOIN (
+                SELECT DISTINCT conrelid, unnest(conkey) AS attnum, true AS is_fk
+                FROM pg_catalog.pg_constraint
+                WHERE contype = 'f' AND connamespace = (SELECT oid FROM pg_catalog.pg_namespace WHERE nspname = :schema_name)
+            ) fk ON fk.conrelid = a.attrelid AND fk.attnum = a.attnum
+            WHERE n.nspname = :schema_name 
+              AND c.relkind IN ('r', 'v', 'm', 'p', 'f')
+              AND a.attnum > 0 
+              AND NOT a.attisdropped
+            ORDER BY c.relname, a.attnum;
+        """,
+        "FOREIGN_KEYS": """
+            SELECT
+                c.relname AS table_name,
+                a.attname AS column_name,
+                fn.nspname AS foreign_schema_name,
+                fc.relname AS foreign_table_name,
+                fa.attname AS foreign_column_name,
+                k.conname AS constraint_name
+            FROM (
+                SELECT
+                    con.conname,
+                    con.conrelid,
+                    con.confrelid,
+                    con.conkey[i] AS attnum,
+                    con.confkey[i] AS confattnum
+                FROM pg_catalog.pg_constraint con
+                CROSS JOIN LATERAL generate_subscripts(con.conkey, 1) AS i
+                WHERE con.contype = 'f' AND con.connamespace = (SELECT oid FROM pg_catalog.pg_namespace WHERE nspname = :schema_name)
+            ) k
+            JOIN pg_catalog.pg_class c ON c.oid = k.conrelid
+            JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+            JOIN pg_catalog.pg_class fc ON fc.oid = k.confrelid
+            JOIN pg_catalog.pg_namespace fn ON fn.oid = fc.relnamespace
+            JOIN pg_catalog.pg_attribute a ON a.attrelid = k.conrelid AND a.attnum = k.attnum
+            JOIN pg_catalog.pg_attribute fa ON fa.attrelid = k.confrelid AND fa.attnum = k.confattnum
+            WHERE n.nspname = :schema_name
+            ORDER BY c.relname, k.conname;
+        """,
+        "STATISTICS": """
+            SELECT 
+                c.relname AS table_name,
+                GREATEST(COALESCE(s.n_live_tup, 0), COALESCE(c.reltuples::bigint, 0), 0)::bigint AS row_count_estimate,
+                pg_catalog.pg_total_relation_size(c.oid)::bigint AS size_bytes
+            FROM pg_catalog.pg_class c
+            JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+            LEFT JOIN pg_catalog.pg_stat_user_tables s ON s.relid = c.oid
+            WHERE n.nspname = :schema_name 
+              AND c.relkind IN ('r', 'v', 'm', 'p', 'f')
+            ORDER BY c.relname;
+        """,
+    }
+
+    def __init__(self, connection_config: Dict[str, Any]) -> None:
+        super().__init__(connection_config)
+        self._engine: Optional[AsyncEngine] = None
+
+    def get_pool_class(self) -> Type[Pool]:
+        return NullPool
+
+    def get_connect_args(self) -> Dict[str, Any]:
+        """Returns connection arguments enforcing 10s TCP handshake/connect timeout."""
+        connect_args: Dict[str, Any] = {
+            "timeout": 10,
+            "connect_timeout": 10,
+        }
+        custom_params = self.config.get("custom_params") or {}
+        sslmode = custom_params.get("sslmode")
+        if sslmode:
+            connect_args["ssl"] = sslmode if sslmode != "disable" else False
+        elif self.config.get("ssl"):
+            connect_args["ssl"] = self.config.get("ssl")
+
+        if "application_name" in custom_params:
+            connect_args["server_settings"] = {"application_name": custom_params["application_name"]}
+        return connect_args
+
+    def build_connection_url(self) -> str:
+        """Constructs an asyncpg driver connection URL from config."""
+        if "url" in self.config:
+            url = self.config["url"]
+            if url.startswith("postgresql://"):
+                url = url.replace("postgresql://", "postgresql+asyncpg://", 1)
+            return url
+
+        host = self.config.get("host", "127.0.0.1")
+        port = self.config.get("port", 5432)
+        database = self.config.get("database") or self.config.get("database_name", "postgres")
+        username = self.config.get("username") or self.config.get("user", "postgres")
+        password = self.config.get("password", "")
+
+        quoted_username = urllib.parse.quote_plus(str(username))
+        quoted_password = urllib.parse.quote_plus(str(password)) if password else ""
+        auth = f"{quoted_username}:{quoted_password}@" if quoted_password else f"{quoted_username}@"
+
+        return f"postgresql+asyncpg://{auth}{host}:{port}/{database}"
+
+    def _create_engine(self) -> AsyncEngine:
+        connect_args = dict(self.get_connect_args())
+        # asyncpg accepts 'timeout' instead of 'connect_timeout'
+        connect_args.pop("connect_timeout", None)
+        return create_async_engine(
+            self.build_connection_url(),
+            poolclass=self.get_pool_class(),
+            connect_args=connect_args,
+            echo=False,
+        )
+
+    async def __aenter__(self) -> "PostgresConnector":
+        self._is_closed = False
+        if self._engine is None:
+            self._engine = self._create_engine()
+        return self
+
+    async def __aexit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
+        if self._engine is not None:
+            await self._engine.dispose()
+            self._engine = None
+        self._is_closed = True
+
+    async def test_connection(self) -> ConnectionTestResult:
+        """
+        Verifies TCP handshake, authentication, read-only session setup, and server version.
+        Guarantees strict 5.0-second timeout ceiling.
+        """
+        start_time = time.monotonic()
+        try:
+            return await asyncio.wait_for(self._run_connection_test(start_time), timeout=5.0)
+        except asyncio.TimeoutError:
+            elapsed_ms = round((time.monotonic() - start_time) * 1000, 2)
+            return ConnectionTestResult(
+                success=False,
+                latency_ms=elapsed_ms,
+                dialect="POSTGRESQL",
+                server_version=None,
+                message="Connection probe timed out after 5.0 seconds.",
+                diagnostic_details={"error_type": "TimeoutError", "timeout_seconds": 5.0},
+            )
+        except Exception as exc:
+            elapsed_ms = round((time.monotonic() - start_time) * 1000, 2)
+            pgcode = getattr(exc, "pgcode", None) or getattr(exc, "sqlstate", None)
+            return ConnectionTestResult(
+                success=False,
+                latency_ms=elapsed_ms,
+                dialect="POSTGRESQL",
+                server_version=None,
+                message=f"Connection test failed: {str(exc)}",
+                diagnostic_details={"error_type": type(exc).__name__, "pgcode": pgcode, "error": str(exc)},
+            )
+
+    async def _run_connection_test(self, start_time: float) -> ConnectionTestResult:
+        engine = self._engine or self._create_engine()
+        should_dispose = self._engine is None
+        try:
+            async with engine.connect() as conn:
+                # Apply read-only session protections
+                for stmt in self.get_session_setup_statements():
+                    await conn.execute(text(stmt))
+
+                result = await conn.execute(
+                    text("SELECT version(), current_setting('server_version'), current_database();")
+                )
+                row = result.fetchone()
+                server_ver = row[1] if row else None
+                db_name = row[2] if row else ""
+
+                elapsed_ms = round((time.monotonic() - start_time) * 1000, 2)
+                return ConnectionTestResult(
+                    success=True,
+                    latency_ms=elapsed_ms,
+                    dialect="POSTGRESQL",
+                    server_version=server_ver,
+                    message=f"Successfully connected to PostgreSQL database '{db_name}'.",
+                    diagnostic_details={
+                        "version_string": row[0] if row else "",
+                        "database": db_name,
+                        "session_read_only": True,
+                        "tcp_reachable": True,
+                        "auth_valid": True,
+                        "read_only_supported": True,
+                        "statement_timeout_ms": self.STATEMENT_TIMEOUT_MS,
+                        "ssl_active": False,
+                    },
+                )
+        finally:
+            if should_dispose:
+                await engine.dispose()
+
+    async def extract_schemas(self) -> List[SchemaMetadata]:
+        """Lists accessible schemas excluding internal system schemas."""
+        engine = self._engine or self._create_engine()
+        should_dispose = self._engine is None
+        try:
+            async with engine.connect() as conn:
+                for stmt in self.get_session_setup_statements():
+                    await conn.execute(text(stmt))
+
+                result = await conn.execute(text(self.QUERIES["SCHEMAS"]))
+                schemas = [
+                    SchemaMetadata(
+                        name=row.schema_name,
+                        owner=row.owner,
+                        description=row.description,
+                    )
+                    for row in result.mappings().all()
+                ]
+                return schemas
+        finally:
+            if should_dispose:
+                await engine.dispose()
+
+    async def extract_schema_metadata(self, schema_name: str) -> SchemaExtractionResult:
+        """
+        Executes exactly 4 bulk queries against pg_catalog for the given schema:
+        1. Tables & Views
+        2. Columns
+        3. Foreign Keys
+        4. Table Statistics
+        Zero N+1 round trips.
+        """
+        engine = self._engine or self._create_engine()
+        should_dispose = self._engine is None
+        try:
+            async with engine.connect() as conn:
+                for stmt in self.get_session_setup_statements():
+                    await conn.execute(text(stmt))
+
+                # Query 1: Tables
+                tables_res = await conn.execute(
+                    text(self.QUERIES["TABLES"]),
+                    {"schema_name": schema_name},
+                )
+                tables = [
+                    TableMetadata(
+                        schema_name=schema_name,
+                        name=row.table_name,
+                        table_type=row.table_type,
+                        row_count_estimate=int(row.row_count_estimate or 0),
+                        size_bytes=int(row.size_bytes or 0),
+                        source_description=row.source_description,
+                        owner=row.owner,
+                    )
+                    for row in tables_res.mappings().all()
+                ]
+
+                # Query 2: Columns
+                cols_res = await conn.execute(
+                    text(self.QUERIES["COLUMNS"]),
+                    {"schema_name": schema_name},
+                )
+                columns = [
+                    ColumnMetadata(
+                        schema_name=schema_name,
+                        table_name=row.table_name,
+                        name=row.column_name,
+                        ordinal_position=int(row.ordinal_position),
+                        data_type=row.data_type,
+                        raw_data_type=row.raw_data_type,
+                        is_nullable=bool(row.is_nullable),
+                        is_primary_key=bool(row.is_primary_key),
+                        is_foreign_key=bool(row.is_foreign_key),
+                        default_value=row.default_value,
+                        source_description=row.source_description,
+                    )
+                    for row in cols_res.mappings().all()
+                ]
+
+                # Query 3: Foreign Keys
+                fks_res = await conn.execute(
+                    text(self.QUERIES["FOREIGN_KEYS"]),
+                    {"schema_name": schema_name},
+                )
+                foreign_keys = [
+                    ForeignKeyMetadata(
+                        schema_name=schema_name,
+                        table_name=row.table_name,
+                        column_name=row.column_name,
+                        foreign_schema_name=row.foreign_schema_name,
+                        foreign_table_name=row.foreign_table_name,
+                        foreign_column_name=row.foreign_column_name,
+                        constraint_name=row.constraint_name,
+                    )
+                    for row in fks_res.mappings().all()
+                ]
+
+                # Query 4: Statistics
+                stats_res = await conn.execute(
+                    text(self.QUERIES["STATISTICS"]),
+                    {"schema_name": schema_name},
+                )
+                statistics = [
+                    TableStatisticsMetadata(
+                        schema_name=schema_name,
+                        table_name=row.table_name,
+                        row_count_estimate=int(row.row_count_estimate or 0),
+                        size_bytes=int(row.size_bytes or 0),
+                    )
+                    for row in stats_res.mappings().all()
+                ]
+
+                schema_meta = SchemaMetadata(name=schema_name)
+                return SchemaExtractionResult(
+                    schema=schema_meta,
+                    tables=tables,
+                    columns=columns,
+                    foreign_keys=foreign_keys,
+                    statistics=statistics,
+                    success=True,
+                )
+        finally:
+            if should_dispose:
+                await engine.dispose()
+
+
+# Auto-register with default registry
+default_connector_registry.register(DatabaseEngine.POSTGRESQL, PostgresConnector)
+default_connector_registry.register("POSTGRESQL", PostgresConnector)

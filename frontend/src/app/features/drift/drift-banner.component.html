@@ -1,0 +1,21 @@
+@if (driftDetected) {
+  <div class="drift-warning-banner" dir="rtl">
+    <div class="banner-content">
+      <span class="warning-icon">⚠️</span>
+      <div class="text-content">
+        <strong class="banner-title">مغایرت در توضیحات متادیتا (Description Drift Detected):</strong>
+        <p class="banner-desc">
+          کامنت‌های پایگاه‌داده مبدأ برای جدول <strong>«{{ tableName }}»</strong> یا ستون‌های آن با توضیحات حاکمیتی مصوب تفاوت دارد.
+        </p>
+      </div>
+    </div>
+    <button
+      type="button"
+      class="btn-open-drift-resolution"
+      (click)="onResolveClick()"
+    >
+      <span>بررسی و حل مغایرت (۳ راهکار)</span>
+      <span class="arrow">◀</span>
+    </button>
+  </div>
+}

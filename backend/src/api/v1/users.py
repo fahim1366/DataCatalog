@@ -680,12 +680,9 @@ async def get_user_groups(
 async def update_user_groups(
     user_id: uuid.UUID,
     payload: UserGroupsUpdateRequest,
-    user_ctx: UserContext = Depends(get_current_user),
+    user_ctx: UserContext = Depends(require_manage_users),
     db: AsyncSession = Depends(get_db_session),
 ) -> List[Dict[str, Any]]:
-    if not user_ctx.is_superadmin:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only SuperAdmin can manage user groups")
-
     user = await db.get(User, user_id)
     if not user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")

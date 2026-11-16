@@ -6,6 +6,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING, List, Optional
 
 from sqlalchemy import (
+    CheckConstraint,
     DateTime,
     Enum,
     ForeignKey,
@@ -105,6 +106,20 @@ class PermissionRule(Base):
     group: Mapped[Optional["Group"]] = relationship("Group", back_populates="permission_rules", foreign_keys=[group_id])
 
     __table_args__ = (
+        CheckConstraint(
+            "role_id IS NOT NULL OR user_id IS NOT NULL OR group_id IS NOT NULL",
+            name="ck_perm_rules_has_principal",
+        ),
+        Index(
+            "uq_perm_rules_distinct",
+            text("COALESCE(role_id, '00000000-0000-0000-0000-000000000000')"),
+            text("COALESCE(user_id, '00000000-0000-0000-0000-000000000000')"),
+            text("COALESCE(group_id, '00000000-0000-0000-0000-000000000000')"),
+            "resource_type",
+            text("COALESCE(resource_id, '00000000-0000-0000-0000-000000000000')"),
+            "action",
+            unique=True,
+        ),
         Index(
             "idx_perm_rules_eval",
             "role_id",

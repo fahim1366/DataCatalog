@@ -213,4 +213,10 @@ async def test_users_and_roles_crud(
             headers={"Authorization": f"Bearer {token}"},
         )
         assert resp_class.status_code == 200
-        assert resp_class.json()["classification_level"] == "CONFIDENTIAL"
+        col_json = resp_class.json()
+        assert col_json["classification_level"] == "CONFIDENTIAL"
+        assert "ai_suggested_description" in col_json
+        assert "description_source" in col_json
+        assert "curated_by_id" in col_json
+        assert "curated_by_username" in col_json
+        assert "curated_at" in col_json

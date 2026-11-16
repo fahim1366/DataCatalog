@@ -11,8 +11,11 @@ import {
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import {
+  AbstractControl,
   FormBuilder,
   ReactiveFormsModule,
+  ValidationErrors,
+  ValidatorFn,
   Validators,
 } from '@angular/forms';
 import {
@@ -23,6 +26,24 @@ import {
 import { cronValidator } from './validators/cron.validator';
 import { ConnectionService } from './services/connection.service';
 import { CategoryTreeNode } from '../catalog/models/catalog.models';
+
+export function jsonObjectValidator(): ValidatorFn {
+  return (control: AbstractControl): ValidationErrors | null => {
+    const val = control.value;
+    if (!val || (typeof val === 'string' && !val.trim())) {
+      return null;
+    }
+    try {
+      const parsed = JSON.parse(val);
+      if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+        return { invalidJson: 'ورودی باید یک شیء معتبر JSON باشد (مانند: {"key": "value"})' };
+      }
+      return null;
+    } catch {
+      return { invalidJson: 'خطا در ساختار JSON: فرمت وارد شده نامعتبر است' };
+    }
+  };
+}
 
 export interface FlattenedCategoryNode {
   node: CategoryTreeNode;
@@ -315,6 +336,53 @@ export interface FlattenedCategoryNode {
                     <span>الگوی معتبر زمان‌بندی (Valid 5-part cron schedule)</span>
                   </div>
                   <div class="cron-human-summary">{{ getCronHumanSummary(form.controls.cron_expression.value) }}</div>
+                </div>
+              }
+            </div>
+          </div>
+
+          <!-- Collapsible/Optional JSONB Custom Params -->
+          <div class="form-row">
+            <div class="form-group col-span-2 custom-params-container">
+              <button
+                type="button"
+                class="btn-toggle-custom-params"
+                (click)="isCustomParamsOpen.update(v => !v)"
+                [attr.aria-expanded]="isCustomParamsOpen()"
+              >
+                <div class="toggle-title-group">
+                  <i class="pi" [ngClass]="isCustomParamsOpen() ? 'pi-chevron-down' : 'pi-chevron-left'"></i>
+                  <i class="pi pi-cog"></i>
+                  <span class="custom-params-title">تنظیمات اضافی اتصال (Custom Params JSONB)</span>
+                  <span class="optional-badge">اختیاری</span>
+                </div>
+                <span class="toggle-hint-text">پارامترهای پیشرفته درایور مانند SSL، timeout و pool settings</span>
+              </button>
+
+              @if (isCustomParamsOpen()) {
+                <div class="custom-params-content animate-fade">
+                  <label for="custom_params_json" class="custom-params-label">
+                    <span>پیکربندی JSON پارامترهای سفارشی:</span>
+                  </label>
+                  <textarea
+                    id="custom_params_json"
+                    class="form-control font-mono custom-params-textarea"
+                    formControlName="custom_params_json"
+                    rows="4"
+                    dir="ltr"
+                    placeholder='{ "sslmode": "prefer", "connect_timeout": 10 }'
+                  ></textarea>
+
+                  @if (form.controls.custom_params_json.touched && form.controls.custom_params_json.errors?.['invalidJson']) {
+                    <div class="custom-params-error-feedback">
+                      <i class="pi pi-times-circle"></i>
+                      <span>{{ form.controls.custom_params_json.errors?.['invalidJson'] }}</span>
+                    </div>
+                  } @else {
+                    <span class="custom-params-hint">
+                      فرمت JSON معتبر وارد نمایید. پیش‌فرض: <code>&#123;&#125;</code>
+                    </span>
+                  }
                 </div>
               }
             </div>
@@ -789,6 +857,84 @@ export interface FlattenedCategoryNode {
       opacity: 0.5;
       cursor: not-allowed;
     }
+    .custom-params-container {
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+      overflow: hidden;
+      background: #f8fafc;
+      transition: all 0.2s ease;
+    }
+    .btn-toggle-custom-params {
+      width: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px 14px;
+      background: transparent;
+      border: none;
+      cursor: pointer;
+      text-align: right;
+      color: #1e293b;
+      font-family: inherit;
+      transition: background-color 0.15s ease;
+    }
+    .btn-toggle-custom-params:hover {
+      background-color: #f1f5f9;
+    }
+    .toggle-title-group {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .custom-params-title {
+      font-size: 0.85rem;
+      font-weight: 700;
+      color: #334155;
+    }
+    .optional-badge {
+      font-size: 0.7rem;
+      background: #e2e8f0;
+      color: #64748b;
+      padding: 2px 6px;
+      border-radius: 4px;
+    }
+    .toggle-hint-text {
+      font-size: 0.75rem;
+      color: #94a3b8;
+    }
+    .custom-params-content {
+      padding: 12px 14px;
+      border-top: 1px solid #e2e8f0;
+      background: #ffffff;
+    }
+    .custom-params-label {
+      display: block;
+      font-size: 0.8rem;
+      font-weight: 600;
+      color: #475569;
+      margin-bottom: 6px;
+    }
+    .custom-params-textarea {
+      resize: vertical;
+      min-height: 80px;
+      font-size: 0.82rem;
+      line-height: 1.5;
+    }
+    .custom-params-error-feedback {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin-top: 6px;
+      font-size: 0.78rem;
+      color: #dc2626;
+      font-weight: 500;
+    }
+    .custom-params-hint {
+      display: block;
+      margin-top: 6px;
+      font-size: 0.75rem;
+      color: #64748b;
+    }
   `],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
@@ -822,6 +968,7 @@ export class ConnectionDialogComponent implements OnInit {
 
   readonly isSubmitting = signal<boolean>(false);
   readonly errorMessage = signal<string | null>(null);
+  readonly isCustomParamsOpen = signal<boolean>(false);
 
   // Category Tree Signals
   readonly rawCategories = signal<CategoryTreeNode[]>([]);
@@ -868,6 +1015,10 @@ export class ConnectionDialogComponent implements OnInit {
     cron_expression: this.fb.control<string | null>('', {
       validators: [cronValidator()],
     }),
+    custom_params_json: this.fb.control<string>('{}', {
+      nonNullable: true,
+      validators: [jsonObjectValidator()],
+    }),
   });
 
   // Flattened and filtered category list for display in the tree picker
@@ -911,6 +1062,10 @@ export class ConnectionDialogComponent implements OnInit {
 
     if (this.connectionToEdit) {
       const conn = this.connectionToEdit;
+      const customParamsVal =
+        conn.custom_params && Object.keys(conn.custom_params).length > 0
+          ? JSON.stringify(conn.custom_params, null, 2)
+          : '{}';
       this.form.patchValue({
         name: conn.name,
         category_id: conn.category_id || null,
@@ -923,9 +1078,13 @@ export class ConnectionDialogComponent implements OnInit {
         username: conn.masked_credentials?.['username'] || 'admin',
         password: '',
         cron_expression: conn.sync_schedule?.cron_expression || '',
+        custom_params_json: customParamsVal,
       });
       if (conn.category_name) {
         this.selectedCategoryName.set(conn.category_name);
+      }
+      if (conn.custom_params && Object.keys(conn.custom_params).length > 0) {
+        this.isCustomParamsOpen.set(true);
       }
       // In edit mode, password is optional
       this.form.controls.password.clearValidators();
@@ -1062,10 +1221,32 @@ export class ConnectionDialogComponent implements OnInit {
   onSubmit(): void {
     if (this.form.invalid) {
       this.form.markAllAsTouched();
+      if (this.form.controls.custom_params_json.invalid) {
+        this.isCustomParamsOpen.set(true);
+      }
       return;
     }
 
     const val = this.form.getRawValue();
+    let customParams: Record<string, unknown> = {};
+    const rawCustom = val.custom_params_json?.trim();
+    if (rawCustom) {
+      try {
+        const parsed = JSON.parse(rawCustom);
+        if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) {
+          customParams = parsed;
+        } else {
+          this.form.controls.custom_params_json.setErrors({ invalidJson: 'ورودی باید یک شیء معتبر JSON باشد' });
+          this.isCustomParamsOpen.set(true);
+          return;
+        }
+      } catch {
+        this.form.controls.custom_params_json.setErrors({ invalidJson: 'خطا در ساختار JSON: فرمت وارد شده نامعتبر است' });
+        this.isCustomParamsOpen.set(true);
+        return;
+      }
+    }
+
     const creds: Record<string, unknown> = {
       username: val.username,
     };
@@ -1083,7 +1264,7 @@ export class ConnectionDialogComponent implements OnInit {
       owner: val.owner,
       category_id: val.category_id || undefined,
       credentials: creds,
-      custom_params: {},
+      custom_params: customParams,
       cron_expression: val.cron_expression?.trim() || undefined,
     };
 

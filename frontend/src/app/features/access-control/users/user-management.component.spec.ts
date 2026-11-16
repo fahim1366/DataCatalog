@@ -252,4 +252,125 @@ describe('UserManagementComponent', () => {
 
     expect(component.errorMessage()).toContain('لطفاً');
   });
+
+  it('should filter users by unified searchTerm and filterStatus', () => {
+    component.searchTerm.set('admin');
+    expect(component.filteredUsers().length).toBe(1);
+
+    component.searchTerm.set('nonexistent');
+    expect(component.filteredUsers().length).toBe(0);
+
+    component.searchTerm.set('');
+    component.filterStatus.set('ACTIVE');
+    expect(component.filteredUsers().length).toBe(1);
+
+    component.filterStatus.set('SUSPENDED');
+    expect(component.filteredUsers().length).toBe(0);
+
+    component.filterStatus.set('ALL');
+    expect(component.filteredUsers().length).toBe(1);
+  });
+
+  it('should support cascading category database selection (checked, indeterminate, toggle)', () => {
+    component.enableEditMode();
+
+    const mockCategory = {
+      id: 'cat-root',
+      name: 'Financial Services',
+      databases: [{ id: 'db-1', name: 'Postgres DB' }],
+      children: [
+        {
+          id: 'cat-sub',
+          name: 'Accounting',
+          databases: [{ id: 'db-2', name: 'Oracle DB' }],
+          children: [],
+        },
+      ],
+    };
+
+    // Initially only db-1 is selected (from beforeEach)
+    component.formSelectedDatabaseIds.set(new Set(['db-1']));
+
+    // Root category has db-1 and db-2 -> only 1 selected -> indeterminate
+    expect(component.isCategoryChecked(mockCategory)).toBe(false);
+    expect(component.isCategoryIndeterminate(mockCategory)).toBe(true);
+
+    // Sub category has only db-2 -> 0 selected -> not checked, not indeterminate
+    expect(component.isCategoryChecked(mockCategory.children[0])).toBe(false);
+    expect(component.isCategoryIndeterminate(mockCategory.children[0])).toBe(false);
+
+    // Toggle subcategory on
+    const eventCheck = { target: { checked: true }, stopPropagation: vi.fn() } as any;
+    component.toggleCategorySelection(mockCategory.children[0], eventCheck);
+
+    expect(component.isDatabaseSelected('db-2')).toBe(true);
+    expect(component.isCategoryChecked(mockCategory)).toBe(true);
+    expect(component.isCategoryIndeterminate(mockCategory)).toBe(false);
+
+    // Toggle root category off
+    const eventUncheck = { target: { checked: false }, stopPropagation: vi.fn() } as any;
+    component.toggleCategorySelection(mockCategory, eventUncheck);
+
+    expect(component.isDatabaseSelected('db-1')).toBe(false);
+    expect(component.isDatabaseSelected('db-2')).toBe(false);
+    expect(component.isCategoryChecked(mockCategory)).toBe(false);
+    expect(component.isCategoryIndeterminate(mockCategory)).toBe(false);
+  });
+
+  it('should include virtual uncategorized branch for databases without category assignment', () => {
+    component.categoryTree.set([
+      {
+        id: 'cat-1',
+        name: 'Finance',
+        databases: [{ id: 'db-1', name: 'PostgreSQL DW' }],
+        children: [],
+      },
+    ]);
+    component.allConnections.set([
+      { id: 'db-1', name: 'PostgreSQL DW', database_name: 'dw', engine_type: 'POSTGRESQL' },
+      { id: 'db-2', name: 'Unassigned Mongo', database_name: 'mongo_raw', engine_type: 'MONGODB' },
+    ]);
+
+    const displayTree = component.displayCategoryTree();
+    expect(displayTree.length).toBe(2);
+    const uncatNode = displayTree.find((n) => n.id === 'uncategorized');
+    expect(uncatNode).toBeDefined();
+    expect(uncatNode?.name).toBe('پایگاه‌های داده دسته‌بندی‌نشده (Uncategorized)');
+    expect(uncatNode?.databases.length).toBe(1);
+    expect(uncatNode?.databases[0].id).toBe('db-2');
+  });
+
+  it('should manage in-app confirmation modal for deleting user without window.confirm', () => {
+    const deleteSpy = vi.spyOn(userService, 'deleteUser').mockReturnValue(of(void 0 as any));
+    const testUser = {
+      id: 'u-99',
+      username: 'johndoe',
+      email: 'john@example.com',
+      full_name: 'John Doe',
+      status: 'ACTIVE' as const,
+      is_superadmin: false,
+      roles: [],
+      role_ids: [],
+      groups: [],
+      group_ids: [],
+      created_at: '2026-11-14T00:00:00Z',
+    };
+
+    expect(component.userToDelete()).toBeNull();
+
+    // Trigger request
+    component.requestDeleteUser(testUser);
+    expect(component.userToDelete()).toEqual(testUser);
+
+    // Cancel
+    component.cancelDeleteUser();
+    expect(component.userToDelete()).toBeNull();
+    expect(deleteSpy).not.toHaveBeenCalled();
+
+    // Confirm
+    component.requestDeleteUser(testUser);
+    component.confirmDeleteUser();
+    expect(deleteSpy).toHaveBeenCalledWith('u-99');
+    expect(component.userToDelete()).toBeNull();
+  });
 });

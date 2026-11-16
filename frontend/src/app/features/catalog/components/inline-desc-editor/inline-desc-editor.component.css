@@ -73,9 +73,9 @@
   width: 100%;
   box-sizing: border-box;
   padding: 0.5rem 0.75rem;
-  background-color: #1e293b;
-  color: #f8fafc;
-  border: 1px solid #475569;
+  background-color: #ffffff;
+  color: #0f172a;
+  border: 1px solid #cbd5e1;
   border-radius: 6px;
   font-family: inherit;
   font-size: 0.9rem;
@@ -119,8 +119,8 @@
 
 .btn-cancel {
   background-color: transparent;
-  color: #94a3b8;
-  border: 1px solid #475569;
+  color: #475569;
+  border: 1px solid #cbd5e1;
   border-radius: 4px;
   padding: 0.35rem 0.85rem;
   font-size: 0.85rem;
@@ -129,8 +129,8 @@
 }
 
 .btn-cancel:hover:not(:disabled) {
-  background-color: rgba(255, 255, 255, 0.05);
-  color: #f1f5f9;
+  background-color: #f1f5f9;
+  color: #0f172a;
 }
 
 .error-banner {

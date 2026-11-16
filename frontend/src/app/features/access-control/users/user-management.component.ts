@@ -59,7 +59,11 @@ export class UserManagementComponent implements OnInit {
   pageSize = signal<number>(5);
   availablePageSizes = [5, 10, 20, 50];
 
-  // Column search filters
+  // Search & Filter Toolbar
+  searchTerm = signal<string>('');
+  filterStatus = signal<string>('ALL');
+
+  // Column search filters (legacy / direct signals)
   filterFirstName = signal<string>('');
   filterLastName = signal<string>('');
   filterUsername = signal<string>('');
@@ -80,6 +84,53 @@ export class UserManagementComponent implements OnInit {
   physicalTree = signal<PhysicalDatabaseNode[]>([]);
   expandedDbNodes = signal<Set<string>>(new Set());
   expandedCategoryIds = signal<Set<string>>(new Set());
+
+  // Virtual branch for uncategorized databases
+  displayCategoryTree = computed(() => {
+    const tree = this.categoryTree();
+    const conns = this.allConnections().length > 0
+      ? this.allConnections()
+      : this.physicalTree();
+    if (!conns || conns.length === 0) return tree;
+
+    const assignedDbIds = new Set<string>();
+    const collectAssigned = (nodes: any[]) => {
+      for (const node of nodes) {
+        if (node.id === 'uncategorized') continue;
+        if (node.databases && Array.isArray(node.databases)) {
+          for (const db of node.databases) {
+            if (db?.id) assignedDbIds.add(db.id);
+          }
+        }
+        if (node.children && Array.isArray(node.children)) {
+          collectAssigned(node.children);
+        }
+      }
+    };
+    collectAssigned(tree);
+
+    const uncategorizedDbs = conns
+      .filter((c: any) => !assignedDbIds.has(c.id))
+      .map((c: any) => ({
+        id: c.id,
+        name: c.name,
+        database_name: c.database_name,
+        engine_type: c.engine_type,
+      }));
+
+    if (uncategorizedDbs.length > 0) {
+      const uncategorizedNode = {
+        id: 'uncategorized',
+        name: 'پایگاه‌های داده دسته‌بندی‌نشده (Uncategorized)',
+        description: 'پایگاه‌های داده‌ای که به هیچ موضوعی انتساب داده نشده‌اند',
+        databases: uncategorizedDbs,
+        children: [],
+      };
+      return [...tree, uncategorizedNode];
+    }
+
+    return tree;
+  });
 
   // Sub-tabs in bottom detail panel
   activeDetailTab = signal<'databases' | 'permissions'>('databases');
@@ -116,6 +167,8 @@ export class UserManagementComponent implements OnInit {
   // Filtered and Paginated View Models
   filteredUsers = computed<UserRowViewModel[]>(() => {
     const list = this.rawUsers() || [];
+    const search = this.searchTerm().trim().toLowerCase();
+    const status = this.filterStatus();
     const fnFilter = this.filterFirstName().trim().toLowerCase();
     const lnFilter = this.filterLastName().trim().toLowerCase();
     const unFilter = this.filterUsername().trim().toLowerCase();
@@ -127,6 +180,18 @@ export class UserManagementComponent implements OnInit {
         return { user: u, firstName, lastName };
       })
       .filter((row) => {
+        if (status && status !== 'ALL' && row.user.status !== status) {
+          return false;
+        }
+        if (search) {
+          const matchSearch =
+            (row.firstName || '').toLowerCase().includes(search) ||
+            (row.lastName || '').toLowerCase().includes(search) ||
+            (row.user.username || '').toLowerCase().includes(search) ||
+            (row.user.email || '').toLowerCase().includes(search) ||
+            (row.user.full_name || '').toLowerCase().includes(search);
+          if (!matchSearch) return false;
+        }
         if (fnFilter && !(row.firstName || '').toLowerCase().includes(fnFilter)) return false;
         if (lnFilter && !(row.lastName || '').toLowerCase().includes(lnFilter)) return false;
         if (unFilter && !(row.user.username || '').toLowerCase().includes(unFilter)) return false;
@@ -204,6 +269,7 @@ export class UserManagementComponent implements OnInit {
       next: (tree) => {
         this.categoryTree.set(tree || []);
         const rootIds = new Set<string>();
+        rootIds.add('uncategorized');
         const collectIds = (nodes: any[]) => {
           for (const n of nodes) {
             rootIds.add(n.id);
@@ -422,6 +488,64 @@ export class UserManagementComponent implements OnInit {
     this.formSelectedDatabaseIds.set(updated);
   }
 
+  getDescendantDatabaseIds(cat: any): string[] {
+    const ids: string[] = [];
+    const collect = (node: any) => {
+      if (!node) return;
+      if (node.databases && Array.isArray(node.databases)) {
+        for (const db of node.databases) {
+          if (db && db.id) {
+            ids.push(db.id);
+          }
+        }
+      }
+      if (node.children && Array.isArray(node.children)) {
+        for (const child of node.children) {
+          collect(child);
+        }
+      }
+    };
+    collect(cat);
+    return ids;
+  }
+
+  isCategoryChecked(cat: any): boolean {
+    const dbIds = this.getDescendantDatabaseIds(cat);
+    if (dbIds.length === 0) return false;
+    const selected = this.formSelectedDatabaseIds();
+    return dbIds.every((id) => selected.has(id));
+  }
+
+  isCategoryIndeterminate(cat: any): boolean {
+    const dbIds = this.getDescendantDatabaseIds(cat);
+    if (dbIds.length === 0) return false;
+    const selected = this.formSelectedDatabaseIds();
+    let selectedCount = 0;
+    for (const id of dbIds) {
+      if (selected.has(id)) {
+        selectedCount++;
+      }
+    }
+    return selectedCount > 0 && selectedCount < dbIds.length;
+  }
+
+  toggleCategorySelection(cat: any, event: Event): void {
+    event.stopPropagation();
+    if (!this.isFormEditable()) return;
+    const target = event.target as HTMLInputElement;
+    const checked = target.checked;
+    const dbIds = this.getDescendantDatabaseIds(cat);
+    if (dbIds.length === 0) return;
+
+    const updated = new Set(this.formSelectedDatabaseIds());
+    if (checked) {
+      dbIds.forEach((id) => updated.add(id));
+    } else {
+      dbIds.forEach((id) => updated.delete(id));
+    }
+    this.formSelectedDatabaseIds.set(updated);
+  }
+
   // --- Save / Submit Form ---
   saveUser(): void {
     const firstName = this.formFirstName().trim();
@@ -605,22 +729,44 @@ export class UserManagementComponent implements OnInit {
     });
   }
 
-  deleteUser(user: UserItem, event: Event): void {
-    event.stopPropagation();
-    if (!confirm(`آیا از حذف کامل حساب کاربری «${user.full_name} (${user.username})» اطمینان دارید؟`)) {
+  // Delete confirmation dialog signal
+  readonly userToDelete = signal<UserItem | null>(null);
+
+  requestDeleteUser(user: UserItem, event?: Event): void {
+    if (event) event.stopPropagation();
+    if (user.is_superadmin) {
+      this.showError('حساب کاربری مدیر ارشد سیستم (SuperAdmin) قابل حذف نیست.');
       return;
     }
+    this.userToDelete.set(user);
+  }
+
+  cancelDeleteUser(): void {
+    this.userToDelete.set(null);
+  }
+
+  confirmDeleteUser(): void {
+    const user = this.userToDelete();
+    if (!user) return;
 
     this.userService.deleteUser(user.id).subscribe({
       next: () => {
+        this.userToDelete.set(null);
         this.showSuccess(`حساب کاربری «${user.username}» حذف گردید.`);
         if (this.selectedUser()?.id === user.id) {
           this.selectedUser.set(null);
         }
         this.loadUsers();
       },
-      error: (err) => this.showError(err?.error?.detail || 'خطا در حذف کاربر.'),
+      error: (err) => {
+        this.userToDelete.set(null);
+        this.showError(err?.error?.detail || 'خطا در حذف کاربر.');
+      },
     });
+  }
+
+  deleteUser(user: UserItem, event: Event): void {
+    this.requestDeleteUser(user, event);
   }
 
   // --- Helpers ---

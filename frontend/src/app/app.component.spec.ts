@@ -61,7 +61,7 @@ describe('AppComponent (Enterprise Navigation Shell)', () => {
     expect(app.isSidebarOpen()).toBe(true);
   });
 
-  it('should render core navigation links in sidebar with Persian localization', () => {
+  it('should render core navigation links in sidebar with Persian localization and grouped sections', () => {
     const fixture = TestBed.createComponent(AppComponent);
     fixture.detectChanges();
 
@@ -71,12 +71,20 @@ describe('AppComponent (Enterprise Navigation Shell)', () => {
     const taxLink = compiled.querySelector('#nav-taxonomy');
     const diffLink = compiled.querySelector('#nav-diff');
     const reportsLink = compiled.querySelector('#nav-reports');
+    const usersLink = compiled.querySelector('#nav-users');
+    const rolesLink = compiled.querySelector('#nav-roles');
+    const schedulesLink = compiled.querySelector('#nav-schedules');
+    const auditLink = compiled.querySelector('#nav-audit');
 
     expect(catalogLink).toBeTruthy();
     expect(catalogLink?.textContent).toContain('کاوشگر کاتالوگ');
-    expect(connLink?.textContent).toContain('مدیریت اتصالات');
-    expect(taxLink?.textContent).toContain('مدیریت دسته‌بندی‌ها');
+    expect(connLink?.textContent).toContain('پایگاه‌های داده');
+    expect(taxLink?.textContent).toContain('دسته‌بندی موضوعات');
     expect(diffLink?.textContent).toContain('مقایسه نسخه‌ها');
-    expect(reportsLink?.textContent).toContain('داشبورد گزارشات');
+    expect(reportsLink?.textContent).toContain('گزارش‌گیری کاتالوگ');
+    expect(usersLink?.textContent).toContain('مدیریت کاربران');
+    expect(rolesLink?.textContent).toContain('مدیریت نقش‌ها');
+    expect(schedulesLink?.textContent).toContain('زمان‌بندی بروزرسانی');
+    expect(auditLink?.textContent).toContain('لاگ‌های ممیزی');
   });
 });

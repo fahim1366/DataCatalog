@@ -127,6 +127,9 @@ async def test_audit_logs_partitions_and_immutability():
         partitions = {row[0] for row in result.fetchall()}
         assert "audit_logs_y2026m11" in partitions
         assert "audit_logs_y2026m12" in partitions
+        assert "audit_logs_y2027m01" in partitions
+        assert "audit_logs_y2027m06" in partitions
+        assert "audit_logs_y2027m12" in partitions
 
         # 2. Verify immutability rules exist
         rule_result = await conn.execute(
@@ -177,4 +180,55 @@ async def test_materialized_views_exist():
         matviews = {row[0] for row in result.fetchall()}
         assert "mv_metadata_completeness" in matviews
         assert "mv_classification_distribution" in matviews
+
+
+@pytest.mark.asyncio
+async def test_permission_rules_integrity_constraints():
+    """Verify check constraint and unique index preventing duplicate permission rules."""
+    async with async_session_factory() as session:
+        # 1. Null principal check: role_id, user_id, group_id all NULL -> must violate check constraint
+        with pytest.raises(Exception) as exc_info:
+            await session.execute(
+                text(
+                    "INSERT INTO permission_rules (id, role_id, user_id, group_id, resource_type, action, effect) "
+                    "VALUES (:id, NULL, NULL, NULL, 'GLOBAL', 'VIEW_METADATA', 'ALLOW')"
+                ),
+                {"id": uuid.uuid4()},
+            )
+            await session.commit()
+        await session.rollback()
+        assert "ck_perm_rules" in str(exc_info.value).lower()
+
+        # 2. Duplicate rule check
+        test_role_id = uuid.uuid4()
+        # Create a test role
+        await session.execute(
+            text("INSERT INTO roles (id, name, is_system_role) VALUES (:id, :name, false)"),
+            {"id": test_role_id, "name": f"test_role_{uuid.uuid4().hex[:8]}"},
+        )
+        await session.commit()
+
+        # Insert first rule
+        await session.execute(
+            text(
+                "INSERT INTO permission_rules (id, role_id, resource_type, action, effect) "
+                "VALUES (:id, :role_id, 'GLOBAL', 'VIEW_METADATA', 'ALLOW')"
+            ),
+            {"id": uuid.uuid4(), "role_id": test_role_id},
+        )
+        await session.commit()
+
+        # Insert duplicate rule -> must violate uq_perm_rules_distinct
+        with pytest.raises(Exception) as dup_exc:
+            await session.execute(
+                text(
+                    "INSERT INTO permission_rules (id, role_id, resource_type, action, effect) "
+                    "VALUES (:id, :role_id, 'GLOBAL', 'VIEW_METADATA', 'ALLOW')"
+                ),
+                {"id": uuid.uuid4(), "role_id": test_role_id},
+            )
+            await session.commit()
+        await session.rollback()
+        assert "uq_perm_rules_distinct" in str(dup_exc.value).lower()
+
 

@@ -44,7 +44,8 @@ export class RoleManagementComponent implements OnInit {
   pageSize = signal<number>(5);
   availablePageSizes = [5, 10, 20, 50];
 
-  // Column search filters
+  // Column search filters & Unified search
+  searchTerm = signal<string>('');
   filterPersianName = signal<string>('');
   filterEnglishName = signal<string>('');
 
@@ -78,12 +79,14 @@ export class RoleManagementComponent implements OnInit {
   // Filtered and Paginated View Models
   filteredRoles = computed<RoleItem[]>(() => {
     const list = this.rawRoles();
+    const search = this.searchTerm().trim().toLowerCase();
     const faFilter = this.filterPersianName().trim().toLowerCase();
     const enFilter = this.filterEnglishName().trim().toLowerCase();
 
     return list.filter((r) => {
       const pName = (r.description || r.name).toLowerCase();
       const eName = r.name.toLowerCase();
+      if (search && !pName.includes(search) && !eName.includes(search)) return false;
       if (faFilter && !pName.includes(faFilter)) return false;
       if (enFilter && !eName.includes(enFilter)) return false;
       return true;
@@ -375,27 +378,44 @@ export class RoleManagementComponent implements OnInit {
     }
   }
 
-  deleteRole(role: RoleItem, event: Event): void {
-    event.stopPropagation();
+  // Delete confirmation dialog signal
+  readonly roleToDelete = signal<RoleItem | null>(null);
+
+  requestDeleteRole(role: RoleItem, event?: Event): void {
+    if (event) event.stopPropagation();
     if (role.is_system_role) {
       this.showError('نقش‌های سیستمی و پیش‌فرض سامانه قابل حذف نمی‌باشند.');
       return;
     }
+    this.roleToDelete.set(role);
+  }
 
-    if (!confirm(`آیا از حذف نقش سازمانی «${role.description || role.name}» اطمینان دارید؟`)) {
-      return;
-    }
+  cancelDeleteRole(): void {
+    this.roleToDelete.set(null);
+  }
+
+  confirmDeleteRole(): void {
+    const role = this.roleToDelete();
+    if (!role) return;
 
     this.roleService.deleteRole(role.id).subscribe({
       next: () => {
+        this.roleToDelete.set(null);
         this.showSuccess(`نقش «${role.description || role.name}» با موفقیت حذف گردید.`);
         if (this.selectedRole()?.id === role.id) {
           this.selectedRole.set(null);
         }
         this.loadRoles();
       },
-      error: (err) => this.showError(err?.error?.detail || 'خطا در حذف نقش سازمانی.'),
+      error: (err) => {
+        this.roleToDelete.set(null);
+        this.showError(err?.error?.detail || 'خطا در حذف نقش سازمانی.');
+      },
     });
+  }
+
+  deleteRole(role: RoleItem, event: Event): void {
+    this.requestDeleteRole(role, event);
   }
 
   showSuccess(msg: string): void {

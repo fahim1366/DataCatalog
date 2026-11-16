@@ -170,9 +170,69 @@
 }
 
 .table-card-header {
-  padding: 12px 18px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 18px;
   border-bottom: 1px solid #f1f5f9;
   background-color: #fafafa;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.table-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.search-box {
+  position: relative;
+  display: flex;
+  align-items: center;
+  width: 270px;
+}
+
+.search-icon {
+  position: absolute;
+  right: 10px;
+  font-size: 13px;
+  color: #94a3b8;
+  pointer-events: none;
+}
+
+.search-input {
+  width: 100%;
+  padding: 6px 32px 6px 28px;
+  font-size: 0.82rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  outline: none;
+  font-family: inherit;
+  transition: all 0.15s ease;
+  background-color: #ffffff;
+}
+
+.search-input:focus {
+  border-color: #2563eb;
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.12);
+}
+
+.btn-clear-search {
+  position: absolute;
+  left: 8px;
+  background: transparent;
+  border: none;
+  color: #94a3b8;
+  cursor: pointer;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  font-size: 11px;
+}
+
+.btn-clear-search:hover {
+  color: #ef4444;
 }
 
 .table-title {
@@ -785,4 +845,111 @@
     opacity: 1;
     transform: translateY(0);
   }
+}
+
+/* ───── Confirmation dialog ───── */
+.confirm-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.6);
+  backdrop-filter: blur(2px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1100;
+  padding: 1rem;
+}
+
+.confirm-card {
+  width: 100%;
+  max-width: 440px;
+  background: #ffffff;
+  border-radius: 12px;
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
+  overflow: hidden;
+  direction: rtl;
+}
+
+.confirm-header {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 1rem 1.25rem;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.confirm-header h3 {
+  margin: 0;
+  font-size: 1.05rem;
+  color: #0f172a;
+}
+
+.confirm-icon {
+  color: #dc2626;
+  font-size: 1.2rem;
+}
+
+.confirm-body {
+  padding: 1.1rem 1.25rem;
+  font-size: 0.9rem;
+  line-height: 1.7;
+  color: #1e293b;
+}
+
+.confirm-body p {
+  margin: 0;
+}
+
+.confirm-note {
+  margin-top: 0.6rem !important;
+  color: #64748b;
+  font-size: 0.8rem;
+}
+
+.confirm-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.6rem;
+  padding: 0.9rem 1.25rem 1.1rem;
+  background: #f8fafc;
+  border-top: 1px solid #e2e8f0;
+}
+
+.btn-secondary {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.5rem 1rem;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  font-weight: 500;
+  cursor: pointer;
+  background: #ffffff;
+  border: 1px solid #cbd5e1;
+  color: #475569;
+  transition: all 0.15s;
+}
+
+.btn-secondary:hover {
+  background: #f1f5f9;
+  color: #0f172a;
+}
+
+.btn-danger-solid {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.5rem 1rem;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  font-weight: 500;
+  cursor: pointer;
+  background: #dc2626;
+  border: 1px solid #dc2626;
+  color: #ffffff;
+  transition: all 0.15s;
+}
+
+.btn-danger-solid:hover {
+  background: #b91c1c;
 }

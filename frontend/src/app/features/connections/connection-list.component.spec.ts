@@ -179,6 +179,16 @@ describe('ConnectionListComponent (T028: Angular Connection Management UI)', () 
     expect(component.filteredConnections().length).toBe(2);
   });
 
+  it('should filter and display all databases belonging to a parent category and all its descendant subcategories', () => {
+    const parentNode = mockCategoryTree[0];
+    component.selectCategory(parentNode);
+    fixture.detectChanges();
+
+    expect(component.selectedCategory()?.id).toBe('parent-cat-1');
+    expect(component.filteredConnections().length).toBe(1);
+    expect(component.filteredConnections()[0].id).toBe('11111111-1111-1111-1111-111111111111');
+  });
+
   it('should render active and inactive status badges correctly', () => {
     const statusBadges = fixture.debugElement.queryAll(By.css('.status-badge'));
     expect(statusBadges.length).toBeGreaterThanOrEqual(2);

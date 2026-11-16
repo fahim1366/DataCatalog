@@ -164,4 +164,44 @@ describe('RoleManagementComponent', () => {
     expect(component.formPersianName()).toBe('');
     expect(component.roleSelectedActions().size).toBe(0);
   });
+
+  it('should filter roles using instant search input', () => {
+    component.searchTerm.set('Inspector');
+    expect(component.filteredRoles().length).toBe(1);
+
+    component.searchTerm.set('SystemAdmin');
+    expect(component.filteredRoles().length).toBe(0);
+
+    component.searchTerm.set('');
+    expect(component.filteredRoles().length).toBe(1);
+  });
+
+  it('should manage in-app confirmation modal for deleting role without window.confirm', () => {
+    const deleteSpy = vi.spyOn(roleService, 'deleteRole').mockReturnValue(of(void 0 as any));
+    const customRole = {
+      id: 'r-custom',
+      name: 'CustomAuditor',
+      description: 'Custom Auditor Role',
+      is_system_role: false,
+      user_count: 0,
+      created_at: '2026-11-14T00:00:00Z',
+    };
+
+    expect(component.roleToDelete()).toBeNull();
+
+    // Request delete
+    component.requestDeleteRole(customRole);
+    expect(component.roleToDelete()).toEqual(customRole);
+
+    // Cancel delete
+    component.cancelDeleteRole();
+    expect(component.roleToDelete()).toBeNull();
+    expect(deleteSpy).not.toHaveBeenCalled();
+
+    // Confirm delete
+    component.requestDeleteRole(customRole);
+    component.confirmDeleteRole();
+    expect(deleteSpy).toHaveBeenCalledWith('r-custom');
+    expect(component.roleToDelete()).toBeNull();
+  });
 });

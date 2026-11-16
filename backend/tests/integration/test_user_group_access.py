@@ -186,3 +186,85 @@ async def test_groups_and_user_access_lifecycle(test_db_session: AsyncSession) -
         u_page = users_page_resp.json()
         assert u_page["total"] == 1
         assert u_page["items"][0]["username"] == member_user.username
+
+
+@pytest.mark.asyncio
+async def test_update_user_groups_manage_users_permission(test_db_session: AsyncSession) -> None:
+    """Verify PUT /api/v1/users/{user_id}/groups requires MANAGE_USERS permission, not hardcoded is_superadmin."""
+    # 1. Target user & group
+    target_user = User(
+        id=uuid.uuid4(),
+        username=f"target_{uuid.uuid4().hex[:6]}",
+        email=f"target_{uuid.uuid4().hex[:6]}@test.com",
+        full_name="Target User",
+        hashed_password=auth_service.hash_password("Pass123!"),
+        status=UserStatus.ACTIVE,
+        is_superadmin=False,
+    )
+    test_db_session.add(target_user)
+
+    grp = Group(
+        id=uuid.uuid4(),
+        name=f"SecOps_{uuid.uuid4().hex[:6]}",
+        description="Security Operations",
+        is_active=True,
+    )
+    test_db_session.add(grp)
+
+    # 2. Delegated admin user (NOT superadmin, but has MANAGE_USERS direct permission)
+    delegated_admin = User(
+        id=uuid.uuid4(),
+        username=f"del_admin_{uuid.uuid4().hex[:6]}",
+        email=f"del_admin_{uuid.uuid4().hex[:6]}@test.com",
+        full_name="Delegated Admin",
+        hashed_password=auth_service.hash_password("Pass123!"),
+        status=UserStatus.ACTIVE,
+        is_superadmin=False,
+    )
+    test_db_session.add(delegated_admin)
+
+    perm_rule = PermissionRule(
+        id=uuid.uuid4(),
+        user_id=delegated_admin.id,
+        resource_type=ResourceType.GLOBAL,
+        action=PermissionAction.MANAGE_USERS,
+        effect=PermissionEffect.ALLOW,
+    )
+    test_db_session.add(perm_rule)
+
+    # 3. Regular unprivileged user
+    regular_user = User(
+        id=uuid.uuid4(),
+        username=f"regular_{uuid.uuid4().hex[:6]}",
+        email=f"regular_{uuid.uuid4().hex[:6]}@test.com",
+        full_name="Regular User",
+        hashed_password=auth_service.hash_password("Pass123!"),
+        status=UserStatus.ACTIVE,
+        is_superadmin=False,
+    )
+    test_db_session.add(regular_user)
+    await test_db_session.commit()
+
+    del_admin_token = auth_service.create_access_token({"sub": str(delegated_admin.id), "username": delegated_admin.username})
+    regular_token = auth_service.create_access_token({"sub": str(regular_user.id), "username": regular_user.username})
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        # A. Unprivileged user receives 403 Forbidden
+        reg_resp = await client.put(
+            f"/api/v1/users/{target_user.id}/groups",
+            headers={"Authorization": f"Bearer {regular_token}"},
+            json={"group_ids": [str(grp.id)]},
+        )
+        assert reg_resp.status_code == 403
+
+        # B. Delegated admin with MANAGE_USERS succeeds with 200 OK
+        admin_resp = await client.put(
+            f"/api/v1/users/{target_user.id}/groups",
+            headers={"Authorization": f"Bearer {del_admin_token}"},
+            json={"group_ids": [str(grp.id)]},
+        )
+        assert admin_resp.status_code == 200
+        assigned = admin_resp.json()
+        assert len(assigned) == 1
+        assert assigned[0]["id"] == str(grp.id)
+

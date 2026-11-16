@@ -116,14 +116,30 @@ export class ConnectionListComponent implements OnInit {
     return items;
   });
 
-  // Connections of the selected category leaf (or all)
+  // Helper to collect a category ID and all its descendant category IDs
+  private getDescendantCategoryIds(node: CategoryTreeNode): Set<string> {
+    const ids = new Set<string>();
+    const collect = (curr: CategoryTreeNode) => {
+      ids.add(curr.id);
+      if (curr.children && curr.children.length > 0) {
+        for (const child of curr.children) {
+          collect(child);
+        }
+      }
+    };
+    collect(node);
+    return ids;
+  }
+
+  // Connections of the selected category (parent branch with all descendants, or leaf) or all
   readonly filteredConnections = computed<DatabaseConnection[]>(() => {
     const selected = this.selectedCategory();
     const all = this.connections();
     if (!selected) {
       return all;
     }
-    return all.filter((c) => c.category_id === selected.id);
+    const allowedCategoryIds = this.getDescendantCategoryIds(selected);
+    return all.filter((c) => !!c.category_id && allowedCategoryIds.has(c.category_id));
   });
 
   // Engines present in the current scope (for the engine filter dropdown)
@@ -262,13 +278,6 @@ export class ConnectionListComponent implements OnInit {
       this.resetTableView();
       return;
     }
-    const isLeaf = !node.children || node.children.length === 0;
-    if (!isLeaf) {
-      // Non-leaf: toggle branch expansion
-      this.toggleExpandCategory(node.id);
-      return;
-    }
-    // Leaf node: select it
     this.selectedCategory.set(node);
     this.resetTableView();
   }

@@ -109,79 +109,109 @@
     @if (authService.isAuthenticated() && isSidebarOpen()) {
       <aside class="app-sidebar">
         <nav class="nav-menu">
-          <a class="nav-item" routerLink="/catalog" routerLinkActive="active" id="nav-catalog">
-            <span class="nav-icon">📊</span>
-            <span class="nav-text">کاوشگر کاتالوگ و درختواره داده</span>
-          </a>
+          <!-- Section 1: کاوش و مستندسازی -->
+          <div class="nav-section">
+            <div class="nav-section-title">کاوش و مستندسازی</div>
+            <a class="nav-item" routerLink="/catalog" routerLinkActive="active" id="nav-catalog">
+              <span class="nav-icon">📊</span>
+              <span class="nav-text">کاوشگر کاتالوگ</span>
+            </a>
+            <a class="nav-item" routerLink="/versions" routerLinkActive="active" id="nav-diff">
+              <span class="nav-icon">🔄</span>
+              <span class="nav-text">مقایسه نسخه‌ها</span>
+            </a>
+          </div>
 
-          <a class="nav-item" routerLink="/connections" routerLinkActive="active" id="nav-connections" *hasPermission="'MANAGE_CONNECTIONS'">
-            <span class="nav-icon">🔌</span>
-            <span class="nav-text">مدیریت اتصالات و منابع داده</span>
-          </a>
+          <div class="nav-divider"></div>
 
-          <a class="nav-item" routerLink="/schedules" routerLinkActive="active" id="nav-schedules" *hasPermission="'MANAGE_SCHEDULES'">
-            <span class="nav-icon">⏱️</span>
-            <span class="nav-text">زمان‌بندی بروزرسانی کاتالوگ</span>
-          </a>
+          <!-- Section 2: مدیریت منابع -->
+          <div class="nav-section">
+            <div class="nav-section-title">مدیریت منابع</div>
+            <a
+              class="nav-item"
+              routerLink="/connections"
+              routerLinkActive="active"
+              id="nav-connections"
+              *hasPermission="'MANAGE_CONNECTIONS'"
+            >
+              <span class="nav-icon">🔌</span>
+              <span class="nav-text">پایگاه‌های داده</span>
+            </a>
+            <a
+              class="nav-item"
+              routerLink="/taxonomy"
+              routerLinkActive="active"
+              id="nav-taxonomy"
+              *hasPermission="'MANAGE_CATEGORIES'"
+            >
+              <span class="nav-icon">📁</span>
+              <span class="nav-text">دسته‌بندی موضوعات</span>
+            </a>
+            <a
+              class="nav-item"
+              routerLink="/schedules"
+              routerLinkActive="active"
+              id="nav-schedules"
+              *hasPermission="'MANAGE_SCHEDULES'"
+            >
+              <span class="nav-icon">⏱️</span>
+              <span class="nav-text">زمان‌بندی بروزرسانی</span>
+            </a>
+          </div>
 
-          <a class="nav-item" routerLink="/taxonomy" routerLinkActive="active" id="nav-taxonomy" *hasPermission="'MANAGE_CATEGORIES'">
-            <span class="nav-icon">📁</span>
-            <span class="nav-text">مدیریت دسته‌بندی‌های موضوعی</span>
-          </a>
+          <div class="nav-divider"></div>
 
-          <a class="nav-item" routerLink="/versions" routerLinkActive="active" id="nav-diff">
-            <span class="nav-icon">🔄</span>
-            <span class="nav-text">مقایسه نسخه‌ها و تغییرات اسکیما</span>
-          </a>
+          <!-- Section 3: کنترل دسترسی -->
+          <div class="nav-section">
+            <div class="nav-section-title">کنترل دسترسی</div>
+            <a
+              class="nav-item"
+              routerLink="/admin/users"
+              routerLinkActive="active"
+              id="nav-users"
+              *hasPermission="'MANAGE_USERS'"
+            >
+              <span class="nav-icon">👥</span>
+              <span class="nav-text">مدیریت کاربران</span>
+            </a>
+            <a
+              class="nav-item"
+              routerLink="/admin/roles"
+              routerLinkActive="active"
+              id="nav-roles"
+              *hasPermission="'MANAGE_ROLES'"
+            >
+              <span class="nav-icon">🛡️</span>
+              <span class="nav-text">مدیریت نقش‌ها</span>
+            </a>
+          </div>
 
-          <a
-            class="nav-item"
-            routerLink="/admin/users"
-            routerLinkActive="active"
-            id="nav-users"
-            *hasPermission="'MANAGE_USERS'"
-          >
-            <span class="nav-icon">👥</span>
-            <span class="nav-text">مدیریت کاربران (Users)</span>
-          </a>
+          <div class="nav-divider"></div>
 
-          <a
-            class="nav-item"
-            routerLink="/admin/roles"
-            routerLinkActive="active"
-            id="nav-roles"
-            *hasPermission="'MANAGE_ROLES'"
-          >
-            <span class="nav-icon">🛡️</span>
-            <span class="nav-text">مدیریت نقش‌ها (Roles)</span>
-          </a>
-
-          <a
-            class="nav-item"
-            routerLink="/admin/iam"
-            routerLinkActive="active"
-            id="nav-iam"
-            *hasPermission="'MANAGE_CONNECTIONS'"
-          >
-            <span class="nav-icon">⚙️</span>
-            <span class="nav-text">مدیریت جامع قوانین IAM & RBAC</span>
-          </a>
-
-          <a
-            class="nav-item"
-            routerLink="/audit-logs"
-            routerLinkActive="active"
-            id="nav-audit"
-            *hasPermission="'VIEW_AUDIT_LOGS'"
-          >
-            <span class="nav-icon">📜</span>
-            <span class="nav-text">لاگ‌های ممیزی و امنیت (Audit Logs)</span>
-          </a>
-
-          <a class="nav-item" routerLink="/reports" routerLinkActive="active" id="nav-reports">
-            <span class="nav-icon">📈</span>
-            <span class="nav-text">داشبورد گزارشات مدیریتی</span>
-          </a>
+          <!-- Section 4: گزارش‌گیری و ممیزی -->
+          <div class="nav-section">
+            <div class="nav-section-title">گزارش‌گیری و ممیزی</div>
+            <a
+              class="nav-item"
+              routerLink="/reports"
+              routerLinkActive="active"
+              id="nav-reports"
+              *hasPermission="'EXPORT_REPORTS'"
+            >
+              <span class="nav-icon">📈</span>
+              <span class="nav-text">گزارش‌گیری کاتالوگ</span>
+            </a>
+            <a
+              class="nav-item"
+              routerLink="/audit-logs"
+              routerLinkActive="active"
+              id="nav-audit"
+              *hasPermission="'VIEW_AUDIT_LOGS'"
+            >
+              <span class="nav-icon">📜</span>
+              <span class="nav-text">لاگ‌های ممیزی</span>
+            </a>
+          </div>
         </nav>
 
         <!-- Sidebar Footer Status -->

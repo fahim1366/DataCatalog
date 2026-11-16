@@ -43,7 +43,42 @@
   <!-- Upper Card: Users Data Table -->
   <div class="table-card">
     <div class="table-card-header">
-      <h2 class="table-title"> کاربران</h2>
+      <h2 class="table-title">کاربران</h2>
+      <div class="table-toolbar">
+        <div class="search-box">
+          <i class="pi pi-search search-icon"></i>
+          <input
+            type="text"
+            class="search-input"
+            placeholder="جستجو در نام، نام کاربری، ایمیل..."
+            [ngModel]="searchTerm()"
+            (ngModelChange)="searchTerm.set($event); onFilterChanged()"
+          />
+          @if (searchTerm()) {
+            <button
+              type="button"
+              class="btn-clear-search"
+              (click)="searchTerm.set(''); onFilterChanged()"
+              aria-label="پاک کردن جستجو"
+            >
+              <i class="pi pi-times"></i>
+            </button>
+          }
+        </div>
+        <div class="status-filter-box">
+          <select
+            class="status-select"
+            [ngModel]="filterStatus()"
+            (ngModelChange)="filterStatus.set($event); onFilterChanged()"
+            aria-label="فیلتر وضعیت کاربر"
+          >
+            <option value="ALL">همه وضعیت‌ها</option>
+            <option value="ACTIVE">فعال</option>
+            <option value="SUSPENDED">معلق</option>
+            <option value="DEACTIVATED">غیرفعال</option>
+          </select>
+        </div>
+      </div>
     </div>
 
     <div class="table-responsive">
@@ -56,58 +91,6 @@
             <th>نام کاربری <i class="pi pi-sort-alt sort-arrows"></i></th>
             <th>ایمیل <i class="pi pi-sort-alt sort-arrows"></i></th>
             <th class="th-actions">عملیات</th>
-          </tr>
-          <tr class="header-filters-row">
-            <th class="th-num"></th>
-            <th>
-              <div class="inline-filter-box">
-                <i class="pi pi-search filter-icon"></i>
-                <input
-                  type="text"
-                  class="filter-input"
-                  placeholder="جستجو"
-                  [ngModel]="filterFirstName()"
-                  (ngModelChange)="filterFirstName.set($event); onFilterChanged()"
-                />
-              </div>
-            </th>
-            <th>
-              <div class="inline-filter-box">
-                <i class="pi pi-search filter-icon"></i>
-                <input
-                  type="text"
-                  class="filter-input"
-                  placeholder="جستجو"
-                  [ngModel]="filterLastName()"
-                  (ngModelChange)="filterLastName.set($event); onFilterChanged()"
-                />
-              </div>
-            </th>
-            <th>
-              <div class="inline-filter-box">
-                <i class="pi pi-search filter-icon"></i>
-                <input
-                  type="text"
-                  class="filter-input"
-                  placeholder="جستجو"
-                  [ngModel]="filterUsername()"
-                  (ngModelChange)="filterUsername.set($event); onFilterChanged()"
-                />
-              </div>
-            </th>
-            <th>
-              <div class="inline-filter-box">
-                <i class="pi pi-search filter-icon"></i>
-                <input
-                  type="text"
-                  class="filter-input"
-                  placeholder="جستجو"
-                  [ngModel]="filterEmail()"
-                  (ngModelChange)="filterEmail.set($event); onFilterChanged()"
-                />
-              </div>
-            </th>
-            <th class="th-actions"></th>
           </tr>
         </thead>
         <tbody>
@@ -489,13 +472,13 @@
                 </tr>
               </thead>
               <tbody>
-                @if (categoryTree().length === 0 && physicalTree().length === 0) {
+                @if (displayCategoryTree().length === 0 && physicalTree().length === 0) {
                   <tr>
                     <td colspan="3" class="td-tree-empty">هیچ پایگاه‌داده‌ای در سامانه ثبت نشده است.</td>
                   </tr>
-                } @else if (categoryTree().length > 0) {
+                } @else if (displayCategoryTree().length > 0) {
                   <!-- Render Category Tree with assigned databases -->
-                  @for (cat of categoryTree(); track cat.id) {
+                  @for (cat of displayCategoryTree(); track cat.id) {
                     <ng-container
                       *ngTemplateOutlet="userCatTreeTpl; context: { cat: cat, level: 0 }"
                     ></ng-container>
@@ -546,6 +529,16 @@
                   class="pi expand-icon"
                   [ngClass]="expandedCategoryIds().has(cat.id) ? 'pi-chevron-down' : 'pi-chevron-left'"
                 ></i>
+                <input
+                  type="checkbox"
+                  class="tree-checkbox cat-checkbox"
+                  [disabled]="!isFormEditable() || getDescendantDatabaseIds(cat).length === 0"
+                  [checked]="isCategoryChecked(cat)"
+                  [indeterminate]="isCategoryIndeterminate(cat)"
+                  (click)="$event.stopPropagation()"
+                  (change)="toggleCategorySelection(cat, $event)"
+                  [title]="getDescendantDatabaseIds(cat).length === 0 ? 'این شاخه فاقد پایگاه‌داده است' : 'انتخاب یا عدم انتخاب تمامی دیتابیس‌های این شاخه'"
+                />
                 <i
                   class="pi folder-icon"
                   [ngClass]="expandedCategoryIds().has(cat.id) ? 'pi-folder-open' : 'pi-folder'"
@@ -712,4 +705,29 @@
       }
     </div>
   </div>
+
+  <!-- Delete Confirmation Dialog -->
+  @if (userToDelete(); as target) {
+    <div class="confirm-backdrop" (click)="cancelDeleteUser()">
+      <div class="confirm-card" role="alertdialog" aria-modal="true" (click)="$event.stopPropagation()">
+        <header class="confirm-header">
+          <i class="pi pi-exclamation-triangle confirm-icon"></i>
+          <h3>حذف حساب کاربری</h3>
+        </header>
+        <div class="confirm-body">
+          <p>
+            آیا از حذف کامل حساب کاربری <strong>«{{ target.full_name }} ({{ target.username }})»</strong> اطمینان دارید؟
+          </p>
+          <p class="confirm-note">این عملیات غیرقابل بازگشت است و کلیه دسترسی‌های مستقیم و نقشی این کاربر لغو خواهد شد.</p>
+        </div>
+        <footer class="confirm-footer">
+          <button type="button" class="btn-secondary" (click)="cancelDeleteUser()">انصراف</button>
+          <button type="button" class="btn-danger-solid btn-with-icon" (click)="confirmDeleteUser()">
+            <i class="pi pi-trash"></i>
+            <span>حذف قطعی</span>
+          </button>
+        </footer>
+      </div>
+    </div>
+  }
 </div>

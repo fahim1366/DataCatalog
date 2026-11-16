@@ -43,7 +43,29 @@
   <!-- Upper Card: Roles Data Table -->
   <div class="table-card">
     <div class="table-card-header">
-      <h2 class="table-title"> نقش‌های سازمانی</h2>
+      <h2 class="table-title">نقش‌های سازمانی</h2>
+      <div class="table-toolbar">
+        <div class="search-box">
+          <i class="pi pi-search search-icon"></i>
+          <input
+            type="text"
+            class="search-input"
+            placeholder="جستجو در نام فارسی یا انگلیسی نقش..."
+            [ngModel]="searchTerm()"
+            (ngModelChange)="searchTerm.set($event); onFilterChanged()"
+          />
+          @if (searchTerm()) {
+            <button
+              type="button"
+              class="btn-clear-search"
+              (click)="searchTerm.set(''); onFilterChanged()"
+              aria-label="پاک کردن جستجو"
+            >
+              <i class="pi pi-times"></i>
+            </button>
+          }
+        </div>
+      </div>
     </div>
 
     <div class="table-responsive">
@@ -55,35 +77,6 @@
             <th>نام نقش به انگلیسی (کد سیستمی) <i class="pi pi-sort-alt sort-arrows"></i></th>
             <th class="th-center">تعداد کاربران <i class="pi pi-sort-alt sort-arrows"></i></th>
             <th class="th-actions">عملیات</th>
-          </tr>
-          <tr class="header-filters-row">
-            <th class="th-num"></th>
-            <th>
-              <div class="inline-filter-box">
-                <i class="pi pi-search filter-icon"></i>
-                <input
-                  type="text"
-                  class="filter-input"
-                  placeholder="جستجو"
-                  [ngModel]="filterPersianName()"
-                  (ngModelChange)="filterPersianName.set($event); onFilterChanged()"
-                />
-              </div>
-            </th>
-            <th>
-              <div class="inline-filter-box">
-                <i class="pi pi-search filter-icon"></i>
-                <input
-                  type="text"
-                  class="filter-input"
-                  placeholder="جستجو"
-                  [ngModel]="filterEnglishName()"
-                  (ngModelChange)="filterEnglishName.set($event); onFilterChanged()"
-                />
-              </div>
-            </th>
-            <th class="th-center"></th>
-            <th class="th-actions"></th>
           </tr>
         </thead>
         <tbody>
@@ -472,4 +465,29 @@
       }
     </div>
   </div>
+
+  <!-- Delete Confirmation Dialog -->
+  @if (roleToDelete(); as target) {
+    <div class="confirm-backdrop" (click)="cancelDeleteRole()">
+      <div class="confirm-card" role="alertdialog" aria-modal="true" (click)="$event.stopPropagation()">
+        <header class="confirm-header">
+          <i class="pi pi-exclamation-triangle confirm-icon"></i>
+          <h3>حذف نقش سازمانی</h3>
+        </header>
+        <div class="confirm-body">
+          <p>
+            آیا از حذف نقش سازمانی <strong>«{{ target.description || target.name }}»</strong> اطمینان دارید؟
+          </p>
+          <p class="confirm-note">این عملیات غیرقابل بازگشت است و دسترسی‌های منتسب به این نقش لغو خواهند شد.</p>
+        </div>
+        <footer class="confirm-footer">
+          <button type="button" class="btn-secondary" (click)="cancelDeleteRole()">انصراف</button>
+          <button type="button" class="btn-danger-solid btn-with-icon" (click)="confirmDeleteRole()">
+            <i class="pi pi-trash"></i>
+            <span>حذف قطعی</span>
+          </button>
+        </footer>
+      </div>
+    </div>
+  }
 </div>

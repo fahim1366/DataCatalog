@@ -242,7 +242,28 @@
 .nav-menu {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 4px;
+}
+
+.nav-section {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.nav-section-title {
+  padding: 8px 12px 4px 12px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--slate-400);
+  letter-spacing: 0.02em;
+  user-select: none;
+}
+
+.nav-divider {
+  height: 1px;
+  background-color: var(--slate-800);
+  margin: 6px 8px;
 }
 
 .nav-item {

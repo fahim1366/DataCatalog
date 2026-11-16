@@ -179,4 +179,56 @@ describe('ConnectionDialogComponent', () => {
 
     expect(cancelled).toBe(true);
   });
+
+  it('should validate JSON syntax on custom_params_json and emit parsed object on submit', () => {
+    let emittedPayload: any = null;
+    component.save.subscribe((val) => {
+      emittedPayload = val;
+    });
+
+    component.form.patchValue({
+      name: 'Custom DW',
+      engine_type: 'POSTGRESQL',
+      host: 'dw.internal.company.com',
+      port: 5432,
+      database_name: 'analytics_dw',
+      username: 'bi_admin',
+      password: 'Pass123!',
+      custom_params_json: '{ "sslmode": "require", "connect_timeout": 15 }',
+    });
+
+    expect(component.form.controls.custom_params_json.valid).toBe(true);
+
+    component.onSubmit();
+    expect(emittedPayload).toBeTruthy();
+    expect(emittedPayload.custom_params).toEqual({
+      sslmode: 'require',
+      connect_timeout: 15,
+    });
+  });
+
+  it('should reject invalid JSON syntax in custom_params_json and prevent submit', () => {
+    let wasEmitted = false;
+    component.save.subscribe(() => {
+      wasEmitted = true;
+    });
+
+    component.form.patchValue({
+      name: 'Custom DW',
+      engine_type: 'POSTGRESQL',
+      host: 'dw.internal.company.com',
+      port: 5432,
+      database_name: 'analytics_dw',
+      username: 'bi_admin',
+      password: 'Pass123!',
+      custom_params_json: '{ sslmode: bad_syntax }',
+    });
+
+    expect(component.form.controls.custom_params_json.invalid).toBe(true);
+    expect(component.form.controls.custom_params_json.errors?.['invalidJson']).toBeTruthy();
+
+    component.onSubmit();
+    expect(wasEmitted).toBe(false);
+    expect(component.isCustomParamsOpen()).toBe(true);
+  });
 });

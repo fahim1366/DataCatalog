@@ -750,6 +750,11 @@ async def update_column_classification(
         source_description=column.source_description,
         approved_description=column.approved_description,
         effective_description=column.effective_description,
+        ai_suggested_description=column.ai_suggested_description,
+        description_source=column.description_source,
+        curated_by_id=column.curated_by_id,
+        curated_by_username=column.curated_by_username,
+        curated_at=column.curated_at,
         classification_level=column.classification_level.value,
         status=column.status.value,
     )

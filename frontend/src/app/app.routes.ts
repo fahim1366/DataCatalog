@@ -3,11 +3,11 @@ import { CatalogExplorerComponent } from './features/catalog/catalog-explorer.co
 import { ConnectionListComponent } from './features/connections/connection-list.component';
 import { TaxonomyManagementComponent } from './features/taxonomy/taxonomy-management.component';
 import { VersionDiffComponent } from './features/versioning/version-diff.component';
-import { IamManagementComponent } from './features/iam/iam-management.component';
 import { AuditLogViewerComponent } from './features/audit/audit-log-viewer.component';
 import { ExecutiveDashboardComponent } from './features/reports/executive-dashboard.component';
 import { LoginComponent } from './features/auth/login.component';
 import { authGuard } from './core/guards/auth.guard';
+import { permissionGuard } from './core/guards/permission.guard';
 import { UserManagementComponent } from './features/access-control/users/user-management.component';
 import { RoleManagementComponent } from './features/access-control/roles/role-management.component';
 import { ScheduleManagementComponent } from './features/schedules/schedule-management.component';
@@ -66,7 +66,7 @@ export const routes: Routes = [
   {
     path: 'admin/users',
     component: UserManagementComponent,
-    canActivate: [authGuard],
+    canActivate: [authGuard, permissionGuard('MANAGE_USERS')],
     title: 'مدیریت کاربران و سطوح دسترسی (User Management)',
   },
   {
@@ -77,14 +77,13 @@ export const routes: Routes = [
   {
     path: 'admin/roles',
     component: RoleManagementComponent,
-    canActivate: [authGuard],
+    canActivate: [authGuard, permissionGuard('MANAGE_ROLES')],
     title: 'مدیریت نقش‌ها و مجوزها (Role Management)',
   },
   {
     path: 'admin/iam',
-    component: IamManagementComponent,
-    canActivate: [authGuard],
-    title: 'مدیریت کاربران، نقش‌ها و سطوح دسترسی (RBAC)',
+    redirectTo: 'admin/users',
+    pathMatch: 'full',
   },
   {
     path: 'audit',

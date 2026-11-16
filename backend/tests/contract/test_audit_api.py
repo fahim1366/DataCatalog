@@ -298,7 +298,7 @@ async def test_audit_logs_filtering_contract(
             start_iso = "2026-11-10T10:30:00Z"
             end_iso = "2026-11-10T11:30:00Z"
             res_date = await client.get(
-                f"/api/v1/audit-logs?start_time={start_iso}&end_time={end_iso}",
+                f"/api/v1/audit-logs?start_time={start_iso}&end_time={end_iso}&actor_id={admin.id}",
                 headers=headers,
             )
             assert res_date.status_code == 200

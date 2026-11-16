@@ -5,6 +5,9 @@ export interface SyncSchedule {
   connection_id: string;
   cron_expression: string;
   is_enabled: boolean;
+  circuit_state?: 'CLOSED' | 'OPEN' | 'HALF_OPEN';
+  consecutive_failures?: number;
+  cooldown_until?: string | null;
   last_run_at?: string | null;
   last_run_status?: string | null;
   last_run_message?: string | null;

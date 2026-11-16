@@ -24,6 +24,15 @@
     </div>
   }
 
+  @if (syncSuccessMessage()) {
+    <div class="toast-container">
+      <div class="toast toast-success" role="status">
+        <i class="pi pi-check-circle"></i>
+        <span>{{ syncSuccessMessage() }}</span>
+      </div>
+    </div>
+  }
+
   <!-- Split View: Topics Tree Sidebar + Database Content Area -->
   <div class="connections-workspace">
     <!-- Sidebar: Topics Tree -->
@@ -328,6 +337,20 @@
                           <span class="status-badge badge-inactive">غیرفعال (Inactive)</span>
                         }
 
+                        @if (conn.sync_schedule?.circuit_state && conn.sync_schedule?.circuit_state !== 'CLOSED') {
+                          @if (conn.sync_schedule?.circuit_state === 'OPEN') {
+                            <span class="circuit-badge circuit-open" title="مدارشکن فعال (OPEN)">
+                              <i class="pi pi-exclamation-circle"></i>
+                              <span>OPEN</span>
+                            </span>
+                          } @else if (conn.sync_schedule?.circuit_state === 'HALF_OPEN') {
+                            <span class="circuit-badge circuit-half-open" title="مدارشکن نیمه‌باز (HALF_OPEN)">
+                              <i class="pi pi-info-circle"></i>
+                              <span>HALF_OPEN</span>
+                            </span>
+                          }
+                        }
+
                         @if (testResults()[conn.id]; as result) {
                           @if (result.success) {
                             <span class="ping-badge ping-ok test-result-indicator test-result-success" [title]="result.message">
@@ -347,43 +370,28 @@
                     <td class="td-actions">
                       <button
                         type="button"
-                        class="action-icon-btn action-diagnostic btn-diagnostic"
-                        (click)="openDiagnosticDialog(conn)"
-                        title="آزمون سلامت اتصال و مدارشکن"
-                        aria-label="آزمون سلامت اتصال و مدارشکن"
-                      >
-                        <i class="pi pi-heart-fill" style="color: #0284c7;"></i>
-                      </button>
-
-                      <button
-                        type="button"
                         class="action-icon-btn action-sync btn-manual-sync"
                         *hasPermission="'MANAGE_SCHEDULES'"
                         [disabled]="syncingConnectionId() === conn.id"
                         (click)="onManualSync(conn)"
-                        title="همگام‌سازی دستی"
-                        aria-label="همگام‌سازی دستی"
+                        title="همگامسازی دستی"
+                        aria-label="همگامسازی دستی"
                       >
                         @if (syncingConnectionId() === conn.id) {
                           <i class="pi pi-spin pi-spinner" style="color: #16a34a;"></i>
                         } @else {
-                          <i class="pi pi-sync" style="color: #16a34a;"></i>
+                          <i class="pi pi-refresh" style="color: #16a34a;"></i>
                         }
                       </button>
 
                       <button
                         type="button"
                         class="action-icon-btn action-test btn-test-connection"
-                        [disabled]="testingConnectionId() === conn.id"
-                        (click)="onTestConnection(conn.id)"
+                        (click)="openDiagnosticDialog(conn)"
                         title="تست اتصال"
                         aria-label="تست اتصال"
                       >
-                        @if (testingConnectionId() === conn.id) {
-                          <i class="pi pi-spin pi-spinner"></i>
-                        } @else {
-                          <i class="pi pi-bolt"></i>
-                        }
+                        <i class="pi pi-bolt"></i>
                       </button>
 
                       <button

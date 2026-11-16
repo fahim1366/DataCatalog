@@ -28,6 +28,7 @@ export interface SearchHit {
   row_count_estimate?: number;
   size_bytes?: number;
   tags?: TagItem[];
+  description_drift_detected?: boolean;
 }
 
 export interface SearchResponse {
@@ -46,6 +47,7 @@ export interface TableItem {
   owner?: string | null;
   status: string;
   tags?: TagItem[];
+  description_drift_detected?: boolean;
 }
 
 export interface TableListResponse {
@@ -75,6 +77,7 @@ export interface ColumnItem {
   classification_level: string;
   status: string;
   tags?: TagItem[];
+  description_drift_detected?: boolean;
 }
 
 export interface TableDetail {

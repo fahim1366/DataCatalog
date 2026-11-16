@@ -5,7 +5,7 @@ import logging
 import uuid
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -41,15 +41,54 @@ from backend.src.schemas.sync_jobs import (
     SyncJobListResponse,
     SyncJobResponse,
 )
-from backend.src.api.v1.sync_jobs import decode_sync_cursor, encode_sync_cursor
 from backend.src.core.celery_app import QUEUE_PRIORITY
 from backend.src.services.workers.circuit_breaker import circuit_breaker_manager
-from backend.src.services.workers.tasks import manual_metadata_sync_task, test_connection_sync
+from backend.src.services.workers.tasks import (
+    execute_metadata_sync,
+    manual_metadata_sync_task,
+    test_connection_sync,
+)
 from backend.src.services.audit.audit_service import record_audit_event
 from backend.src.services.connections.connection_service import connection_service
 from backend.src.services.connections.cron_validator import validate_cron_expression
 
 logger = logging.getLogger(__name__)
+
+
+async def require_manage_schedules(
+    user_ctx: UserContext = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+) -> UserContext:
+    if user_ctx.is_superadmin:
+        return user_ctx
+    deny_stmt = select(1).where(
+        user_rule_matches(user_ctx),
+        PermissionRule.action.in_([
+            PermissionAction.MANAGE_SCHEDULES,
+            PermissionAction.MANAGE_CONNECTIONS,
+        ]),
+        PermissionRule.effect == PermissionEffect.DENY,
+    )
+    if (await db.execute(deny_stmt)).scalar_one_or_none() is not None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Forbidden: Access to manage schedules is explicitly denied.",
+        )
+    allow_stmt = select(1).where(
+        user_rule_matches(user_ctx),
+        PermissionRule.action.in_([
+            PermissionAction.MANAGE_SCHEDULES,
+            PermissionAction.MANAGE_CONNECTIONS,
+        ]),
+        PermissionRule.effect == PermissionEffect.ALLOW,
+    )
+    if (await db.execute(allow_stmt)).scalar_one_or_none() is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Forbidden: User lacks MANAGE_SCHEDULES permission.",
+        )
+    return user_ctx
+
 
 router = APIRouter(prefix="/connections", tags=["Connections"])
 
@@ -343,41 +382,6 @@ async def test_connection_ping(
     )
 
 
-async def require_manage_schedules(
-    user_ctx: UserContext = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db_session),
-) -> UserContext:
-    if user_ctx.is_superadmin:
-        return user_ctx
-    deny_stmt = select(1).where(
-        user_rule_matches(user_ctx),
-        PermissionRule.action.in_([
-            PermissionAction.MANAGE_SCHEDULES,
-            PermissionAction.MANAGE_CONNECTIONS,
-        ]),
-        PermissionRule.effect == PermissionEffect.DENY,
-    )
-    if (await db.execute(deny_stmt)).scalar_one_or_none() is not None:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Forbidden: Access to manage schedules is explicitly denied.",
-        )
-    allow_stmt = select(1).where(
-        user_rule_matches(user_ctx),
-        PermissionRule.action.in_([
-            PermissionAction.MANAGE_SCHEDULES,
-            PermissionAction.MANAGE_CONNECTIONS,
-        ]),
-        PermissionRule.effect == PermissionEffect.ALLOW,
-    )
-    if (await db.execute(allow_stmt)).scalar_one_or_none() is None:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Forbidden: User lacks MANAGE_SCHEDULES permission.",
-        )
-    return user_ctx
-
-
 @router.get(
     "/{connection_id}/schedule",
     response_model=SyncScheduleResponse,
@@ -462,6 +466,7 @@ async def update_connection_schedule(
 )
 async def trigger_connection_sync(
     connection_id: uuid.UUID,
+    background_tasks: BackgroundTasks,
     user_ctx: UserContext = Depends(require_manage_schedules),
     db: AsyncSession = Depends(get_db_session),
 ) -> SyncJobResponse:
@@ -502,7 +507,15 @@ async def trigger_connection_sync(
             retry=False,
         )
     except Exception as exc:
-        logger.warning("Could not dispatch Celery task (%s). Job remains QUEUED.", exc)
+        logger.warning(
+            "Could not dispatch Celery task (%s). Falling back to in-process execution via BackgroundTasks.",
+            exc,
+        )
+        background_tasks.add_task(
+            execute_metadata_sync,
+            connection_id=connection_id,
+            job_id=job.id,
+        )
 
     await record_audit_event(
         session=db,
@@ -566,6 +579,9 @@ async def reset_circuit_breaker(
         consecutive_failures=schedule.consecutive_failures,
         cooldown_until=schedule.cooldown_until,
     )
+
+
+from backend.src.api.v1.sync_jobs import decode_sync_cursor
 
 
 @router.get(

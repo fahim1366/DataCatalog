@@ -439,7 +439,7 @@ export class ConnectionListComponent implements OnInit {
     this.syncJobService.triggerSync(conn.id).subscribe({
       next: (job) => {
         this.syncingConnectionId.set(null);
-        this.syncSuccessMessage.set(`همگام‌سازی دستی برای «${conn.name}» با موفقیت در صف پردازش قرار گرفت (شناسه جاب: ${job.id})`);
+        this.syncSuccessMessage.set('همگامسازی متاداده در صف اجرا قرار گرفت');
         setTimeout(() => this.syncSuccessMessage.set(null), 5000);
       },
       error: (err: unknown) => {

@@ -42,6 +42,19 @@ export class ConnectionDiagnosticDialogComponent implements OnChanges {
   readonly cooldownUntil = signal<string | null>(null);
 
   ngOnChanges(changes: SimpleChanges): void {
+    if (this.connection) {
+      if (this.connection.sync_schedule) {
+        this.circuitState.set(
+          (this.connection.sync_schedule.circuit_state as CircuitState) ?? 'CLOSED'
+        );
+        this.consecutiveFailures.set(this.connection.sync_schedule.consecutive_failures ?? 0);
+        this.cooldownUntil.set(this.connection.sync_schedule.cooldown_until ?? null);
+      } else {
+        this.circuitState.set('CLOSED');
+        this.consecutiveFailures.set(0);
+        this.cooldownUntil.set(null);
+      }
+    }
     if (changes['visible'] && this.visible && this.connection) {
       this.runDiagnostic();
     }

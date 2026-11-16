@@ -221,6 +221,7 @@ class SearchService:
                     "row_count_estimate": tbl.row_count_estimate,
                     "size_bytes": tbl.size_bytes,
                     "tags": tags_by_table.get(tbl.id, []),
+                    "description_drift_detected": bool(tbl.description_drift_detected),
                 }
             )
 
@@ -324,6 +325,7 @@ class SearchService:
                 "owner": t.owner,
                 "status": t.status.value,
                 "tags": tags_by_table.get(t.id, []),
+                "description_drift_detected": bool(t.description_drift_detected),
             }
             for t in selected_tables
         ]

@@ -13,6 +13,7 @@ from sqlalchemy.orm import selectinload
 from backend.src.api.dependencies.rbac import UserContext, get_current_user
 from backend.src.core.database import get_db_session
 from backend.src.models.catalog import CatalogTable
+from backend.src.models.rbac import EntityType, PermissionAction, PermissionEffect
 from backend.src.schemas.drift import (
     ColumnDriftDetail,
     DescriptionDriftDetailResponse,
@@ -20,6 +21,7 @@ from backend.src.schemas.drift import (
     ResolveDescriptionDriftRequest,
 )
 from backend.src.services.ingestion.drift_service import drift_service
+from backend.src.services.rbac.category_service import CategoryService
 
 logger = logging.getLogger(__name__)
 
@@ -98,6 +100,20 @@ async def resolve_table_drift(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Table with ID '{table_id}' not found.",
         )
+
+    if not user_ctx.is_superadmin:
+        effect = await CategoryService.resolve_effective_permission(
+            session=db,
+            user_ctx=user_ctx,
+            entity_type=EntityType.TABLE,
+            entity_id=table.id,
+            action=PermissionAction.EDIT_DESCRIPTION,
+        )
+        if effect != PermissionEffect.ALLOW:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Forbidden: User lacks EDIT_DESCRIPTION permission for table {table_id}",
+            )
 
     try:
         await drift_service.resolve_table_drift(

@@ -207,3 +207,53 @@ async def test_resolve_table_drift_endpoints(
             assert resp_404.status_code == 404
     finally:
         app.dependency_overrides.pop(get_db_session, None)
+
+
+@pytest.mark.asyncio
+async def test_resolve_drift_rbac_forbidden_for_viewer(
+    test_db_session: AsyncSession, sample_drift_table: tuple
+):
+    """Asserts that a VIEWER user without EDIT_DESCRIPTION receives 403 Forbidden on drift resolve."""
+    table, col1, col2 = sample_drift_table
+    suffix = uuid.uuid4().hex[:8]
+
+    viewer_user = User(
+        id=uuid.uuid4(),
+        username=f"drift_viewer_{suffix}",
+        email=f"drift_viewer_{suffix}@company.internal",
+        hashed_password=auth_service.hash_password("ViewerPass123!"),
+        full_name="Drift Viewer",
+        status=UserStatus.ACTIVE,
+        is_superadmin=False,
+    )
+    test_db_session.add(viewer_user)
+    await test_db_session.flush()
+
+    token = auth_service.create_access_token(
+        data={
+            "sub": str(viewer_user.id),
+            "username": viewer_user.username,
+            "email": viewer_user.email,
+            "roles": ["Viewer"],
+            "is_superadmin": False,
+        }
+    )
+    viewer_headers = {"Authorization": f"Bearer {token}"}
+
+    async def override_db():
+        yield test_db_session
+
+    app.dependency_overrides[get_db_session] = override_db
+    transport = ASGITransport(app=app)
+    try:
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            resp = await client.post(
+                f"/api/v1/tables/{table.id}/drift/resolve",
+                json={"resolution_action": "RETAIN_APPROVED"},
+                headers=viewer_headers,
+            )
+            assert resp.status_code == 403
+            assert "Forbidden" in resp.json()["detail"]
+    finally:
+        app.dependency_overrides.pop(get_db_session, None)
+

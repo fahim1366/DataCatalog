@@ -5,7 +5,9 @@ import { By } from '@angular/platform-browser';
 import { of } from 'rxjs';
 import { ConnectionListComponent } from './connection-list.component';
 import { ConnectionDialogComponent } from './connection-dialog.component';
+import { ConnectionDiagnosticDialogComponent } from './connection-diagnostic-dialog.component';
 import { ConnectionService } from './services/connection.service';
+import { SyncJobService } from '../../core/services/sync-job.service';
 import { DatabaseConnection, ConnectionTestResult } from './models/connection.models';
 import { AuthService } from '../../core/auth/auth.service';
 import { CategoryTreeNode } from '../catalog/models/catalog.models';
@@ -213,17 +215,7 @@ describe('ConnectionListComponent (T028: Angular Connection Management UI)', () 
     expect(text).toContain('FAILED');
   });
 
-  it('should dispatch test connection request and display latency when "Test Connection" button is clicked', async () => {
-    const mockSuccessResult: ConnectionTestResult = {
-      success: true,
-      latency_ms: 24.5,
-      dialect: 'POSTGRESQL',
-      message: 'PostgreSQL connection ping succeeded',
-      tested_at: '2026-11-10T12:00:00Z',
-    };
-
-    const testPingSpy = vi.spyOn(connectionService, 'testConnection').mockReturnValue(of(mockSuccessResult));
-
+  it('should open diagnostic dialog when "Test Connection" bolt button is clicked', async () => {
     const testButtons = fixture.debugElement.queryAll(By.css('.btn-test-connection'));
     expect(testButtons.length).toBeGreaterThanOrEqual(1);
 
@@ -231,34 +223,65 @@ describe('ConnectionListComponent (T028: Angular Connection Management UI)', () 
     fixture.detectChanges();
     await fixture.whenStable();
 
-    expect(testPingSpy).toHaveBeenCalledWith('11111111-1111-1111-1111-111111111111');
+    expect(component.showDiagnosticDialog()).toBe(true);
+    expect(component.diagnosticConnection()).toEqual(mockConnections[0]);
 
-    const testResultEl = fixture.debugElement.query(By.css('.test-result-indicator, .test-result-success'));
-    expect(testResultEl).toBeTruthy();
-    expect(testResultEl.nativeElement.textContent).toContain('24.5ms');
-    expect(testResultEl.nativeElement.textContent).toContain('PostgreSQL connection ping succeeded');
+    const diagnosticModal = fixture.debugElement.query(By.directive(ConnectionDiagnosticDialogComponent));
+    expect(diagnosticModal).toBeTruthy();
   });
 
-  it('should display error diagnostic structure when test connection fails', async () => {
-    const mockFailedResult: ConnectionTestResult = {
-      success: false,
-      latency_ms: 5002.1,
-      dialect: 'CLICKHOUSE',
-      message: 'Connection timed out after 5.0 seconds',
-      diagnostic_details: { error_code: 'CONNECTION_TIMEOUT', host: 'clickhouse.analytics.net' },
-      tested_at: '2026-11-10T12:00:00Z',
-    };
+  it('should trigger manual sync and display Persian toast when manual sync button is clicked', async () => {
+    const syncJobSpy = vi.spyOn(TestBed.inject(SyncJobService), 'triggerSync').mockReturnValue(
+      of({
+        id: 'job-999',
+        connection_id: mockConnections[0].id,
+        status: 'QUEUED',
+        triggered_by: 'MANUAL',
+        created_at: '2026-11-16T12:00:00Z',
+      } as any)
+    );
 
-    vi.spyOn(connectionService, 'testConnection').mockReturnValue(of(mockFailedResult));
+    const syncButtons = fixture.debugElement.queryAll(By.css('.btn-manual-sync'));
+    expect(syncButtons.length).toBeGreaterThanOrEqual(1);
 
-    const testButtons = fixture.debugElement.queryAll(By.css('.btn-test-connection'));
-    testButtons[1].nativeElement.click();
+    syncButtons[0].nativeElement.click();
     fixture.detectChanges();
     await fixture.whenStable();
 
-    const failureEl = fixture.debugElement.query(By.css('.test-result-failure'));
-    expect(failureEl).toBeTruthy();
-    expect(failureEl.nativeElement.textContent).toContain('timed out');
+    expect(syncJobSpy).toHaveBeenCalledWith(mockConnections[0].id);
+    expect(component.syncSuccessMessage()).toBe('همگامسازی متاداده در صف اجرا قرار گرفت');
+
+    const toastEl = fixture.debugElement.query(By.css('.toast-success'));
+    expect(toastEl).toBeTruthy();
+    expect(toastEl.nativeElement.textContent).toContain('همگامسازی متاداده در صف اجرا قرار گرفت');
+  });
+
+  it('should render circuit breaker badge when circuit_state is OPEN or HALF_OPEN', () => {
+    component.connections.set([
+      {
+        ...mockConnections[0],
+        sync_schedule: {
+          ...mockConnections[0].sync_schedule!,
+          circuit_state: 'OPEN',
+        },
+      },
+      {
+        ...mockConnections[1],
+        sync_schedule: {
+          ...mockConnections[1].sync_schedule!,
+          circuit_state: 'HALF_OPEN',
+        },
+      },
+    ]);
+    fixture.detectChanges();
+
+    const openBadge = fixture.debugElement.query(By.css('.circuit-open'));
+    expect(openBadge).toBeTruthy();
+    expect(openBadge.nativeElement.textContent).toContain('OPEN');
+
+    const halfOpenBadge = fixture.debugElement.query(By.css('.circuit-half-open'));
+    expect(halfOpenBadge).toBeTruthy();
+    expect(halfOpenBadge.nativeElement.textContent).toContain('HALF_OPEN');
   });
 
   it('should open edit dialog with existing connection populated when edit button is clicked', async () => {

@@ -7,7 +7,7 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -24,7 +24,7 @@ from backend.src.schemas.sync_jobs import (
     SyncJobResponse,
 )
 from backend.src.services.audit.audit_service import record_audit_event
-from backend.src.services.workers.tasks import manual_metadata_sync_task
+from backend.src.services.workers.tasks import execute_metadata_sync, manual_metadata_sync_task
 
 logger = logging.getLogger(__name__)
 
@@ -44,6 +44,9 @@ def decode_sync_cursor(cursor_str: str) -> Tuple[datetime, uuid.UUID]:
     raw = base64.urlsafe_b64decode(cursor_str.encode("utf-8")).decode("utf-8")
     payload = json.loads(raw)
     return datetime.fromisoformat(payload["created_at"]), uuid.UUID(payload["id"])
+
+
+from backend.src.api.v1.connections import require_manage_schedules
 
 
 @router.get(
@@ -164,7 +167,8 @@ async def get_sync_job_detail(
 )
 async def retry_sync_job(
     job_id: uuid.UUID,
-    user_ctx: UserContext = Depends(get_current_user),
+    background_tasks: BackgroundTasks,
+    user_ctx: UserContext = Depends(require_manage_schedules),
     db: AsyncSession = Depends(get_db_session),
 ) -> SyncJobResponse:
     """
@@ -197,7 +201,15 @@ async def retry_sync_job(
             retry=False,
         )
     except Exception as exc:
-        logger.warning("Could not dispatch retry Celery task (%s).", exc)
+        logger.warning(
+            "Could not dispatch retry Celery task (%s). Falling back to in-process execution via BackgroundTasks.",
+            exc,
+        )
+        background_tasks.add_task(
+            execute_metadata_sync,
+            connection_id=retry_job.connection_id,
+            job_id=retry_job.id,
+        )
 
     await record_audit_event(
         session=db,

@@ -15,6 +15,9 @@ class SyncScheduleResponse(BaseModel):
     connection_id: uuid.UUID
     cron_expression: str
     is_enabled: bool
+    consecutive_failures: int = 0
+    circuit_state: str = "CLOSED"
+    cooldown_until: Optional[datetime] = None
     last_run_at: Optional[datetime] = None
     last_run_status: Optional[str] = None
     last_run_message: Optional[str] = None

@@ -283,6 +283,9 @@
               <div class="table-title mono-font">
                 <span class="type-icon">📊</span>
                 <strong>{{ hit.name }}</strong>
+                @if (hit.description_drift_detected) {
+                  <span class="drift-badge" title="تعارض شرح">تعارض شرح</span>
+                }
               </div>
               <div class="table-type-badge">{{ hit.table_type || 'TABLE' }}</div>
             </div>

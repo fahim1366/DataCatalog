@@ -1,0 +1,108 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: datacatalog-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: enterprise_datacatalog
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d enterprise_datacatalog"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  redis:
+    image: redis:7-alpine
+    container_name: datacatalog-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    container_name: datacatalog-backend
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql+asyncpg://postgres:password@postgres:5432/enterprise_datacatalog
+      DATABASE_SYNC_URL: postgresql+psycopg2://postgres:password@postgres:5432/enterprise_datacatalog
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/0
+      CATALOG_MASTER_KEK: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+      JWT_SECRET_KEY: change-this-in-production-to-a-secure-jwt-secret-key
+    command: >
+      sh -c "alembic -c backend/alembic.ini upgrade head &&
+             uvicorn backend.src.main:app --host 0.0.0.0 --port 8000"
+
+  celery-worker:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    container_name: datacatalog-celery-worker
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      backend:
+        condition: service_started
+    environment:
+      DATABASE_URL: postgresql+asyncpg://postgres:password@postgres:5432/enterprise_datacatalog
+      DATABASE_SYNC_URL: postgresql+psycopg2://postgres:password@postgres:5432/enterprise_datacatalog
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/0
+      CATALOG_MASTER_KEK: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+      JWT_SECRET_KEY: change-this-in-production-to-a-secure-jwt-secret-key
+    command: celery -A backend.src.core.celery_app.celery_app worker --loglevel=info -Q metadata.priority,metadata.fast,metadata.bulk
+
+  celery-beat:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    container_name: datacatalog-celery-beat
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      backend:
+        condition: service_started
+    environment:
+      DATABASE_URL: postgresql+asyncpg://postgres:password@postgres:5432/enterprise_datacatalog
+      DATABASE_SYNC_URL: postgresql+psycopg2://postgres:password@postgres:5432/enterprise_datacatalog
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/0
+      CATALOG_MASTER_KEK: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+      JWT_SECRET_KEY: change-this-in-production-to-a-secure-jwt-secret-key
+    command: celery -A backend.src.core.celery_app.celery_app beat --scheduler backend.src.services.scheduler.dynamic_beat.DatabaseScheduler --loglevel=info
+
+volumes:
+  postgres_data:
+  redis_data:

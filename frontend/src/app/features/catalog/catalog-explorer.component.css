@@ -357,6 +357,19 @@
   color: var(--primary-700);
 }
 
+.drift-badge {
+  display: inline-flex;
+  align-items: center;
+  font-size: 0.68rem;
+  font-weight: 600;
+  padding: 0.1rem 0.45rem;
+  border-radius: 9999px;
+  background-color: #fffbeb;
+  color: #b45309;
+  border: 1px solid #fde68a;
+  white-space: nowrap;
+}
+
 .table-type-badge {
   font-size: 0.68rem;
   color: var(--slate-400);

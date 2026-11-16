@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 import uuid
 import pytest
 from httpx import ASGITransport, AsyncClient
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.src.core.database import get_db_session
@@ -266,3 +267,118 @@ async def test_get_connection_jobs_history(
             assert resp_404.status_code == 404
     finally:
         app.dependency_overrides.pop(get_db_session, None)
+
+
+@pytest.mark.asyncio
+async def test_retry_sync_job_rbac_forbidden_for_viewer(
+    test_db_session: AsyncSession, sample_jobs_fixture: tuple
+):
+    conn, schedule, jobs = sample_jobs_fixture
+    failed_job = jobs[1]
+    suffix = uuid.uuid4().hex[:8]
+
+    viewer_user = User(
+        id=uuid.uuid4(),
+        username=f"retry_viewer_{suffix}",
+        email=f"retry_viewer_{suffix}@company.internal",
+        hashed_password=auth_service.hash_password("ViewerPass123!"),
+        full_name="Retry Viewer",
+        status=UserStatus.ACTIVE,
+        is_superadmin=False,
+    )
+    test_db_session.add(viewer_user)
+    await test_db_session.flush()
+
+    token = auth_service.create_access_token(
+        data={
+            "sub": str(viewer_user.id),
+            "username": viewer_user.username,
+            "email": viewer_user.email,
+            "roles": ["Viewer"],
+            "is_superadmin": False,
+        }
+    )
+    viewer_headers = {"Authorization": f"Bearer {token}"}
+
+    async def override_db():
+        yield test_db_session
+
+    app.dependency_overrides[get_db_session] = override_db
+    transport = ASGITransport(app=app)
+    try:
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            resp = await client.post(
+                f"/api/v1/sync-jobs/{failed_job.id}/retry",
+                headers=viewer_headers,
+            )
+            assert resp.status_code == 403
+            assert "Forbidden" in resp.json()["detail"]
+    finally:
+        app.dependency_overrides.pop(get_db_session, None)
+
+
+@pytest.mark.asyncio
+async def test_sync_fallback_in_process_when_celery_broker_offline(
+    test_db_session: AsyncSession, admin_auth_data: dict, sample_jobs_fixture: tuple, monkeypatch
+):
+    from unittest.mock import AsyncMock, patch
+    from backend.src.services.workers.tasks import manual_metadata_sync_task
+
+    conn, schedule, jobs = sample_jobs_fixture
+    failed_job = jobs[1]
+
+    # Mock apply_async to simulate Redis / Celery offline failure
+    def mock_apply_async(*args, **kwargs):
+        raise ConnectionError("Redis broker is unreachable at 127.0.0.1:6379")
+
+    monkeypatch.setattr(manual_metadata_sync_task, "apply_async", mock_apply_async)
+
+    # Mock execute_metadata_sync so we can verify BackgroundTasks invoked it
+    fallback_mock = AsyncMock(return_value={"success": True})
+    monkeypatch.setattr("backend.src.api.v1.sync_jobs.execute_metadata_sync", fallback_mock)
+    monkeypatch.setattr("backend.src.api.v1.connections.execute_metadata_sync", fallback_mock)
+
+    async def override_db():
+        yield test_db_session
+
+    app.dependency_overrides[get_db_session] = override_db
+    transport = ASGITransport(app=app)
+    try:
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            # 1. Test retry fallback
+            resp = await client.post(
+                f"/api/v1/sync-jobs/{failed_job.id}/retry",
+                headers=admin_auth_data["headers"],
+            )
+            assert resp.status_code == 202
+            retry_data = resp.json()
+            assert retry_data["status"] == "QUEUED"
+            assert retry_data["triggered_by"] == "RETRY"
+            # Background task executed
+            assert fallback_mock.called
+
+            # Mark any active jobs as SUCCESS so concurrency guard allows triggering sync
+            res = await test_db_session.execute(
+                select(SyncJob).where(
+                    SyncJob.connection_id == conn.id,
+                    SyncJob.status.in_([SyncJobStatus.QUEUED.value, SyncJobStatus.RUNNING.value]),
+                )
+            )
+            for j in res.scalars().all():
+                j.status = SyncJobStatus.SUCCESS.value
+            await test_db_session.commit()
+
+            # 2. Test trigger connection sync fallback
+            fallback_mock.reset_mock()
+            resp2 = await client.post(
+                f"/api/v1/connections/{conn.id}/sync",
+                headers=admin_auth_data["headers"],
+            )
+            assert resp2.status_code == 202
+            sync_data = resp2.json()
+            assert sync_data["status"] == "QUEUED"
+            assert sync_data["triggered_by"] == "MANUAL"
+            assert fallback_mock.called
+    finally:
+        app.dependency_overrides.pop(get_db_session, None)
+

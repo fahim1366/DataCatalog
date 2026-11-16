@@ -45,8 +45,8 @@ export const routes: Routes = [
   {
     path: 'sync-monitor',
     component: SyncMonitorComponent,
-    canActivate: [authGuard],
-    title: 'مانیتورینگ همگام‌سازی متادیتا - سامانه داده',
+    canActivate: [authGuard, permissionGuard('MANAGE_SCHEDULES')],
+    title: 'پایش همگام‌سازی متادیتا - سامانه داده',
   },
   {
     path: 'taxonomy',

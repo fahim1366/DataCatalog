@@ -702,6 +702,29 @@
 .badge-active { background: #dcfce7; color: #166534; }
 .badge-inactive { background: #f1f5f9; color: #64748b; }
 
+.circuit-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: 0.7rem;
+  font-weight: 700;
+  padding: 0.15rem 0.5rem;
+  border-radius: 9999px;
+  white-space: nowrap;
+}
+
+.circuit-open {
+  background: #fee2e2;
+  color: #dc2626;
+  border: 1px solid #fca5a5;
+}
+
+.circuit-half-open {
+  background: #fef3c7;
+  color: #d97706;
+  border: 1px solid #fcd34d;
+}
+
 .ping-badge {
   display: inline-flex;
   align-items: center;

@@ -34,6 +34,7 @@ class SearchHit(BaseModel):
     row_count_estimate: Optional[int] = 0
     size_bytes: Optional[int] = 0
     tags: List[TagItem] = Field(default_factory=list)
+    description_drift_detected: bool = False
 
 
 class SearchResponse(BaseModel):

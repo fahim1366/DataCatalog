@@ -7207,6 +7207,7 @@ export interface SearchHit {
   row_count_estimate?: number;
   size_bytes?: number;
   tags?: TagItem[];
+  description_drift_detected?: boolean;
 }
 
 export interface SearchResponse {
@@ -7225,6 +7226,7 @@ export interface TableItem {
   owner?: string | null;
   status: string;
   tags?: TagItem[];
+  description_drift_detected?: boolean;
 }
 
 export interface TableListResponse {
@@ -7254,6 +7256,7 @@ export interface ColumnItem {
   classification_level: string;
   status: string;
   tags?: TagItem[];
+  description_drift_detected?: boolean;
 }
 
 export interface TableDetail {
@@ -7979,6 +7982,19 @@ export class CatalogStore {
   gap: 6px;
   cursor: pointer;
   color: var(--primary-700);
+}
+
+.drift-badge {
+  display: inline-flex;
+  align-items: center;
+  font-size: 0.68rem;
+  font-weight: 600;
+  padding: 0.1rem 0.45rem;
+  border-radius: 9999px;
+  background-color: #fffbeb;
+  color: #b45309;
+  border: 1px solid #fde68a;
+  white-space: nowrap;
 }
 
 .table-type-badge {
@@ -8746,6 +8762,9 @@ export class CatalogStore {
               <div class="table-title mono-font">
                 <span class="type-icon">ًں“ٹ</span>
                 <strong>{{ hit.name }}</strong>
+                @if (hit.description_drift_detected) {
+                  <span class="drift-badge" title="طھط¹ط§ط±ط¶ ط´ط±ط­">طھط¹ط§ط±ط¶ ط´ط±ط­</span>
+                }
               </div>
               <div class="table-type-badge">{{ hit.table_type || 'TABLE' }}</div>
             </div>
@@ -10012,6 +10031,9 @@ export interface SyncSchedule {
   connection_id: string;
   cron_expression: string;
   is_enabled: boolean;
+  circuit_state?: 'CLOSED' | 'OPEN' | 'HALF_OPEN';
+  consecutive_failures?: number;
+  cooldown_until?: string | null;
   last_run_at?: string | null;
   last_run_status?: string | null;
   last_run_message?: string | null;
@@ -10911,6 +10933,19 @@ export class ConnectionDiagnosticDialogComponent implements OnChanges {
   readonly cooldownUntil = signal<string | null>(null);
 
   ngOnChanges(changes: SimpleChanges): void {
+    if (this.connection) {
+      if (this.connection.sync_schedule) {
+        this.circuitState.set(
+          (this.connection.sync_schedule.circuit_state as CircuitState) ?? 'CLOSED'
+        );
+        this.consecutiveFailures.set(this.connection.sync_schedule.consecutive_failures ?? 0);
+        this.cooldownUntil.set(this.connection.sync_schedule.cooldown_until ?? null);
+      } else {
+        this.circuitState.set('CLOSED');
+        this.consecutiveFailures.set(0);
+        this.cooldownUntil.set(null);
+      }
+    }
     if (changes['visible'] && this.visible && this.connection) {
       this.runDiagnostic();
     }
@@ -12941,6 +12976,29 @@ export class ConnectionDialogComponent implements OnInit {
 .badge-active { background: #dcfce7; color: #166534; }
 .badge-inactive { background: #f1f5f9; color: #64748b; }
 
+.circuit-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: 0.7rem;
+  font-weight: 700;
+  padding: 0.15rem 0.5rem;
+  border-radius: 9999px;
+  white-space: nowrap;
+}
+
+.circuit-open {
+  background: #fee2e2;
+  color: #dc2626;
+  border: 1px solid #fca5a5;
+}
+
+.circuit-half-open {
+  background: #fef3c7;
+  color: #d97706;
+  border: 1px solid #fcd34d;
+}
+
 .ping-badge {
   display: inline-flex;
   align-items: center;
@@ -13254,6 +13312,15 @@ export class ConnectionDialogComponent implements OnInit {
     </div>
   }
 
+  @if (syncSuccessMessage()) {
+    <div class="toast-container">
+      <div class="toast toast-success" role="status">
+        <i class="pi pi-check-circle"></i>
+        <span>{{ syncSuccessMessage() }}</span>
+      </div>
+    </div>
+  }
+
   <!-- Split View: Topics Tree Sidebar + Database Content Area -->
   <div class="connections-workspace">
     <!-- Sidebar: Topics Tree -->
@@ -13558,6 +13625,20 @@ export class ConnectionDialogComponent implements OnInit {
                           <span class="status-badge badge-inactive">ط؛غŒط±ظپط¹ط§ظ„ (Inactive)</span>
                         }
 
+                        @if (conn.sync_schedule?.circuit_state && conn.sync_schedule?.circuit_state !== 'CLOSED') {
+                          @if (conn.sync_schedule?.circuit_state === 'OPEN') {
+                            <span class="circuit-badge circuit-open" title="ظ…ط¯ط§ط±ط´ع©ظ† ظپط¹ط§ظ„ (OPEN)">
+                              <i class="pi pi-exclamation-circle"></i>
+                              <span>OPEN</span>
+                            </span>
+                          } @else if (conn.sync_schedule?.circuit_state === 'HALF_OPEN') {
+                            <span class="circuit-badge circuit-half-open" title="ظ…ط¯ط§ط±ط´ع©ظ† ظ†غŒظ…ظ‡â€Œط¨ط§ط² (HALF_OPEN)">
+                              <i class="pi pi-info-circle"></i>
+                              <span>HALF_OPEN</span>
+                            </span>
+                          }
+                        }
+
                         @if (testResults()[conn.id]; as result) {
                           @if (result.success) {
                             <span class="ping-badge ping-ok test-result-indicator test-result-success" [title]="result.message">
@@ -13577,43 +13658,28 @@ export class ConnectionDialogComponent implements OnInit {
                     <td class="td-actions">
                       <button
                         type="button"
-                        class="action-icon-btn action-diagnostic btn-diagnostic"
-                        (click)="openDiagnosticDialog(conn)"
-                        title="ط¢ط²ظ…ظˆظ† ط³ظ„ط§ظ…طھ ط§طھطµط§ظ„ ظˆ ظ…ط¯ط§ط±ط´ع©ظ†"
-                        aria-label="ط¢ط²ظ…ظˆظ† ط³ظ„ط§ظ…طھ ط§طھطµط§ظ„ ظˆ ظ…ط¯ط§ط±ط´ع©ظ†"
-                      >
-                        <i class="pi pi-heart-fill" style="color: #0284c7;"></i>
-                      </button>
-
-                      <button
-                        type="button"
                         class="action-icon-btn action-sync btn-manual-sync"
                         *hasPermission="'MANAGE_SCHEDULES'"
                         [disabled]="syncingConnectionId() === conn.id"
                         (click)="onManualSync(conn)"
-                        title="ظ‡ظ…ع¯ط§ظ…â€Œط³ط§ط²غŒ ط¯ط³طھغŒ"
-                        aria-label="ظ‡ظ…ع¯ط§ظ…â€Œط³ط§ط²غŒ ط¯ط³طھغŒ"
+                        title="ظ‡ظ…ع¯ط§ظ…ط³ط§ط²غŒ ط¯ط³طھغŒ"
+                        aria-label="ظ‡ظ…ع¯ط§ظ…ط³ط§ط²غŒ ط¯ط³طھغŒ"
                       >
                         @if (syncingConnectionId() === conn.id) {
                           <i class="pi pi-spin pi-spinner" style="color: #16a34a;"></i>
                         } @else {
-                          <i class="pi pi-sync" style="color: #16a34a;"></i>
+                          <i class="pi pi-refresh" style="color: #16a34a;"></i>
                         }
                       </button>
 
                       <button
                         type="button"
                         class="action-icon-btn action-test btn-test-connection"
-                        [disabled]="testingConnectionId() === conn.id"
-                        (click)="onTestConnection(conn.id)"
+                        (click)="openDiagnosticDialog(conn)"
                         title="طھط³طھ ط§طھطµط§ظ„"
                         aria-label="طھط³طھ ط§طھطµط§ظ„"
                       >
-                        @if (testingConnectionId() === conn.id) {
-                          <i class="pi pi-spin pi-spinner"></i>
-                        } @else {
-                          <i class="pi pi-bolt"></i>
-                        }
+                        <i class="pi pi-bolt"></i>
                       </button>
 
                       <button
@@ -14264,7 +14330,7 @@ export class ConnectionListComponent implements OnInit {
     this.syncJobService.triggerSync(conn.id).subscribe({
       next: (job) => {
         this.syncingConnectionId.set(null);
-        this.syncSuccessMessage.set(`ظ‡ظ…ع¯ط§ظ…â€Œط³ط§ط²غŒ ط¯ط³طھغŒ ط¨ط±ط§غŒ آ«${conn.name}آ» ط¨ط§ ظ…ظˆظپظ‚غŒطھ ط¯ط± طµظپ ظ¾ط±ط¯ط§ط²ط´ ظ‚ط±ط§ط± ع¯ط±ظپطھ (ط´ظ†ط§ط³ظ‡ ط¬ط§ط¨: ${job.id})`);
+        this.syncSuccessMessage.set('ظ‡ظ…ع¯ط§ظ…ط³ط§ط²غŒ ظ…طھط§ط¯ط§ط¯ظ‡ ط¯ط± طµظپ ط§ط¬ط±ط§ ظ‚ط±ط§ط± ع¯ط±ظپطھ');
         setTimeout(() => this.syncSuccessMessage.set(null), 5000);
       },
       error: (err: unknown) => {
@@ -22380,7 +22446,7 @@ export class VersionDiffComponent implements OnInit {
               *hasPermission="'MANAGE_SCHEDULES'"
             >
               <span class="nav-icon">ًں“،</span>
-              <span class="nav-text">ظ¾ط§غŒط´ ظ‡ظ…ع¯ط§ظ…â€Œط³ط§ط²غŒ (Sync Monitor)</span>
+              <span class="nav-text">ظ¾ط§غŒط´ ظ‡ظ…ع¯ط§ظ…ط³ط§ط²غŒ</span>
             </a>
           </div>
 
@@ -22616,8 +22682,8 @@ export const routes: Routes = [
   {
     path: 'sync-monitor',
     component: SyncMonitorComponent,
-    canActivate: [authGuard],
-    title: 'ظ…ط§ظ†غŒطھظˆط±غŒظ†ع¯ ظ‡ظ…ع¯ط§ظ…â€Œط³ط§ط²غŒ ظ…طھط§ط¯غŒطھط§ - ط³ط§ظ…ط§ظ†ظ‡ ط¯ط§ط¯ظ‡',
+    canActivate: [authGuard, permissionGuard('MANAGE_SCHEDULES')],
+    title: 'ظ¾ط§غŒط´ ظ‡ظ…ع¯ط§ظ…â€Œط³ط§ط²غŒ ظ…طھط§ط¯غŒطھط§ - ط³ط§ظ…ط§ظ†ظ‡ ط¯ط§ط¯ظ‡',
   },
   {
     path: 'taxonomy',

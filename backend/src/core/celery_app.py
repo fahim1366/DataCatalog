@@ -54,3 +54,19 @@ celery_app.conf.update(
 
 # Auto-discover worker tasks
 celery_app.autodiscover_tasks(["backend.src.services.workers"])
+
+
+def is_broker_available(broker_url: str = settings.CELERY_BROKER_URL) -> bool:
+    """Checks whether the Celery broker host/port is reachable."""
+    import socket
+    from urllib.parse import urlparse
+
+    try:
+        parsed = urlparse(broker_url)
+        host = parsed.hostname or "127.0.0.1"
+        port = parsed.port or 6379
+        with socket.create_connection((host, port), timeout=0.2):
+            return True
+    except Exception:
+        return False
+

@@ -1434,7 +1434,7 @@ import logging
 import uuid
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -1470,15 +1470,54 @@ from backend.src.schemas.sync_jobs import (
     SyncJobListResponse,
     SyncJobResponse,
 )
-from backend.src.api.v1.sync_jobs import decode_sync_cursor, encode_sync_cursor
 from backend.src.core.celery_app import QUEUE_PRIORITY
 from backend.src.services.workers.circuit_breaker import circuit_breaker_manager
-from backend.src.services.workers.tasks import manual_metadata_sync_task, test_connection_sync
+from backend.src.services.workers.tasks import (
+    execute_metadata_sync,
+    manual_metadata_sync_task,
+    test_connection_sync,
+)
 from backend.src.services.audit.audit_service import record_audit_event
 from backend.src.services.connections.connection_service import connection_service
 from backend.src.services.connections.cron_validator import validate_cron_expression
 
 logger = logging.getLogger(__name__)
+
+
+async def require_manage_schedules(
+    user_ctx: UserContext = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+) -> UserContext:
+    if user_ctx.is_superadmin:
+        return user_ctx
+    deny_stmt = select(1).where(
+        user_rule_matches(user_ctx),
+        PermissionRule.action.in_([
+            PermissionAction.MANAGE_SCHEDULES,
+            PermissionAction.MANAGE_CONNECTIONS,
+        ]),
+        PermissionRule.effect == PermissionEffect.DENY,
+    )
+    if (await db.execute(deny_stmt)).scalar_one_or_none() is not None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Forbidden: Access to manage schedules is explicitly denied.",
+        )
+    allow_stmt = select(1).where(
+        user_rule_matches(user_ctx),
+        PermissionRule.action.in_([
+            PermissionAction.MANAGE_SCHEDULES,
+            PermissionAction.MANAGE_CONNECTIONS,
+        ]),
+        PermissionRule.effect == PermissionEffect.ALLOW,
+    )
+    if (await db.execute(allow_stmt)).scalar_one_or_none() is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Forbidden: User lacks MANAGE_SCHEDULES permission.",
+        )
+    return user_ctx
+
 
 router = APIRouter(prefix="/connections", tags=["Connections"])
 
@@ -1772,41 +1811,6 @@ async def test_connection_ping(
     )
 
 
-async def require_manage_schedules(
-    user_ctx: UserContext = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db_session),
-) -> UserContext:
-    if user_ctx.is_superadmin:
-        return user_ctx
-    deny_stmt = select(1).where(
-        user_rule_matches(user_ctx),
-        PermissionRule.action.in_([
-            PermissionAction.MANAGE_SCHEDULES,
-            PermissionAction.MANAGE_CONNECTIONS,
-        ]),
-        PermissionRule.effect == PermissionEffect.DENY,
-    )
-    if (await db.execute(deny_stmt)).scalar_one_or_none() is not None:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Forbidden: Access to manage schedules is explicitly denied.",
-        )
-    allow_stmt = select(1).where(
-        user_rule_matches(user_ctx),
-        PermissionRule.action.in_([
-            PermissionAction.MANAGE_SCHEDULES,
-            PermissionAction.MANAGE_CONNECTIONS,
-        ]),
-        PermissionRule.effect == PermissionEffect.ALLOW,
-    )
-    if (await db.execute(allow_stmt)).scalar_one_or_none() is None:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Forbidden: User lacks MANAGE_SCHEDULES permission.",
-        )
-    return user_ctx
-
-
 @router.get(
     "/{connection_id}/schedule",
     response_model=SyncScheduleResponse,
@@ -1891,6 +1895,7 @@ async def update_connection_schedule(
 )
 async def trigger_connection_sync(
     connection_id: uuid.UUID,
+    background_tasks: BackgroundTasks,
     user_ctx: UserContext = Depends(require_manage_schedules),
     db: AsyncSession = Depends(get_db_session),
 ) -> SyncJobResponse:
@@ -1931,7 +1936,15 @@ async def trigger_connection_sync(
             retry=False,
         )
     except Exception as exc:
-        logger.warning("Could not dispatch Celery task (%s). Job remains QUEUED.", exc)
+        logger.warning(
+            "Could not dispatch Celery task (%s). Falling back to in-process execution via BackgroundTasks.",
+            exc,
+        )
+        background_tasks.add_task(
+            execute_metadata_sync,
+            connection_id=connection_id,
+            job_id=job.id,
+        )
 
     await record_audit_event(
         session=db,
@@ -1995,6 +2008,9 @@ async def reset_circuit_breaker(
         consecutive_failures=schedule.consecutive_failures,
         cooldown_until=schedule.cooldown_until,
     )
+
+
+from backend.src.api.v1.sync_jobs import decode_sync_cursor
 
 
 @router.get(
@@ -2068,6 +2084,7 @@ from sqlalchemy.orm import selectinload
 from backend.src.api.dependencies.rbac import UserContext, get_current_user
 from backend.src.core.database import get_db_session
 from backend.src.models.catalog import CatalogTable
+from backend.src.models.rbac import EntityType, PermissionAction, PermissionEffect
 from backend.src.schemas.drift import (
     ColumnDriftDetail,
     DescriptionDriftDetailResponse,
@@ -2075,6 +2092,7 @@ from backend.src.schemas.drift import (
     ResolveDescriptionDriftRequest,
 )
 from backend.src.services.ingestion.drift_service import drift_service
+from backend.src.services.rbac.category_service import CategoryService
 
 logger = logging.getLogger(__name__)
 
@@ -2153,6 +2171,20 @@ async def resolve_table_drift(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Table with ID '{table_id}' not found.",
         )
+
+    if not user_ctx.is_superadmin:
+        effect = await CategoryService.resolve_effective_permission(
+            session=db,
+            user_ctx=user_ctx,
+            entity_type=EntityType.TABLE,
+            entity_id=table.id,
+            action=PermissionAction.EDIT_DESCRIPTION,
+        )
+        if effect != PermissionEffect.ALLOW:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Forbidden: User lacks EDIT_DESCRIPTION permission for table {table_id}",
+            )
 
     try:
         await drift_service.resolve_table_drift(
@@ -4183,7 +4215,7 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -4200,7 +4232,7 @@ from backend.src.schemas.sync_jobs import (
     SyncJobResponse,
 )
 from backend.src.services.audit.audit_service import record_audit_event
-from backend.src.services.workers.tasks import manual_metadata_sync_task
+from backend.src.services.workers.tasks import execute_metadata_sync, manual_metadata_sync_task
 
 logger = logging.getLogger(__name__)
 
@@ -4220,6 +4252,9 @@ def decode_sync_cursor(cursor_str: str) -> Tuple[datetime, uuid.UUID]:
     raw = base64.urlsafe_b64decode(cursor_str.encode("utf-8")).decode("utf-8")
     payload = json.loads(raw)
     return datetime.fromisoformat(payload["created_at"]), uuid.UUID(payload["id"])
+
+
+from backend.src.api.v1.connections import require_manage_schedules
 
 
 @router.get(
@@ -4340,7 +4375,8 @@ async def get_sync_job_detail(
 )
 async def retry_sync_job(
     job_id: uuid.UUID,
-    user_ctx: UserContext = Depends(get_current_user),
+    background_tasks: BackgroundTasks,
+    user_ctx: UserContext = Depends(require_manage_schedules),
     db: AsyncSession = Depends(get_db_session),
 ) -> SyncJobResponse:
     """
@@ -4373,7 +4409,15 @@ async def retry_sync_job(
             retry=False,
         )
     except Exception as exc:
-        logger.warning("Could not dispatch retry Celery task (%s).", exc)
+        logger.warning(
+            "Could not dispatch retry Celery task (%s). Falling back to in-process execution via BackgroundTasks.",
+            exc,
+        )
+        background_tasks.add_task(
+            execute_metadata_sync,
+            connection_id=retry_job.connection_id,
+            job_id=retry_job.id,
+        )
 
     await record_audit_event(
         session=db,
@@ -8524,6 +8568,7 @@ class SearchHit(BaseModel):
     row_count_estimate: Optional[int] = 0
     size_bytes: Optional[int] = 0
     tags: List[TagItem] = Field(default_factory=list)
+    description_drift_detected: bool = False
 
 
 class SearchResponse(BaseModel):
@@ -8666,6 +8711,9 @@ class SyncScheduleResponse(BaseModel):
     connection_id: uuid.UUID
     cron_expression: str
     is_enabled: bool
+    consecutive_failures: int = 0
+    circuit_state: str = "CLOSED"
+    cooldown_until: Optional[datetime] = None
     last_run_at: Optional[datetime] = None
     last_run_status: Optional[str] = None
     last_run_message: Optional[str] = None
@@ -10295,6 +10343,7 @@ class SearchService:
                     "row_count_estimate": tbl.row_count_estimate,
                     "size_bytes": tbl.size_bytes,
                     "tags": tags_by_table.get(tbl.id, []),
+                    "description_drift_detected": bool(tbl.description_drift_detected),
                 }
             )
 
@@ -10398,6 +10447,7 @@ class SearchService:
                 "owner": t.owner,
                 "status": t.status.value,
                 "tags": tags_by_table.get(t.id, []),
+                "description_drift_detected": bool(t.description_drift_detected),
             }
             for t in selected_tables
         ]
@@ -25497,6 +25547,7 @@ export interface SearchHit {
   row_count_estimate?: number;
   size_bytes?: number;
   tags?: TagItem[];
+  description_drift_detected?: boolean;
 }
 
 export interface SearchResponse {
@@ -25515,6 +25566,7 @@ export interface TableItem {
   owner?: string | null;
   status: string;
   tags?: TagItem[];
+  description_drift_detected?: boolean;
 }
 
 export interface TableListResponse {
@@ -25544,6 +25596,7 @@ export interface ColumnItem {
   classification_level: string;
   status: string;
   tags?: TagItem[];
+  description_drift_detected?: boolean;
 }
 
 export interface TableDetail {
@@ -26269,6 +26322,19 @@ export class CatalogStore {
   gap: 6px;
   cursor: pointer;
   color: var(--primary-700);
+}
+
+.drift-badge {
+  display: inline-flex;
+  align-items: center;
+  font-size: 0.68rem;
+  font-weight: 600;
+  padding: 0.1rem 0.45rem;
+  border-radius: 9999px;
+  background-color: #fffbeb;
+  color: #b45309;
+  border: 1px solid #fde68a;
+  white-space: nowrap;
 }
 
 .table-type-badge {
@@ -27036,6 +27102,9 @@ export class CatalogStore {
               <div class="table-title mono-font">
                 <span class="type-icon">ًں“ٹ</span>
                 <strong>{{ hit.name }}</strong>
+                @if (hit.description_drift_detected) {
+                  <span class="drift-badge" title="طھط¹ط§ط±ط¶ ط´ط±ط­">طھط¹ط§ط±ط¶ ط´ط±ط­</span>
+                }
               </div>
               <div class="table-type-badge">{{ hit.table_type || 'TABLE' }}</div>
             </div>
@@ -28302,6 +28371,9 @@ export interface SyncSchedule {
   connection_id: string;
   cron_expression: string;
   is_enabled: boolean;
+  circuit_state?: 'CLOSED' | 'OPEN' | 'HALF_OPEN';
+  consecutive_failures?: number;
+  cooldown_until?: string | null;
   last_run_at?: string | null;
   last_run_status?: string | null;
   last_run_message?: string | null;
@@ -29201,6 +29273,19 @@ export class ConnectionDiagnosticDialogComponent implements OnChanges {
   readonly cooldownUntil = signal<string | null>(null);
 
   ngOnChanges(changes: SimpleChanges): void {
+    if (this.connection) {
+      if (this.connection.sync_schedule) {
+        this.circuitState.set(
+          (this.connection.sync_schedule.circuit_state as CircuitState) ?? 'CLOSED'
+        );
+        this.consecutiveFailures.set(this.connection.sync_schedule.consecutive_failures ?? 0);
+        this.cooldownUntil.set(this.connection.sync_schedule.cooldown_until ?? null);
+      } else {
+        this.circuitState.set('CLOSED');
+        this.consecutiveFailures.set(0);
+        this.cooldownUntil.set(null);
+      }
+    }
     if (changes['visible'] && this.visible && this.connection) {
       this.runDiagnostic();
     }
@@ -31231,6 +31316,29 @@ export class ConnectionDialogComponent implements OnInit {
 .badge-active { background: #dcfce7; color: #166534; }
 .badge-inactive { background: #f1f5f9; color: #64748b; }
 
+.circuit-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: 0.7rem;
+  font-weight: 700;
+  padding: 0.15rem 0.5rem;
+  border-radius: 9999px;
+  white-space: nowrap;
+}
+
+.circuit-open {
+  background: #fee2e2;
+  color: #dc2626;
+  border: 1px solid #fca5a5;
+}
+
+.circuit-half-open {
+  background: #fef3c7;
+  color: #d97706;
+  border: 1px solid #fcd34d;
+}
+
 .ping-badge {
   display: inline-flex;
   align-items: center;
@@ -31544,6 +31652,15 @@ export class ConnectionDialogComponent implements OnInit {
     </div>
   }
 
+  @if (syncSuccessMessage()) {
+    <div class="toast-container">
+      <div class="toast toast-success" role="status">
+        <i class="pi pi-check-circle"></i>
+        <span>{{ syncSuccessMessage() }}</span>
+      </div>
+    </div>
+  }
+
   <!-- Split View: Topics Tree Sidebar + Database Content Area -->
   <div class="connections-workspace">
     <!-- Sidebar: Topics Tree -->
@@ -31848,6 +31965,20 @@ export class ConnectionDialogComponent implements OnInit {
                           <span class="status-badge badge-inactive">ط؛غŒط±ظپط¹ط§ظ„ (Inactive)</span>
                         }
 
+                        @if (conn.sync_schedule?.circuit_state && conn.sync_schedule?.circuit_state !== 'CLOSED') {
+                          @if (conn.sync_schedule?.circuit_state === 'OPEN') {
+                            <span class="circuit-badge circuit-open" title="ظ…ط¯ط§ط±ط´ع©ظ† ظپط¹ط§ظ„ (OPEN)">
+                              <i class="pi pi-exclamation-circle"></i>
+                              <span>OPEN</span>
+                            </span>
+                          } @else if (conn.sync_schedule?.circuit_state === 'HALF_OPEN') {
+                            <span class="circuit-badge circuit-half-open" title="ظ…ط¯ط§ط±ط´ع©ظ† ظ†غŒظ…ظ‡â€Œط¨ط§ط² (HALF_OPEN)">
+                              <i class="pi pi-info-circle"></i>
+                              <span>HALF_OPEN</span>
+                            </span>
+                          }
+                        }
+
                         @if (testResults()[conn.id]; as result) {
                           @if (result.success) {
                             <span class="ping-badge ping-ok test-result-indicator test-result-success" [title]="result.message">
@@ -31867,43 +31998,28 @@ export class ConnectionDialogComponent implements OnInit {
                     <td class="td-actions">
                       <button
                         type="button"
-                        class="action-icon-btn action-diagnostic btn-diagnostic"
-                        (click)="openDiagnosticDialog(conn)"
-                        title="ط¢ط²ظ…ظˆظ† ط³ظ„ط§ظ…طھ ط§طھطµط§ظ„ ظˆ ظ…ط¯ط§ط±ط´ع©ظ†"
-                        aria-label="ط¢ط²ظ…ظˆظ† ط³ظ„ط§ظ…طھ ط§طھطµط§ظ„ ظˆ ظ…ط¯ط§ط±ط´ع©ظ†"
-                      >
-                        <i class="pi pi-heart-fill" style="color: #0284c7;"></i>
-                      </button>
-
-                      <button
-                        type="button"
                         class="action-icon-btn action-sync btn-manual-sync"
                         *hasPermission="'MANAGE_SCHEDULES'"
                         [disabled]="syncingConnectionId() === conn.id"
                         (click)="onManualSync(conn)"
-                        title="ظ‡ظ…ع¯ط§ظ…â€Œط³ط§ط²غŒ ط¯ط³طھغŒ"
-                        aria-label="ظ‡ظ…ع¯ط§ظ…â€Œط³ط§ط²غŒ ط¯ط³طھغŒ"
+                        title="ظ‡ظ…ع¯ط§ظ…ط³ط§ط²غŒ ط¯ط³طھغŒ"
+                        aria-label="ظ‡ظ…ع¯ط§ظ…ط³ط§ط²غŒ ط¯ط³طھغŒ"
                       >
                         @if (syncingConnectionId() === conn.id) {
                           <i class="pi pi-spin pi-spinner" style="color: #16a34a;"></i>
                         } @else {
-                          <i class="pi pi-sync" style="color: #16a34a;"></i>
+                          <i class="pi pi-refresh" style="color: #16a34a;"></i>
                         }
                       </button>
 
                       <button
                         type="button"
                         class="action-icon-btn action-test btn-test-connection"
-                        [disabled]="testingConnectionId() === conn.id"
-                        (click)="onTestConnection(conn.id)"
+                        (click)="openDiagnosticDialog(conn)"
                         title="طھط³طھ ط§طھطµط§ظ„"
                         aria-label="طھط³طھ ط§طھطµط§ظ„"
                       >
-                        @if (testingConnectionId() === conn.id) {
-                          <i class="pi pi-spin pi-spinner"></i>
-                        } @else {
-                          <i class="pi pi-bolt"></i>
-                        }
+                        <i class="pi pi-bolt"></i>
                       </button>
 
                       <button
@@ -32554,7 +32670,7 @@ export class ConnectionListComponent implements OnInit {
     this.syncJobService.triggerSync(conn.id).subscribe({
       next: (job) => {
         this.syncingConnectionId.set(null);
-        this.syncSuccessMessage.set(`ظ‡ظ…ع¯ط§ظ…â€Œط³ط§ط²غŒ ط¯ط³طھغŒ ط¨ط±ط§غŒ آ«${conn.name}آ» ط¨ط§ ظ…ظˆظپظ‚غŒطھ ط¯ط± طµظپ ظ¾ط±ط¯ط§ط²ط´ ظ‚ط±ط§ط± ع¯ط±ظپطھ (ط´ظ†ط§ط³ظ‡ ط¬ط§ط¨: ${job.id})`);
+        this.syncSuccessMessage.set('ظ‡ظ…ع¯ط§ظ…ط³ط§ط²غŒ ظ…طھط§ط¯ط§ط¯ظ‡ ط¯ط± طµظپ ط§ط¬ط±ط§ ظ‚ط±ط§ط± ع¯ط±ظپطھ');
         setTimeout(() => this.syncSuccessMessage.set(null), 5000);
       },
       error: (err: unknown) => {
@@ -40670,7 +40786,7 @@ export class VersionDiffComponent implements OnInit {
               *hasPermission="'MANAGE_SCHEDULES'"
             >
               <span class="nav-icon">ًں“،</span>
-              <span class="nav-text">ظ¾ط§غŒط´ ظ‡ظ…ع¯ط§ظ…â€Œط³ط§ط²غŒ (Sync Monitor)</span>
+              <span class="nav-text">ظ¾ط§غŒط´ ظ‡ظ…ع¯ط§ظ…ط³ط§ط²غŒ</span>
             </a>
           </div>
 
@@ -40906,8 +41022,8 @@ export const routes: Routes = [
   {
     path: 'sync-monitor',
     component: SyncMonitorComponent,
-    canActivate: [authGuard],
-    title: 'ظ…ط§ظ†غŒطھظˆط±غŒظ†ع¯ ظ‡ظ…ع¯ط§ظ…â€Œط³ط§ط²غŒ ظ…طھط§ط¯غŒطھط§ - ط³ط§ظ…ط§ظ†ظ‡ ط¯ط§ط¯ظ‡',
+    canActivate: [authGuard, permissionGuard('MANAGE_SCHEDULES')],
+    title: 'ظ¾ط§غŒط´ ظ‡ظ…ع¯ط§ظ…â€Œط³ط§ط²غŒ ظ…طھط§ط¯غŒطھط§ - ط³ط§ظ…ط§ظ†ظ‡ ط¯ط§ط¯ظ‡',
   },
   {
     path: 'taxonomy',

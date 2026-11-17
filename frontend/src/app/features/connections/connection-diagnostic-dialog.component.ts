@@ -55,7 +55,7 @@ export class ConnectionDiagnosticDialogComponent implements OnChanges {
         this.cooldownUntil.set(null);
       }
     }
-    if (changes['visible'] && this.visible && this.connection) {
+    if ((changes['visible'] || changes['connection']) && this.visible && this.connection) {
       this.runDiagnostic();
     }
   }

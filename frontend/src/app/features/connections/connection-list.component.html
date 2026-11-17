@@ -594,8 +594,9 @@
 
   <!-- Connection Diagnostic Dialog (T080) -->
   <app-connection-diagnostic-dialog
-    [(visible)]="showDiagnosticDialog"
+    [visible]="showDiagnosticDialog()"
     [connection]="diagnosticConnection()"
+    (visibleChange)="showDiagnosticDialog.set($event)"
     (circuitBreakerReset)="loadConnections()"
   ></app-connection-diagnostic-dialog>
 </div>

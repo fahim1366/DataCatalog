@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import base64
 import json
 import logging
@@ -13,7 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from backend.src.api.dependencies.rbac import UserContext, get_current_user
-from backend.src.core.celery_app import QUEUE_PRIORITY
+from backend.src.core.celery_app import QUEUE_PRIORITY, is_broker_available
 from backend.src.core.database import get_db_session
 from backend.src.models.connections import DatabaseConnection
 from backend.src.models.rbac import EntityType
@@ -194,21 +195,34 @@ async def retry_sync_job(
     await db.flush()
     await db.refresh(retry_job)
 
-    try:
-        manual_metadata_sync_task.apply_async(
-            args=[str(retry_job.connection_id), str(retry_job.id)],
-            queue=QUEUE_PRIORITY,
-            retry=False,
+    if is_broker_available():
+        try:
+            manual_metadata_sync_task.apply_async(
+                args=[str(retry_job.connection_id), str(retry_job.id)],
+                queue=QUEUE_PRIORITY,
+                retry=False,
+            )
+        except Exception as exc:
+            logger.warning(
+                "Could not dispatch retry Celery task (%s). Falling back to in-process execution via asyncio.create_task.",
+                exc,
+            )
+            asyncio.create_task(
+                execute_metadata_sync(
+                    connection_id=retry_job.connection_id,
+                    job_id=retry_job.id,
+                )
+            )
+    else:
+        logger.info(
+            "Celery broker not reachable. Executing retry sync in-process via asyncio.create_task for connection %s.",
+            retry_job.connection_id,
         )
-    except Exception as exc:
-        logger.warning(
-            "Could not dispatch retry Celery task (%s). Falling back to in-process execution via BackgroundTasks.",
-            exc,
-        )
-        background_tasks.add_task(
-            execute_metadata_sync,
-            connection_id=retry_job.connection_id,
-            job_id=retry_job.id,
+        asyncio.create_task(
+            execute_metadata_sync(
+                connection_id=retry_job.connection_id,
+                job_id=retry_job.id,
+            )
         )
 
     await record_audit_event(

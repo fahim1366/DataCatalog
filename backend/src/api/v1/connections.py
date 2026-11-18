@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime, timezone
 import logging
 import uuid
@@ -42,7 +43,7 @@ from backend.src.schemas.sync_jobs import (
     SyncJobListResponse,
     SyncJobResponse,
 )
-from backend.src.core.celery_app import QUEUE_PRIORITY
+from backend.src.core.celery_app import QUEUE_PRIORITY, is_broker_available
 from backend.src.services.workers.circuit_breaker import circuit_breaker_manager
 from backend.src.services.workers.tasks import (
     execute_metadata_sync,
@@ -507,21 +508,34 @@ async def trigger_connection_sync(
     await db.flush()
     await db.refresh(job)
 
-    try:
-        manual_metadata_sync_task.apply_async(
-            args=[str(connection_id), str(job.id)],
-            queue=QUEUE_PRIORITY,
-            retry=False,
+    if is_broker_available():
+        try:
+            manual_metadata_sync_task.apply_async(
+                args=[str(connection_id), str(job.id)],
+                queue=QUEUE_PRIORITY,
+                retry=False,
+            )
+        except Exception as exc:
+            logger.warning(
+                "Could not dispatch Celery task (%s). Falling back to in-process execution via BackgroundTasks.",
+                exc,
+            )
+            asyncio.create_task(
+                execute_metadata_sync(
+                    connection_id=connection_id,
+                    job_id=job.id,
+                )
+            )
+    else:
+        logger.info(
+            "Celery broker not reachable. Executing metadata sync in-process via asyncio.create_task for connection %s.",
+            connection_id,
         )
-    except Exception as exc:
-        logger.warning(
-            "Could not dispatch Celery task (%s). Falling back to in-process execution via BackgroundTasks.",
-            exc,
-        )
-        background_tasks.add_task(
-            execute_metadata_sync,
-            connection_id=connection_id,
-            job_id=job.id,
+        asyncio.create_task(
+            execute_metadata_sync(
+                connection_id=connection_id,
+                job_id=job.id,
+            )
         )
 
     await record_audit_event(

@@ -13,6 +13,8 @@ export interface TagItem {
   is_governed?: boolean;
 }
 
+export type DescriptionPolicy = 'APPROVED_FIRST' | 'SOURCE_FIRST' | 'BOTH';
+
 export interface SearchHit {
   id: string;
   entity_type: 'TABLE' | 'COLUMN' | string;
@@ -21,6 +23,8 @@ export interface SearchHit {
   schema_name: string;
   table_name?: string | null;
   table_type?: string;
+  source_description?: string | null;
+  approved_description?: string | null;
   effective_description?: string | null;
   rank?: number;
   classification_level?: string | null;
@@ -43,6 +47,8 @@ export interface TableItem {
   table_type?: string;
   row_count_estimate?: number;
   size_bytes?: number;
+  source_description?: string | null;
+  approved_description?: string | null;
   effective_description?: string | null;
   owner?: string | null;
   status: string;

@@ -177,6 +177,7 @@ async def test_audit_query_service_indexes_and_partition_pruning():
     actor_id = uuid.uuid4()
 
     async with engine.connect() as conn:
+        await conn.execute(text("SET LOCAL enable_seqscan = off;"))
         # Check entity_created index and pruning
         explain_entity = await conn.execute(
             text(

@@ -27,6 +27,8 @@ class SearchHit(BaseModel):
     schema_name: str
     table_name: Optional[str] = None
     table_type: Optional[str] = "TABLE"
+    source_description: Optional[str] = None
+    approved_description: Optional[str] = None
     effective_description: Optional[str] = None
     rank: float
     classification_level: Optional[str] = None
@@ -64,6 +66,7 @@ class TableItem(BaseModel):
     owner: Optional[str] = None
     status: str
     tags: List[TagItem] = Field(default_factory=list)
+    description_drift_detected: bool = False
 
 
 class TableListResponse(BaseModel):

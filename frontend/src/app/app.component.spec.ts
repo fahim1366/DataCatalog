@@ -1,7 +1,7 @@
 import { TestBed } from '@angular/core/testing';
 import { AppComponent } from './app.component';
 import { ScrollingModule } from '@angular/cdk/scrolling';
-import { provideRouter } from '@angular/router';
+import { provideRouter, Router } from '@angular/router';
 import { routes } from './app.routes';
 import { provideHttpClient } from '@angular/common/http';
 import { provideHttpClientTesting } from '@angular/common/http/testing';
@@ -86,5 +86,34 @@ describe('AppComponent (Enterprise Navigation Shell)', () => {
     expect(rolesLink?.textContent).toContain('مدیریت نقش‌ها');
     expect(schedulesLink?.textContent).toContain('زمان‌بندی بروزرسانی');
     expect(auditLink?.textContent).toContain('لاگ‌های ممیزی');
+  });
+
+  it('should render top global search bar with Ctrl+K shortcut badge and handle shortcut focus', () => {
+    const fixture = TestBed.createComponent(AppComponent);
+    fixture.detectChanges();
+
+    const searchInput = fixture.nativeElement.querySelector('[data-testid="top-global-search-input"]') as HTMLInputElement;
+    expect(searchInput).toBeTruthy();
+    expect(searchInput.placeholder).toContain('جستجوی سریع');
+
+    const kbdBadge = fixture.nativeElement.querySelector('.kbd-shortcut');
+    expect(kbdBadge).toBeTruthy();
+    expect(kbdBadge.textContent).toContain('Ctrl+K');
+
+    const focusSpy = vi.spyOn(fixture.componentInstance, 'focusGlobalSearch');
+    const event = new KeyboardEvent('keydown', { key: 'k', ctrlKey: true, cancelable: true });
+    window.dispatchEvent(event);
+    expect(focusSpy).toHaveBeenCalled();
+  });
+
+  it('should navigate to /catalog with q queryParam when global search is executed', () => {
+    const fixture = TestBed.createComponent(AppComponent);
+    const router = TestBed.inject(Router);
+    const navSpy = vi.spyOn(router, 'navigate');
+
+    fixture.componentInstance.globalSearchQuery.set('orders');
+    fixture.componentInstance.executeGlobalSearch();
+
+    expect(navSpy).toHaveBeenCalledWith(['/catalog'], { queryParams: { q: 'orders' } });
   });
 });

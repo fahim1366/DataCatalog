@@ -323,7 +323,12 @@ export class LoginComponent {
       },
       error: (err) => {
         this.isLoading.set(false);
-        const msg = err?.error?.detail || 'نام کاربری یا گذرواژه نامعتبر است.';
+        let msg = 'نام کاربری یا گذرواژه نامعتبر است.';
+        if (err?.status === 0 || err?.status === 502 || err?.status === 503 || err?.status === 504) {
+          msg = 'خطا در برقراری ارتباط با سرور سرویس‌دهنده (Backend). لطفاً از در دسترس بودن سرور اطمینان حاصل فرمایید.';
+        } else if (err?.error?.detail) {
+          msg = typeof err.error.detail === 'string' ? err.error.detail : 'نام کاربری یا گذرواژه نامعتبر است.';
+        }
         this.errorMessage.set(msg);
       },
     });

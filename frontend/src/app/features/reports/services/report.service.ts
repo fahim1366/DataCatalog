@@ -48,9 +48,9 @@ export class ReportService {
   }
 
   /**
-   * Exports executive reporting summary to JSON or CSV format.
+   * Exports executive reporting summary to JSON, CSV, or XLSX format.
    */
-  exportReports(format: 'json' | 'csv', connectionIds?: string[]): Observable<Blob> {
+  exportReports(format: 'json' | 'csv' | 'xlsx', connectionIds?: string[]): Observable<Blob> {
     let params = new HttpParams().set('format', format);
     if (connectionIds && connectionIds.length > 0) {
       connectionIds.forEach((id) => {

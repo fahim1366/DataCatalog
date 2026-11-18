@@ -1,12 +1,14 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideHttpClient } from '@angular/common/http';
 import { provideHttpClientTesting } from '@angular/common/http/testing';
+import { provideRouter } from '@angular/router';
 import { By } from '@angular/platform-browser';
 import { of, throwError } from 'rxjs';
 import { ExecutiveDashboardComponent } from './executive-dashboard.component';
 import { CompletenessGaugeComponent } from './completeness-gauge.component';
 import { ClassificationSunburstComponent } from './classification-sunburst.component';
 import { ReportService } from './services/report.service';
+import { RbacService } from '../../core/auth/rbac.service';
 import {
   CompletenessReport,
   ClassificationReport,
@@ -212,9 +214,17 @@ describe('Executive Governance Reporting Dashboard (T044: Apache ECharts Executi
           ClassificationSunburstComponent,
         ],
         providers: [
+          provideRouter([]),
           ReportService,
           provideHttpClient(),
           provideHttpClientTesting(),
+          {
+            provide: RbacService,
+            useValue: {
+              hasPermission: () => true,
+              currentUser: () => ({ is_superadmin: true }),
+            },
+          },
         ],
       }).compileComponents();
 
@@ -312,6 +322,134 @@ describe('Executive Governance Reporting Dashboard (T044: Apache ECharts Executi
       expect(component.errorMessage()).toContain('Materialized view query failed');
       const compiled = fixture.nativeElement as HTMLElement;
       expect(compiled.textContent).toContain('Materialized view query failed');
+    });
+
+    it('should render XLSX, CSV, and JSON export buttons with exact Persian labels and invoke exportReports with xlsx', async () => {
+      vi.spyOn(reportService, 'exportReports').mockReturnValue(of(new Blob(['dummy xlsx content'])));
+      fixture.detectChanges();
+      await fixture.whenStable();
+
+      const xlsxBtn = fixture.debugElement.query(By.css('[data-testid="export-xlsx-btn"]'));
+      const csvBtn = fixture.debugElement.query(By.css('[data-testid="export-csv-btn"]'));
+      const jsonBtn = fixture.debugElement.query(By.css('[data-testid="export-json-btn"]'));
+
+      expect(xlsxBtn).toBeTruthy();
+      expect(csvBtn).toBeTruthy();
+      expect(jsonBtn).toBeTruthy();
+
+      expect(xlsxBtn.nativeElement.textContent).toContain('دانلود اکسل کامل (.xlsx)');
+      expect(csvBtn.nativeElement.textContent).toContain('دانلود CSV');
+      expect(jsonBtn.nativeElement.textContent).toContain('دانلود JSON');
+
+      component.exportReport('xlsx');
+      expect(reportService.exportReports).toHaveBeenCalledWith('xlsx', []);
+    });
+
+    it('should invoke exportReports with csv and json formats and pass selected connection_ids', async () => {
+      vi.spyOn(reportService, 'exportReports').mockReturnValue(of(new Blob(['test content'])));
+      component.selectedConnectionIds.set(new Set(['11111111-1111-1111-1111-111111111111']));
+
+      component.exportReport('csv');
+      expect(reportService.exportReports).toHaveBeenCalledWith('csv', ['11111111-1111-1111-1111-111111111111']);
+
+      component.exportReport('json');
+      expect(reportService.exportReports).toHaveBeenCalledWith('json', ['11111111-1111-1111-1111-111111111111']);
+    });
+
+    it('should trigger scoped loadReports when generateReport is clicked with selected databases', async () => {
+      component.availableDatabases.set([
+        { id: '11111111-1111-1111-1111-111111111111', name: 'prod_orders_db', engine_type: 'POSTGRESQL' },
+      ]);
+      component.toggleDatabaseFilter('11111111-1111-1111-1111-111111111111');
+      expect(component.selectedConnectionIds().has('11111111-1111-1111-1111-111111111111')).toBe(true);
+
+      const generateBtn = fixture.debugElement.query(By.css('[data-testid="generate-report-btn"]'));
+      expect(generateBtn).toBeTruthy();
+      expect(generateBtn.nativeElement.textContent).toContain('تولید گزارش');
+
+      component.generateReport();
+      expect(reportService.getCompletenessReport).toHaveBeenCalledWith(['11111111-1111-1111-1111-111111111111']);
+      expect(reportService.getClassificationDistribution).toHaveBeenCalledWith(['11111111-1111-1111-1111-111111111111']);
+    });
+
+    it('should support selecting all databases, toggling individual databases, and clearing selection', () => {
+      component.availableDatabases.set([
+        { id: 'db1', name: 'DB 1', engine_type: 'POSTGRESQL' },
+        { id: 'db2', name: 'DB 2', engine_type: 'ORACLE' },
+      ]);
+
+      expect(component.isAllDatabasesSelected()).toBe(false);
+
+      component.toggleSelectAllDatabases();
+      expect(component.isAllDatabasesSelected()).toBe(true);
+      expect(component.selectedConnectionIds().size).toBe(2);
+
+      component.toggleDatabaseFilter('db1');
+      expect(component.isAllDatabasesSelected()).toBe(false);
+      expect(component.isDatabaseSelected('db1')).toBe(false);
+      expect(component.isDatabaseSelected('db2')).toBe(true);
+
+      component.clearDatabaseFilter();
+      expect(component.selectedConnectionIds().size).toBe(0);
+    });
+
+    it('should support selecting databases via category tree hierarchy and handle indeterminate states', () => {
+      const mockCategory = {
+        id: 'cat1',
+        name: 'Finance',
+        databases: [{ id: 'db1', name: 'DB 1' }],
+        children: [
+          {
+            id: 'subcat1',
+            name: 'Invoicing',
+            databases: [{ id: 'db2', name: 'DB 2' }],
+          },
+        ],
+      };
+      component.availableDatabases.set([
+        { id: 'db1', name: 'DB 1', engine_type: 'POSTGRESQL' },
+        { id: 'db2', name: 'DB 2', engine_type: 'MYSQL' },
+      ]);
+      component.categoryTree.set([mockCategory]);
+
+      expect(component.isCategorySelected(mockCategory)).toBe(false);
+      expect(component.isCategoryIndeterminate(mockCategory)).toBe(false);
+
+      // Select category -> selects all child dbs (db1 and db2)
+      component.toggleCategoryDatabases(mockCategory);
+      expect(component.isCategorySelected(mockCategory)).toBe(true);
+      expect(component.selectedConnectionIds().has('db1')).toBe(true);
+      expect(component.selectedConnectionIds().has('db2')).toBe(true);
+
+      // Unselect one db -> category becomes indeterminate
+      component.toggleDatabaseFilter('db1');
+      expect(component.isCategorySelected(mockCategory)).toBe(false);
+      expect(component.isCategoryIndeterminate(mockCategory)).toBe(true);
+    });
+
+    it('should render helpful RTL empty state explaining Table Description and Data Owner when databaseBreakdown is empty', async () => {
+      const emptyReport: CompletenessReport = {
+        overall_completeness_pct: 0,
+        total_databases: 0,
+        total_tables: 0,
+        total_columns: 0,
+        database_breakdown: [],
+      };
+      vi.spyOn(reportService, 'getCompletenessReport').mockReturnValue(of(emptyReport));
+      fixture.detectChanges();
+      await fixture.whenStable();
+
+      const emptyDebug = fixture.debugElement.query(By.css('[data-testid="completeness-empty-state"]'));
+      expect(emptyDebug).toBeTruthy();
+      const text = emptyDebug.nativeElement.textContent;
+      expect(text).toContain('شرح مصوب جدول');
+      expect(text).toContain('Table Description');
+      expect(text).toContain('مالک سازمانی داده');
+      expect(text).toContain('Data Owner');
+
+      const catalogLink = fixture.debugElement.query(By.css('[data-testid="goto-catalog-link"]'));
+      expect(catalogLink).toBeTruthy();
+      expect(catalogLink.attributes['routerLink']).toBe('/catalog');
     });
   });
 });

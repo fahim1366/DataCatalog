@@ -32,14 +32,16 @@
       </div>
     </div>
 
-    <!-- Tree Ingestion Action Button -->
-    <div class="tree-actions">
+    <!-- Secondary Tree Toolbar Actions -->
+    <div class="tree-actions-subtle">
       <button
         *hasPermission="'MANAGE_CONNECTIONS'"
-        class="btn btn-primary btn-sm btn-block"
+        type="button"
+        class="btn-subtle-ingest"
         (click)="openIngestionModal()"
+        title="بارگذاری ساختار متادیتا به صورت دسته‌ای"
       >
-        <span>+ بارگذاری متادیتا (Bulk Ingestion)</span>
+        <span>+ بارگذاری متادیتا (JSON)</span>
       </button>
     </div>
 
@@ -60,6 +62,15 @@
                   <span class="node-icon">🗄️</span>
                   <span class="node-label mono-font">{{ conn.name }}</span>
                   <span class="node-engine-badge">{{ conn.engine_type }}</span>
+                  <button
+                    *hasPermission="'MANAGE_CONNECTIONS'"
+                    type="button"
+                    class="btn-sync-inline"
+                    title="همگام‌سازی فوری پایگاه داده (Sync)"
+                    (click)="triggerDatabaseSync(conn, $event)"
+                  >
+                    ↻
+                  </button>
                 </div>
 
                 <div class="tree-subnodes">
@@ -77,29 +88,12 @@
           </div>
         }
 
-        <!-- Business Category Tree -->
+        <!-- Business Category Tree with Recursive Template -->
         @if (activeTreeTab() === 'category') {
           <div class="tree-list">
-            @for (cat of categoryTree(); track cat.id) {
-              <div class="tree-group">
-                <div class="tree-node node-cat" (click)="filterByCategory(cat.name)">
-                  <span class="node-icon">🏷️</span>
-                  <span class="node-label">{{ cat.name }}</span>
-                </div>
-
-                <!-- Children categories -->
-                @if (cat.children && cat.children.length > 0) {
-                  <div class="tree-subnodes">
-                    @for (sub of cat.children; track sub.id) {
-                      <div class="tree-node node-cat" (click)="filterByCategory(sub.name)">
-                        <span class="node-icon">↳ 📂</span>
-                        <span class="node-label">{{ sub.name }}</span>
-                      </div>
-                    }
-                  </div>
-                }
-              </div>
-            } @empty {
+            @if (categoryTree().length > 0) {
+              <ng-container *ngTemplateOutlet="categoryNodeTemplate; context: { nodes: categoryTree(), depth: 0 }"></ng-container>
+            } @else {
               <div class="tree-empty">دسته‌بندی موضوعی یافت نشد.</div>
             }
           </div>
@@ -107,6 +101,55 @@
       }
     </div>
   </aside>
+
+  <!-- Recursive Category Node Template -->
+  <ng-template #categoryNodeTemplate let-nodes="nodes" let-depth="depth">
+    @for (cat of nodes; track cat.id) {
+      <div class="tree-group" [style.padding-right.px]="depth * 8">
+        <div class="tree-node node-cat" (click)="filterByCategory(cat.name)">
+          <span class="node-icon">🏷️</span>
+          <span class="node-label">{{ cat.name }}</span>
+          @if (cat.assigned_tables_count || (cat.tables && cat.tables.length)) {
+            <span class="node-count-badge">{{ cat.assigned_tables_count || cat.tables?.length || 0 }} جدول</span>
+          }
+        </div>
+
+        <!-- Assigned Databases -->
+        @if (cat.databases && cat.databases.length > 0) {
+          <div class="tree-subnodes">
+            @for (db of cat.databases; track db.id) {
+              <div class="tree-node node-db-assigned" (click)="filterByDatabase(db.name)">
+                <span class="node-icon">🗄️</span>
+                <span class="node-label mono-font">{{ db.name }}</span>
+                @if (db.engine_type) {
+                  <span class="node-engine-badge">{{ db.engine_type }}</span>
+                }
+              </div>
+            }
+          </div>
+        }
+
+        <!-- Assigned Tables -->
+        @if (cat.tables && cat.tables.length > 0) {
+          <div class="tree-subnodes">
+            @for (tbl of cat.tables; track tbl.id) {
+              <div class="tree-node node-table-assigned" (click)="filterByTable(tbl.name)">
+                <span class="node-icon">📊</span>
+                <span class="node-label mono-font">{{ tbl.name }}</span>
+              </div>
+            }
+          </div>
+        }
+
+        <!-- Children Categories (Unlimited Recursive Levels) -->
+        @if (cat.children && cat.children.length > 0) {
+          <div class="tree-subnodes">
+            <ng-container *ngTemplateOutlet="categoryNodeTemplate; context: { nodes: cat.children, depth: depth + 1 }"></ng-container>
+          </div>
+        }
+      </div>
+    }
+  </ng-template>
 
   <!-- Left/Center Pane: Main Catalog Search & Results Grid -->
   <main class="main-content-pane">
@@ -210,6 +253,43 @@
         </div>
       </div>
 
+      <!-- Persistent Description Policy Selector -->
+      <div class="policy-selector-strip">
+        <div class="policy-label-group">
+          <span class="policy-icon">📋</span>
+          <span class="policy-label">سیاست نمایش توضیحات:</span>
+        </div>
+        <div class="policy-segmented-control">
+          <button
+            type="button"
+            class="policy-seg-btn"
+            [class.active]="descPolicy() === 'APPROVED_FIRST'"
+            (click)="setDescPolicy('APPROVED_FIRST')"
+            title="اولویت با توضیحات مصوب (Approved First)"
+          >
+            اولویت با توضیحات مصوب
+          </button>
+          <button
+            type="button"
+            class="policy-seg-btn"
+            [class.active]="descPolicy() === 'SOURCE_FIRST'"
+            (click)="setDescPolicy('SOURCE_FIRST')"
+            title="اولویت با توضیحات مبدأ دیتابیس (Source First)"
+          >
+            اولویت با توضیحات مبدأ
+          </button>
+          <button
+            type="button"
+            class="policy-seg-btn"
+            [class.active]="descPolicy() === 'BOTH'"
+            (click)="setDescPolicy('BOTH')"
+            title="نمایش ترکیبی توضیحات مصوب و مبدأ (Both)"
+          >
+            نمایش ترکیبی (هر دو)
+          </button>
+        </div>
+      </div>
+
       <!-- Multi-select Bulk Actions Bar (appears when >= 1 table selected) -->
       @if (hasSelectedTables()) {
         <div class="bulk-action-bar">
@@ -232,6 +312,81 @@
       }
     </header>
 
+    <!-- Interactive Scope Breadcrumb & 4-Card KPI Strip -->
+    <section class="scope-summary-section">
+      <!-- Breadcrumb Trail -->
+      <nav class="scope-breadcrumb" aria-label="موقعیت در کاتالوگ">
+        <button
+          type="button"
+          class="bc-link"
+          [class.bc-current]="!selectedDatabase"
+          (click)="navigateToAll()"
+        >
+          همه منابع
+        </button>
+        @if (selectedDatabase) {
+          <span class="bc-delimiter">‹</span>
+          <button
+            type="button"
+            class="bc-link"
+            [class.bc-current]="!selectedSchema"
+            (click)="navigateToDatabase(selectedDatabase)"
+          >
+            <span class="mono-font">{{ selectedDatabase }}</span>
+          </button>
+        }
+        @if (selectedDatabase && selectedSchema) {
+          <span class="bc-delimiter">‹</span>
+          <span class="bc-current mono-font">{{ selectedSchema }}</span>
+        }
+      </nav>
+
+      <!-- 4-Card Scope KPI Strip -->
+      <div class="scope-kpi-grid">
+        <div class="scope-kpi-card">
+          <span class="scope-kpi-icon">📊</span>
+          <div class="scope-kpi-meta">
+            <span class="scope-kpi-label">تعداد کل جداول</span>
+            <span class="scope-kpi-value mono-font">{{ kpiTotalTables().toLocaleString('fa-IR') }}</span>
+          </div>
+        </div>
+
+        <div class="scope-kpi-card">
+          <span class="scope-kpi-icon">📝</span>
+          <div class="scope-kpi-meta">
+            <span class="scope-kpi-label">درصد مستندسازی‌شده</span>
+            <span
+              class="scope-kpi-value mono-font"
+              [class.good]="kpiDocumentedPct() >= 70"
+              [class.warning]="kpiDocumentedPct() < 70"
+            >
+              {{ kpiDocumentedPct() }}%
+            </span>
+          </div>
+        </div>
+
+        <div class="scope-kpi-card">
+          <span class="scope-kpi-icon">🔒</span>
+          <div class="scope-kpi-meta">
+            <span class="scope-kpi-label">تعداد ستون‌های حساس (PII / Confidential)</span>
+            <span class="scope-kpi-value mono-font" [class.sensitive]="kpiSensitiveColumnsCount() > 0">
+              {{ kpiSensitiveColumnsCount().toLocaleString('fa-IR') }}
+            </span>
+          </div>
+        </div>
+
+        <div class="scope-kpi-card">
+          <span class="scope-kpi-icon">⚠️</span>
+          <div class="scope-kpi-meta">
+            <span class="scope-kpi-label">تعداد موارد دارای تعارض شرح</span>
+            <span class="scope-kpi-value mono-font" [class.drift]="kpiDriftCount() > 0">
+              {{ kpiDriftCount().toLocaleString('fa-IR') }}
+            </span>
+          </div>
+        </div>
+      </div>
+    </section>
+
     <!-- Keyset Results CDK Virtual Scroll Table -->
     <div class="table-container">
       @if (store.isLoading() && store.searchHits().length === 0) {
@@ -240,10 +395,18 @@
           <p>در حال کاوش و دریافت ساختار متادیتا...</p>
         </div>
       } @else if (store.searchHits().length === 0) {
-        <div class="empty-state">
+        <div class="empty-state" dir="rtl">
           <div class="empty-icon">🔍</div>
           <h3>موردی در کاتالوگ متادیتا یافت نشد</h3>
           <p>هیچ جدولی با شرایط فیلتر یا کلیدواژه جستجوی فعلی تطابق ندارد یا سطح دسترسی شما برای مشاهده آن محدود است.</p>
+          <div class="completeness-hint-box">
+            <span class="hint-icon">💡</span>
+            <div class="hint-content">
+              <strong>راهنمای حاکمیت داده و تکمیل متادیتا:</strong><br />
+              شاخص تکمیل متادیتا (Metadata Completeness) بر پایه ثبت همزمان
+              <strong>«شرح جدول» (Table Description)</strong> و <strong>«مالک سازمانی داده» (Data Owner)</strong> محاسبه می‌شود. با تکمیل شناسنامه جداول، امتیاز حاکمیتی سازمان در داشبورد گزارشات مدیریتی ارتقا می‌یابد.
+            </div>
+          </div>
           <button class="btn btn-primary btn-sm" (click)="resetFilters()">مشاهده تمامی جداول در دسترس</button>
         </div>
       } @else {
@@ -256,16 +419,15 @@
               (change)="toggleSelectAll()"
             />
           </div>
-          <div class="col-name">نام جدول و منبع</div>
-          <div class="col-source">پایگاه داده / اسکیما</div>
+          <div class="col-name">نام جدول</div>
           <div class="col-stats">تعداد رکورد / حجم</div>
           <div class="col-tags">تگ‌های متصل</div>
-          <div class="col-desc">توضیحات تایید شده حاکمیتی</div>
+          <div class="col-desc">توضیحات جدول</div>
           <div class="col-action">عملیات</div>
         </div>
 
         <!-- Virtual Scroll Viewport -->
-        <cdk-virtual-scroll-viewport itemSize="64" class="viewport">
+        <cdk-virtual-scroll-viewport itemSize="68" class="viewport">
           <div
             *cdkVirtualFor="let hit of store.searchHits(); trackBy: trackByHitId"
             class="table-row"
@@ -287,13 +449,12 @@
                   <span class="drift-badge" title="تعارض شرح">تعارض شرح</span>
                 }
               </div>
+              @if (!selectedDatabase) {
+                <div class="table-source-sub mono-font">
+                  {{ hit.database_name }}.{{ hit.schema_name }}
+                </div>
+              }
               <div class="table-type-badge">{{ hit.table_type || 'TABLE' }}</div>
-            </div>
-
-            <div class="col-source">
-              <span class="badge badge-internal mono-font">{{ hit.database_name }}</span>
-              <span class="slash">/</span>
-              <span class="mono-font">{{ hit.schema_name }}</span>
             </div>
 
             <div class="col-stats">
@@ -314,8 +475,30 @@
             </div>
 
             <div class="col-desc">
-              <div class="desc-text" [title]="hit.effective_description || 'توضیحی ثبت نشده است'">
-                {{ hit.effective_description || 'بدون توضیحات ثبت شده' }}
+              @let descData = getDisplayDescription(hit);
+              <div class="desc-cell-container">
+                <div class="desc-line-item">
+                  @if (descData.origin === 'approved') {
+                    <span class="origin-pill origin-approved" title="توضیحات مصوب حاکمیتی">مصوب</span>
+                  } @else if (descData.origin === 'source') {
+                    <span class="origin-pill origin-source" title="توضیحات استخراج شده از مبدأ دیتابیس">مبدأ</span>
+                  }
+                  <span class="desc-main-text" [class.text-muted]="descData.origin === 'none'" [title]="descData.primaryText">
+                    {{ descData.primaryText }}
+                  </span>
+                </div>
+                @if (descData.secondaryText) {
+                  <div class="desc-line-item secondary-desc">
+                    @if (descData.secondaryOrigin === 'source') {
+                      <span class="origin-pill origin-source" title="توضیحات استخراج شده از مبدأ دیتابیس">مبدأ</span>
+                    } @else if (descData.secondaryOrigin === 'approved') {
+                      <span class="origin-pill origin-approved" title="توضیحات مصوب حاکمیتی">مصوب</span>
+                    }
+                    <span class="desc-secondary-text" [title]="descData.secondaryText">
+                      {{ descData.secondaryText }}
+                    </span>
+                  </div>
+                }
               </div>
             </div>
 

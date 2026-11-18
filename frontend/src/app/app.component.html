@@ -19,6 +19,25 @@
         </div>
       </div>
 
+      <!-- Top Global Search Bar with Ctrl+K shortcut -->
+      <div class="header-search-container" role="search">
+        <div class="header-search-box">
+          <span class="header-search-icon">🔍</span>
+          <input
+            #globalSearchInput
+            type="text"
+            class="header-search-input"
+            data-testid="top-global-search-input"
+            placeholder="جستجوی سریع در کاتالوگ متادیتا..."
+            [value]="globalSearchQuery()"
+            (input)="onGlobalSearchInput($event)"
+            (keydown.enter)="executeGlobalSearch()"
+            aria-label="جستجوی سراسری متادیتا"
+          />
+          <kbd class="kbd-shortcut" (click)="focusGlobalSearch()" title="کلید میانبر جستجو (Ctrl+K)">Ctrl+K</kbd>
+        </div>
+      </div>
+
       <!-- Header Left Actions (Live Role Switcher & User Profile) -->
       <div class="header-left">
         <!-- Live Role Switcher Dropdown -->

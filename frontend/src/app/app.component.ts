@@ -1,4 +1,12 @@
-import { Component, ChangeDetectionStrategy, inject, signal } from '@angular/core';
+import {
+  Component,
+  ChangeDetectionStrategy,
+  inject,
+  signal,
+  ElementRef,
+  HostListener,
+  ViewChild,
+} from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { RouterOutlet, RouterLink, RouterLinkActive, Router } from '@angular/router';
 import { ScrollingModule } from '@angular/cdk/scrolling';
@@ -35,6 +43,34 @@ export class AppComponent {
 
   readonly isRoleDropdownOpen = signal<boolean>(false);
   readonly isSwitchingRole = signal<boolean>(false);
+
+  @ViewChild('globalSearchInput') globalSearchInputRef?: ElementRef<HTMLInputElement>;
+  readonly globalSearchQuery = signal<string>('');
+
+  @HostListener('window:keydown', ['$event'])
+  handleGlobalShortcut(event: KeyboardEvent): void {
+    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') {
+      event.preventDefault();
+      this.focusGlobalSearch();
+    }
+  }
+
+  focusGlobalSearch(): void {
+    if (this.globalSearchInputRef?.nativeElement) {
+      this.globalSearchInputRef.nativeElement.focus();
+      this.globalSearchInputRef.nativeElement.select();
+    }
+  }
+
+  onGlobalSearchInput(event: Event): void {
+    const target = event.target as HTMLInputElement;
+    this.globalSearchQuery.set(target ? target.value : '');
+  }
+
+  executeGlobalSearch(): void {
+    const query = this.globalSearchQuery().trim();
+    this.router.navigate(['/catalog'], { queryParams: query ? { q: query } : {} });
+  }
 
   toggleSidebar(): void {
     this.isSidebarOpen.update((open) => !open);

@@ -4,10 +4,23 @@ from contextlib import asynccontextmanager
 from typing import AsyncGenerator
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.requests import Request
+from starlette.responses import Response
 
 from backend.src.api.v1 import api_v1_router
 from backend.src.core.config import settings
 from backend.src.core.database import check_database_health, dispose_engine
+
+
+class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    """Enforces standard HTTP security hardening headers across all REST API responses."""
+
+    async def dispatch(self, request: Request, call_next):
+        response: Response = await call_next(request)
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-Frame-Options"] = "DENY"
+        return response
 
 
 @asynccontextmanager
@@ -38,6 +51,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Security headers middleware
+app.add_middleware(SecurityHeadersMiddleware)
 
 # Wire API routes
 app.include_router(api_v1_router, prefix=settings.API_V1_STR)

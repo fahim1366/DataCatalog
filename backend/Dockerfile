@@ -22,4 +22,7 @@ ENV PYTHONUNBUFFERED=1
 
 EXPOSE 8000
 
-CMD ["uvicorn", "backend.src.main:app", "--host", "0.0.0.0", "--port", "8000"]
+HEALTHCHECK --interval=10s --timeout=5s --start-period=15s --retries=5 \
+    CMD curl -f http://localhost:8000/health || exit 1
+
+CMD ["sh", "-c", "alembic -c backend/alembic.ini upgrade head && uvicorn backend.src.main:app --host 0.0.0.0 --port 8000"]

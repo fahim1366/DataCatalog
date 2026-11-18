@@ -289,3 +289,146 @@ async def test_post_refresh_materialized_views_contract(
             assert "mv_classification_distribution" in body["refreshed_views"]
     finally:
         app.dependency_overrides.pop(get_db_session, None)
+
+
+@pytest.mark.asyncio
+async def test_export_reports_formats(
+    test_db_session: AsyncSession,
+    report_api_auth_data: dict,
+):
+    """
+    Test GET /api/v1/reports/export with json, csv (UTF-8 BOM), and xlsx (openpyxl multi-sheet RTL).
+    """
+    import io
+    import openpyxl
+
+    async def override_db():
+        yield test_db_session
+
+    app.dependency_overrides[get_db_session] = override_db
+    transport = ASGITransport(app=app)
+    try:
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            # 1. JSON Export
+            json_resp = await client.get(
+                "/api/v1/reports/export?format=json",
+                headers=report_api_auth_data["exec_headers"],
+            )
+            assert json_resp.status_code == 200
+            json_data = json_resp.json()
+            assert "completeness" in json_data
+            assert "classification" in json_data
+            assert "tables" in json_data
+            assert "columns" in json_data
+
+            # 2. CSV Export (must start with UTF-8 BOM)
+            csv_resp = await client.get(
+                "/api/v1/reports/export?format=csv",
+                headers=report_api_auth_data["exec_headers"],
+            )
+            assert csv_resp.status_code == 200
+            assert csv_resp.headers["content-type"].startswith("text/csv")
+            assert csv_resp.content.startswith(b"\xef\xbb\xbf")  # UTF-8 BOM
+            csv_text = csv_resp.content.decode("utf-8-sig")
+            assert "خلاصه مدیریتی" in csv_text
+            assert "فرهنگ داده جداول" in csv_text
+
+            # 3. XLSX Export (multi-sheet openpyxl workbook with RTL)
+            xlsx_resp = await client.get(
+                "/api/v1/reports/export?format=xlsx",
+                headers=report_api_auth_data["exec_headers"],
+            )
+            assert xlsx_resp.status_code == 200
+            assert "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" in xlsx_resp.headers["content-type"]
+            wb = openpyxl.load_workbook(io.BytesIO(xlsx_resp.content))
+            sheet_names = wb.sheetnames
+            assert "خلاصه مدیریتی" in sheet_names
+            assert "فرهنگ داده جداول" in sheet_names
+            assert "فرهنگ داده ستونها" in sheet_names
+            for sname in sheet_names:
+                ws = wb[sname]
+                assert ws.sheet_view.rightToLeft is True
+    finally:
+        app.dependency_overrides.pop(get_db_session, None)
+
+
+@pytest.mark.asyncio
+async def test_export_reports_three_sheet_xlsx_workbook_structure_and_content(
+    test_db_session: AsyncSession,
+    report_api_auth_data: dict,
+):
+    """
+    Asserts GET /api/v1/reports/export?format=xlsx delivers the enterprise data dictionary:
+    - Content-Disposition attachment: filename=enterprise_data_dictionary.xlsx
+    - Exactly 3 sheets: 'خلاصه مدیریتی', 'فرهنگ داده جداول', 'فرهنگ داده ستونها'
+    - RTL enabled on all three sheets (sheet_view.rightToLeft = True)
+    - Full executive KPIs and data dictionary headers rendered with styling
+    """
+    import io
+    import openpyxl
+
+    async def override_db():
+        yield test_db_session
+
+    app.dependency_overrides[get_db_session] = override_db
+    transport = ASGITransport(app=app)
+    try:
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            resp = await client.get(
+                "/api/v1/reports/export?format=xlsx",
+                headers=report_api_auth_data["exec_headers"],
+            )
+            assert resp.status_code == 200
+            assert "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" in resp.headers["content-type"]
+            assert "enterprise_data_dictionary.xlsx" in resp.headers.get("content-disposition", "")
+
+            wb = openpyxl.load_workbook(io.BytesIO(resp.content))
+            sheet_names = wb.sheetnames
+            assert len(sheet_names) == 3, f"Expected exactly 3 sheets, found {len(sheet_names)}: {sheet_names}"
+            assert sheet_names == ["خلاصه مدیریتی", "فرهنگ داده جداول", "فرهنگ داده ستونها"]
+
+            # Sheet 1: خلاصه مدیریتی
+            ws1 = wb["خلاصه مدیریتی"]
+            assert ws1.sheet_view.rightToLeft is True
+            assert "گزارش خلاصه حاکمیت داده" in str(ws1.cell(row=1, column=1).value)
+            assert ws1.cell(row=3, column=1).value == "شاخص کلیدی حاکمیت داده"
+            assert ws1.cell(row=3, column=2).value == "مقدار"
+
+            # Sheet 2: فرهنگ داده جداول
+            ws2 = wb["فرهنگ داده جداول"]
+            assert ws2.sheet_view.rightToLeft is True
+            expected_tbl_headers = [
+                "نام پایگاه داده",
+                "نام اسکیما",
+                "نام جدول",
+                "نوع شیء",
+                "تعداد رکورد (تخمینی)",
+                "حجم (مگابایت)",
+                "مالک سازمانی",
+                "توضیحات مبدأ (Source)",
+                "توضیحات مصوب حاکمیتی (Approved)",
+            ]
+            for col_idx, expected_h in enumerate(expected_tbl_headers, start=1):
+                assert ws2.cell(row=1, column=col_idx).value == expected_h
+
+            # Sheet 3: فرهنگ داده ستونها
+            ws3 = wb["فرهنگ داده ستونها"]
+            assert ws3.sheet_view.rightToLeft is True
+            expected_col_headers = [
+                "نام پایگاه داده",
+                "نام اسکیما",
+                "نام جدول",
+                "ترتیب فیلد",
+                "نام ستون",
+                "نوع داده",
+                "نوع کلید",
+                "پذیرش تهی (Nullable)",
+                "سطح محرمانگی",
+                "توضیحات مبدأ (Source)",
+                "توضیحات مصوب حاکمیتی (Approved)",
+            ]
+            for col_idx, expected_h in enumerate(expected_col_headers, start=1):
+                assert ws3.cell(row=1, column=col_idx).value == expected_h
+    finally:
+        app.dependency_overrides.pop(get_db_session, None)
+

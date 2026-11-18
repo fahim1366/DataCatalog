@@ -214,6 +214,8 @@ class SearchService:
                     "schema_name": schema_name_val,
                     "table_name": None,
                     "table_type": tbl.table_type.value,
+                    "source_description": tbl.source_description,
+                    "approved_description": tbl.approved_description,
                     "effective_description": tbl.effective_description,
                     "rank": round(rank_val, 4),
                     "classification_level": None,

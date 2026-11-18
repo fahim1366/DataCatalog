@@ -15,6 +15,7 @@ import {
   CategoryTreeNode,
   ChangeLogItem,
   ColumnItem,
+  DescriptionPolicy,
   PhysicalDatabaseNode,
   SearchHit,
   TableDetail,
@@ -27,6 +28,8 @@ import { DriftResolutionDialogComponent } from '../drift/drift-resolution-dialog
 import { TableStatisticsChartComponent } from './table-statistics-chart.component';
 import { HasPermissionDirective } from '../../core/directives/has-permission.directive';
 import { RbacService } from '../../core/auth/rbac.service';
+import { SyncJobService } from '../../core/services/sync-job.service';
+import { ActivatedRoute } from '@angular/router';
 
 @Component({
   selector: 'app-catalog-explorer',
@@ -49,7 +52,12 @@ import { RbacService } from '../../core/auth/rbac.service';
 export class CatalogExplorerComponent implements OnInit {
   readonly store = inject(CatalogStore);
   readonly rbac = inject(RbacService);
+  readonly syncJobService = inject(SyncJobService);
   private readonly http = inject(HttpClient);
+  private readonly route = inject(ActivatedRoute, { optional: true });
+
+  // Description Display Policy: 'APPROVED_FIRST' | 'SOURCE_FIRST' | 'BOTH'
+  readonly descPolicy = signal<DescriptionPolicy>('APPROVED_FIRST');
 
   // Search & Filter State
   searchQuery = '';
@@ -125,19 +133,165 @@ export class CatalogExplorerComponent implements OnInit {
   toastMessage = signal<string | null>(null);
   toastType = signal<'success' | 'error' | 'info'>('success');
 
-  // Computed
+  // Computed Selection
   hasSelectedTables = computed(() => this.selectedTableIds().size > 0);
   selectedCount = computed(() => this.selectedTableIds().size);
 
+  // 4-Card Scope KPI Strip
+  readonly kpiTotalTables = computed(() => this.store.searchHits().length);
+
+  readonly kpiDocumentedPct = computed(() => {
+    const hits = this.store.searchHits();
+    if (hits.length === 0) return 0;
+    const docCount = hits.filter(
+      (h) => Boolean(h.approved_description?.trim() || h.source_description?.trim() || h.effective_description?.trim())
+    ).length;
+    return Math.round((docCount / hits.length) * 100);
+  });
+
+  readonly kpiSensitiveColumnsCount = computed(() => {
+    const hits = this.store.searchHits();
+    return hits.filter(
+      (h) =>
+        h.classification_level === 'PII' ||
+        h.classification_level === 'CONFIDENTIAL' ||
+        h.tags?.some((t) => {
+          const lower = (t.name || '').toLowerCase();
+          return lower.includes('pii') || lower.includes('confidential') || lower.includes('محرمانه');
+        })
+    ).length;
+  });
+
+  readonly kpiDriftCount = computed(() => {
+    return this.store.searchHits().filter((h) => Boolean(h.description_drift_detected)).length;
+  });
+
   ngOnInit(): void {
+    // 0. Load persisted description display policy
+    try {
+      if (typeof localStorage !== 'undefined') {
+        const savedPolicy = localStorage.getItem('datacatalog_desc_policy') as DescriptionPolicy;
+        if (savedPolicy === 'APPROVED_FIRST' || savedPolicy === 'SOURCE_FIRST' || savedPolicy === 'BOTH') {
+          this.descPolicy.set(savedPolicy);
+        }
+      }
+    } catch {
+      // Ignore in non-browser/restricted environments
+    }
+
     // 1. Initial Catalog Load
     this.executeSearch();
 
-    // 2. Load Hierarchy Trees
+    // 2. Query Params Sync (e.g. from top global search bar)
+    if (this.route) {
+      this.route.queryParams.subscribe((params) => {
+        const q = params['q'];
+        if (q !== undefined && q !== this.searchQuery) {
+          this.searchQuery = q;
+          this.executeSearch();
+        }
+      });
+    }
+
+    // 3. Load Hierarchy Trees
     this.loadTrees();
 
-    // 3. Load Available Tags
+    // 4. Load Available Tags
     this.loadAvailableTags();
+  }
+
+  setDescPolicy(policy: DescriptionPolicy): void {
+    this.descPolicy.set(policy);
+    try {
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem('datacatalog_desc_policy', policy);
+      }
+    } catch {}
+  }
+
+  triggerDatabaseSync(conn: PhysicalDatabaseNode, event: MouseEvent): void {
+    event.stopPropagation();
+    this.syncJobService.triggerSync(conn.id).subscribe({
+      next: () => {
+        this.showToast(`همگام‌سازی متادیتا برای پایگاه داده «${conn.name}» آغاز شد.`, 'success');
+      },
+      error: (err: unknown) => {
+        const msg = err instanceof Error ? err.message : `خطا در آغاز همگام‌سازی پایگاه داده «${conn.name}»`;
+        this.showToast(msg, 'error');
+      },
+    });
+  }
+
+  navigateToAll(): void {
+    this.selectedDatabase = '';
+    this.selectedSchema = '';
+    this.executeSearch();
+  }
+
+  navigateToDatabase(dbName: string): void {
+    this.selectedDatabase = dbName;
+    this.selectedSchema = '';
+    this.executeSearch();
+  }
+
+  getDisplayDescription(hit: SearchHit): {
+    policy: DescriptionPolicy;
+    primaryText: string;
+    origin: 'approved' | 'source' | 'none';
+    secondaryText?: string;
+    secondaryOrigin?: 'approved' | 'source';
+  } {
+    const policy = this.descPolicy();
+    const app = hit.approved_description?.trim();
+    const src = hit.source_description?.trim();
+    const eff = hit.effective_description?.trim();
+
+    if (policy === 'APPROVED_FIRST') {
+      if (app) {
+        return { policy, primaryText: app, origin: 'approved' };
+      }
+      if (src) {
+        return { policy, primaryText: src, origin: 'source' };
+      }
+      if (eff) {
+        return { policy, primaryText: eff, origin: 'source' };
+      }
+      return { policy, primaryText: 'بدون توضیحات ثبت شده', origin: 'none' };
+    }
+
+    if (policy === 'SOURCE_FIRST') {
+      if (src) {
+        return { policy, primaryText: src, origin: 'source' };
+      }
+      if (app) {
+        return { policy, primaryText: app, origin: 'approved' };
+      }
+      if (eff) {
+        return { policy, primaryText: eff, origin: 'source' };
+      }
+      return { policy, primaryText: 'بدون توضیحات ثبت شده', origin: 'none' };
+    }
+
+    // BOTH
+    if (app && src) {
+      return {
+        policy,
+        primaryText: app,
+        origin: 'approved',
+        secondaryText: src,
+        secondaryOrigin: 'source',
+      };
+    }
+    if (app) {
+      return { policy, primaryText: app, origin: 'approved' };
+    }
+    if (src) {
+      return { policy, primaryText: src, origin: 'source' };
+    }
+    if (eff) {
+      return { policy, primaryText: eff, origin: 'source' };
+    }
+    return { policy, primaryText: 'بدون توضیحات ثبت شده', origin: 'none' };
   }
 
   executeSearch(): void {

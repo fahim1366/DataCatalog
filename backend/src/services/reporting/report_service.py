@@ -77,23 +77,89 @@ class ReportService:
         or filtered by connection_ids.
         """
         start_time = time.perf_counter()
-        query_sql = """
-            SELECT 
-                connection_id,
-                database_name,
-                schema_count,
-                table_count,
-                column_count,
-                tables_with_desc,
-                tables_with_owner,
-                table_desc_completeness_pct
-            FROM mv_metadata_completeness
-        """
-        params = {}
         if connection_ids:
-            query_sql += " WHERE connection_id = ANY(:cids)"
-            params["cids"] = [str(cid) for cid in connection_ids]
-        query_sql += " ORDER BY database_name ASC;"
+            query_sql = """
+                WITH tbl_stats AS (
+                    SELECT 
+                        s.connection_id,
+                        COUNT(DISTINCT s.id) AS schema_count,
+                        COUNT(t.id) AS table_count,
+                        COUNT(t.id) FILTER (WHERE t.effective_description IS NOT NULL AND t.effective_description <> '') AS tables_with_desc,
+                        COUNT(t.id) FILTER (WHERE t.owner IS NOT NULL AND t.owner <> '') AS tables_with_owner
+                    FROM schemas s
+                    LEFT JOIN catalog_tables t ON t.schema_id = s.id AND t.status != 'DELETED'
+                    WHERE s.status != 'DELETED' AND s.connection_id = ANY(:cids)
+                    GROUP BY s.connection_id
+                ),
+                col_stats AS (
+                    SELECT 
+                        s.connection_id,
+                        COUNT(c.id) AS column_count
+                    FROM schemas s
+                    JOIN catalog_tables t ON t.schema_id = s.id AND t.status != 'DELETED'
+                    JOIN catalog_columns c ON c.table_id = t.id AND c.status != 'DELETED'
+                    WHERE s.status != 'DELETED' AND s.connection_id = ANY(:cids)
+                    GROUP BY s.connection_id
+                )
+                SELECT 
+                    d.id AS connection_id,
+                    d.name AS database_name,
+                    COALESCE(t.schema_count, 0) AS schema_count,
+                    COALESCE(t.table_count, 0) AS table_count,
+                    COALESCE(c.column_count, 0) AS column_count,
+                    COALESCE(t.tables_with_desc, 0) AS tables_with_desc,
+                    COALESCE(t.tables_with_owner, 0) AS tables_with_owner,
+                    ROUND(
+                        (COALESCE(t.tables_with_desc, 0)::numeric / NULLIF(COALESCE(t.table_count, 0), 0)) * 100, 2
+                    ) AS table_desc_completeness_pct
+                FROM database_connections d
+                LEFT JOIN tbl_stats t ON t.connection_id = d.id
+                LEFT JOIN col_stats c ON c.connection_id = d.id
+                WHERE d.id = ANY(:cids)
+                ORDER BY d.name ASC;
+            """
+            params = {"cids": [str(cid) for cid in connection_ids]}
+        else:
+            query_sql = """
+                WITH tbl_stats AS (
+                    SELECT 
+                        s.connection_id,
+                        COUNT(DISTINCT s.id) AS schema_count,
+                        COUNT(t.id) AS table_count,
+                        COUNT(t.id) FILTER (WHERE t.effective_description IS NOT NULL AND t.effective_description <> '') AS tables_with_desc,
+                        COUNT(t.id) FILTER (WHERE t.owner IS NOT NULL AND t.owner <> '') AS tables_with_owner
+                    FROM schemas s
+                    LEFT JOIN catalog_tables t ON t.schema_id = s.id AND t.status != 'DELETED'
+                    WHERE s.status != 'DELETED'
+                    GROUP BY s.connection_id
+                ),
+                col_stats AS (
+                    SELECT 
+                        s.connection_id,
+                        COUNT(c.id) AS column_count
+                    FROM schemas s
+                    JOIN catalog_tables t ON t.schema_id = s.id AND t.status != 'DELETED'
+                    JOIN catalog_columns c ON c.table_id = t.id AND c.status != 'DELETED'
+                    WHERE s.status != 'DELETED'
+                    GROUP BY s.connection_id
+                )
+                SELECT 
+                    d.id AS connection_id,
+                    d.name AS database_name,
+                    COALESCE(t.schema_count, 0) AS schema_count,
+                    COALESCE(t.table_count, 0) AS table_count,
+                    COALESCE(c.column_count, 0) AS column_count,
+                    COALESCE(t.tables_with_desc, 0) AS tables_with_desc,
+                    COALESCE(t.tables_with_owner, 0) AS tables_with_owner,
+                    ROUND(
+                        (COALESCE(t.tables_with_desc, 0)::numeric / NULLIF(COALESCE(t.table_count, 0), 0)) * 100, 2
+                    ) AS table_desc_completeness_pct
+                FROM database_connections d
+                LEFT JOIN tbl_stats t ON t.connection_id = d.id
+                LEFT JOIN col_stats c ON c.connection_id = d.id
+                ORDER BY d.name ASC;
+            """
+            params = {}
 
         stmt = text(query_sql)
         result = await session.execute(stmt, params)

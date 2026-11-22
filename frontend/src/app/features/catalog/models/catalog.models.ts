@@ -33,6 +33,7 @@ export interface SearchHit {
   size_bytes?: number;
   tags?: TagItem[];
   description_drift_detected?: boolean;
+  description_source?: string | null;
 }
 
 export interface SearchResponse {
@@ -136,7 +137,42 @@ export interface PhysicalDatabaseNode {
   name: string;
   database_name: string;
   engine_type: string;
+  host?: string | null;
+  port?: number | null;
+  owner?: string | null;
+  is_active?: boolean;
   schemas: PhysicalSchemaNode[];
+}
+
+export interface CatalogObjectItem {
+  id: string;
+  name: string;
+  object_type: 'TABLE' | 'VIEW' | 'INDEX' | 'PROCEDURE' | 'FUNCTION' | string;
+  database_name?: string | null;
+  schema_name?: string | null;
+  table_name?: string | null;
+  details?: Record<string, any>;
+  source_description?: string | null;
+  approved_description?: string | null;
+  description_source?: string | null;
+  owner?: string | null;
+  created_at?: string | null;
+}
+
+export interface CatalogObjectsResponse {
+  counts: {
+    tables: number;
+    views: number;
+    indexes: number;
+    procedures: number;
+    functions: number;
+    [key: string]: number;
+  };
+  tables: CatalogObjectItem[];
+  views: CatalogObjectItem[];
+  indexes: CatalogObjectItem[];
+  procedures: CatalogObjectItem[];
+  functions: CatalogObjectItem[];
 }
 
 export interface CategoryTreeNode {

@@ -169,6 +169,7 @@ async def export_reports(
             CatalogTable.owner,
             CatalogTable.source_description,
             CatalogTable.approved_description,
+            CatalogTable.description_source,
         )
         .join(DatabaseSchema, DatabaseSchema.id == CatalogTable.schema_id)
         .join(DatabaseConnection, DatabaseConnection.id == DatabaseSchema.connection_id)
@@ -199,6 +200,7 @@ async def export_reports(
             CatalogColumn.classification_level,
             CatalogColumn.source_description,
             CatalogColumn.approved_description,
+            CatalogColumn.description_source,
         )
         .join(CatalogTable, CatalogTable.id == CatalogColumn.table_id)
         .join(DatabaseSchema, DatabaseSchema.id == CatalogTable.schema_id)
@@ -335,6 +337,7 @@ async def export_reports(
             "مالک سازمانی",
             "توضیحات مبدأ (Source)",
             "توضیحات مصوب حاکمیتی (Approved)",
+            "منبع شرح (Description Source)",
         ]
         for col_idx, h in enumerate(tbl_headers, start=1):
             cell = ws2.cell(row=1, column=col_idx, value=h)
@@ -355,7 +358,8 @@ async def export_reports(
             ws2.cell(row=r_idx, column=7, value=t.owner or "-").alignment = align_right
             ws2.cell(row=r_idx, column=8, value=t.source_description or "-").alignment = align_right
             ws2.cell(row=r_idx, column=9, value=t.approved_description or "-").alignment = align_right
-            for c_idx in range(1, 10):
+            ws2.cell(row=r_idx, column=10, value=getattr(t, "description_source", "SOURCE_DB") or "SOURCE_DB").alignment = align_center
+            for c_idx in range(1, 11):
                 c = ws2.cell(row=r_idx, column=c_idx)
                 c.font = cell_font
                 c.border = thin_border
@@ -378,6 +382,7 @@ async def export_reports(
             "سطح محرمانگی",
             "توضیحات مبدأ (Source)",
             "توضیحات مصوب حاکمیتی (Approved)",
+            "منبع شرح (Description Source)",
         ]
         for col_idx, h in enumerate(col_headers, start=1):
             cell = ws3.cell(row=1, column=col_idx, value=h)
@@ -402,7 +407,8 @@ async def export_reports(
             ws3.cell(row=r_idx, column=9, value=clevel).alignment = align_center
             ws3.cell(row=r_idx, column=10, value=c.source_description or "-").alignment = align_right
             ws3.cell(row=r_idx, column=11, value=c.approved_description or "-").alignment = align_right
-            for c_idx in range(1, 12):
+            ws3.cell(row=r_idx, column=12, value=getattr(c, "description_source", "SOURCE_DB") or "SOURCE_DB").alignment = align_center
+            for c_idx in range(1, 13):
                 cell_item = ws3.cell(row=r_idx, column=c_idx)
                 cell_item.font = cell_font
                 cell_item.border = thin_border
@@ -467,6 +473,7 @@ async def export_reports(
             "مالک",
             "توضیحات مبدأ",
             "توضیحات مصوب حاکمیتی",
+            "منبع شرح",
         ])
         for t in tables_data:
             ttype = t.table_type.value if hasattr(t.table_type, "value") else str(t.table_type)
@@ -480,6 +487,7 @@ async def export_reports(
                 t.owner or "",
                 t.source_description or "",
                 t.approved_description or "",
+                getattr(t, "description_source", "SOURCE_DB") or "SOURCE_DB",
             ])
         writer.writerow([])
 
@@ -496,6 +504,7 @@ async def export_reports(
             "سطح محرمانگی",
             "توضیحات مبدأ",
             "توضیحات مصوب حاکمیتی",
+            "منبع شرح",
         ])
         for c in columns_data:
             clevel = c.classification_level.value if hasattr(c.classification_level, "value") else str(c.classification_level)
@@ -511,6 +520,7 @@ async def export_reports(
                 clevel,
                 c.source_description or "",
                 c.approved_description or "",
+                getattr(c, "description_source", "SOURCE_DB") or "SOURCE_DB",
             ])
 
         csv_bytes = ("\ufeff" + output.getvalue()).encode("utf-8")
@@ -535,6 +545,7 @@ async def export_reports(
                 "owner": t.owner,
                 "source_description": t.source_description,
                 "approved_description": t.approved_description,
+                "description_source": getattr(t, "description_source", "SOURCE_DB") or "SOURCE_DB",
             }
             for t in tables_data
         ],
@@ -552,7 +563,66 @@ async def export_reports(
                 "classification_level": c.classification_level.value if hasattr(c.classification_level, "value") else str(c.classification_level),
                 "source_description": c.source_description,
                 "approved_description": c.approved_description,
+                "description_source": getattr(c, "description_source", "SOURCE_DB") or "SOURCE_DB",
             }
             for c in columns_data
         ],
     }
+
+
+@router.get(
+    "/preview",
+    summary="Get executive reports data dictionary preview with source and approved descriptions",
+)
+async def get_report_preview(
+    connection_ids: Optional[List[uuid.UUID]] = Query(None, description="Filter by database connection IDs"),
+    limit: int = Query(100, ge=1, le=500),
+    user_ctx: UserContext = Depends(require_reports_permission),
+    db: AsyncSession = Depends(get_db_session),
+):
+    """
+    Returns data dictionary preview items with both source and approved descriptions, and description source.
+    """
+    stmt = (
+        select(
+            DatabaseConnection.database_name,
+            DatabaseSchema.name.label("schema_name"),
+            CatalogTable.name.label("table_name"),
+            CatalogTable.table_type,
+            CatalogTable.row_count_estimate,
+            CatalogTable.size_bytes,
+            CatalogTable.owner,
+            CatalogTable.source_description,
+            CatalogTable.approved_description,
+            CatalogTable.description_source,
+        )
+        .join(DatabaseSchema, DatabaseSchema.id == CatalogTable.schema_id)
+        .join(DatabaseConnection, DatabaseConnection.id == DatabaseSchema.connection_id)
+        .where(CatalogTable.status != LifecycleStatus.DELETED)
+    )
+    if connection_ids:
+        stmt = stmt.where(DatabaseConnection.id.in_(connection_ids))
+    stmt = stmt.order_by(
+        DatabaseConnection.database_name.asc(),
+        DatabaseSchema.name.asc(),
+        CatalogTable.name.asc(),
+    ).limit(limit)
+
+    res = await db.execute(stmt)
+    rows = res.all()
+
+    return [
+        {
+            "database_name": r.database_name,
+            "schema_name": r.schema_name,
+            "table_name": r.table_name,
+            "table_type": r.table_type.value if hasattr(r.table_type, "value") else str(r.table_type),
+            "row_count_estimate": r.row_count_estimate,
+            "size_bytes": r.size_bytes,
+            "owner": r.owner,
+            "source_description": r.source_description,
+            "approved_description": r.approved_description,
+            "description_source": r.description_source,
+        }
+        for r in rows
+    ]

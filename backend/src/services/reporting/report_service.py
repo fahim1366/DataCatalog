@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import time
 from typing import Dict, List, Optional
+import uuid
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 
@@ -234,7 +235,7 @@ class ReportService:
                 FROM catalog_columns c
                 JOIN catalog_tables t ON t.id = c.table_id
                 JOIN schemas s ON s.id = t.schema_id
-                WHERE c.status != 'DELETED' AND t.status != 'DELETED'
+                WHERE c.status != 'DELETED' AND t.status != 'DELETED' AND s.status != 'DELETED'
                   AND s.connection_id = ANY(:cids)
                 GROUP BY c.classification_level
                 ORDER BY c.classification_level ASC;
@@ -243,11 +244,15 @@ class ReportService:
         else:
             query_sql = """
                 SELECT 
-                    classification_level,
-                    column_count,
-                    affected_table_count
-                FROM mv_classification_distribution
-                ORDER BY classification_level ASC;
+                    c.classification_level,
+                    count(c.id) AS column_count,
+                    count(DISTINCT c.table_id) AS affected_table_count
+                FROM catalog_columns c
+                JOIN catalog_tables t ON t.id = c.table_id
+                JOIN schemas s ON s.id = t.schema_id
+                WHERE c.status != 'DELETED' AND t.status != 'DELETED' AND s.status != 'DELETED'
+                GROUP BY c.classification_level
+                ORDER BY c.classification_level ASC;
             """
 
         stmt = text(query_sql)

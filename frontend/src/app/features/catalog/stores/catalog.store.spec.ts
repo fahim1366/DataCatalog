@@ -171,6 +171,36 @@ describe('CatalogStore (T016: Signal Store for Metadata Discovery)', () => {
     expect(updatedItem?.effective_description).toBe('Updated Enterprise Customer Master');
   });
 
+  it('should update table owner via updateTableOwner()', async () => {
+    const targetId = 'a1111111-1111-1111-1111-111111111111';
+    store.setTables([
+      {
+        id: targetId,
+        schema_id: 's1',
+        name: 'customers',
+        table_type: 'TABLE',
+        row_count_estimate: 100,
+        size_bytes: 1024,
+        status: 'ACTIVE',
+        owner: 'old_owner',
+      },
+    ]);
+
+    const patchPromise = store.updateTableOwner(targetId, 'new_owner@company.internal');
+
+    const req = httpTesting.expectOne(`/api/v1/tables/${targetId}/owner`);
+    expect(req.request.method).toBe('PATCH');
+    expect(req.request.body).toEqual({ owner: 'new_owner@company.internal' });
+
+    req.flush({
+      id: targetId,
+      owner: 'new_owner@company.internal',
+    });
+    const res = await patchPromise;
+    expect(res.owner).toBe('new_owner@company.internal');
+    expect(store.tables()[0].owner).toBe('new_owner@company.internal');
+  });
+
   it('should reset isLoading flag to false when search encounters an HTTP error', async () => {
     const p = store.search('error_query');
     expect(store.isLoading()).toBe(true);

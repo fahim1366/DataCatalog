@@ -135,6 +135,12 @@ class DescriptionUpdateRequest(BaseModel):
     approved_description: str
 
 
+class TableOwnerUpdateRequest(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    owner: str = Field(..., max_length=255)
+
+
 class ClassificationUpdateRequest(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

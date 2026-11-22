@@ -53,14 +53,77 @@
           <span>در حال بارگذاری ساختار...</span>
         </div>
       } @else {
-        <!-- Physical Database Tree -->
+        <!-- Physical Database Tree with Advanced Search & Filter -->
         @if (activeTreeTab() === 'physical') {
+          <div class="db-filter-box">
+            <div class="db-filter-row">
+              <input
+                type="text"
+                class="db-filter-input"
+                [ngModel]="dbSearchFilter()"
+                (ngModelChange)="dbSearchFilter.set($event)"
+                placeholder="🔍 نام پایگاه / اتصال..."
+              />
+              <input
+                type="text"
+                class="db-filter-input mono-font"
+                [ngModel]="dbHostFilter()"
+                (ngModelChange)="dbHostFilter.set($event)"
+                placeholder="🌐 هاست / IP..."
+              />
+            </div>
+            <div class="db-filter-row">
+              <select
+                class="db-filter-select"
+                [ngModel]="dbEngineFilter()"
+                (ngModelChange)="dbEngineFilter.set($event)"
+              >
+                <option value="">همه موتورها</option>
+                <option value="POSTGRESQL">PostgreSQL</option>
+                <option value="MSSQL">MSSQL</option>
+                <option value="ORACLE">Oracle</option>
+                <option value="MYSQL">MySQL</option>
+                <option value="CLICKHOUSE">ClickHouse</option>
+                <option value="MONGODB">MongoDB</option>
+              </select>
+              <input
+                type="text"
+                class="db-filter-input"
+                [ngModel]="dbOwnerFilter()"
+                (ngModelChange)="dbOwnerFilter.set($event)"
+                placeholder="👤 مالک..."
+              />
+              @if (dbSearchFilter() || dbHostFilter() || dbEngineFilter() || dbOwnerFilter()) {
+                <button
+                  type="button"
+                  class="btn-clear-db-filters"
+                  (click)="clearDbFilters()"
+                  title="پاک کردن فیلترهای پایگاه داده"
+                >
+                  ✕
+                </button>
+              }
+            </div>
+          </div>
+
           <div class="tree-list">
-            @for (conn of physicalTree(); track conn.id) {
+            @for (conn of filteredPhysicalTree(); track conn.id) {
               <div class="tree-group">
                 <div class="tree-node node-db" (click)="filterByDatabase(conn.name)">
                   <span class="node-icon">🗄️</span>
-                  <span class="node-label mono-font">{{ conn.name }}</span>
+                  <div class="node-db-meta">
+                    <span class="node-label mono-font">{{ conn.name }}</span>
+                    @if (conn.host || conn.owner) {
+                      <div class="node-sub-meta">
+                        @if (conn.host) {
+                          <span class="node-host mono-font">{{ conn.host }}</span>
+                        }
+                        @if (conn.owner) {
+                          <span class="node-owner">({{ conn.owner }})</span>
+                        }
+                      </div>
+                    }
+                  </div>
                   <span class="node-engine-badge">{{ conn.engine_type }}</span>
                   <button
                     *hasPermission="'MANAGE_CONNECTIONS'"
@@ -83,7 +146,7 @@
                 </div>
               </div>
             } @empty {
-              <div class="tree-empty">هیچ پایگاه‌داده‌ای ثبت نشده است.</div>
+              <div class="tree-empty">هیچ پایگاه‌داده‌ای با مشخصات فیلتر یافت نشد.</div>
             }
           </div>
         }
@@ -387,128 +450,437 @@
       </div>
     </section>
 
-    <!-- Keyset Results CDK Virtual Scroll Table -->
-    <div class="table-container">
-      @if (store.isLoading() && store.searchHits().length === 0) {
-        <div class="loading-state">
-          <div class="spinner"></div>
-          <p>در حال کاوش و دریافت ساختار متادیتا...</p>
-        </div>
-      } @else if (store.searchHits().length === 0) {
-        <div class="empty-state" dir="rtl">
-          <div class="empty-icon">🔍</div>
-          <h3>موردی در کاتالوگ متادیتا یافت نشد</h3>
-          <p>هیچ جدولی با شرایط فیلتر یا کلیدواژه جستجوی فعلی تطابق ندارد یا سطح دسترسی شما برای مشاهده آن محدود است.</p>
-          <div class="completeness-hint-box">
-            <span class="hint-icon">💡</span>
-            <div class="hint-content">
-              <strong>راهنمای حاکمیت داده و تکمیل متادیتا:</strong><br />
-              شاخص تکمیل متادیتا (Metadata Completeness) بر پایه ثبت همزمان
-              <strong>«شرح جدول» (Table Description)</strong> و <strong>«مالک سازمانی داده» (Data Owner)</strong> محاسبه می‌شود. با تکمیل شناسنامه جداول، امتیاز حاکمیتی سازمان در داشبورد گزارشات مدیریتی ارتقا می‌یابد.
-            </div>
-          </div>
-          <button class="btn btn-primary btn-sm" (click)="resetFilters()">مشاهده تمامی جداول در دسترس</button>
-        </div>
-      } @else {
-        <!-- Table Column Headers -->
-        <div class="table-header-row">
-          <div class="col-checkbox">
-            <input
-              type="checkbox"
-              [checked]="selectedCount() === store.searchHits().length && selectedCount() > 0"
-              (change)="toggleSelectAll()"
-            />
-          </div>
-          <div class="col-name">نام جدول</div>
-          <div class="col-stats">تعداد رکورد / حجم</div>
-          <div class="col-tags">تگ‌های متصل</div>
-          <div class="col-desc">توضیحات جدول</div>
-          <div class="col-action">عملیات</div>
-        </div>
+    <!-- Dedicated 5 Object Category Tabs Bar -->
+    <div class="catalog-object-tabs-bar">
+      <div class="object-tabs-list" role="tablist">
+        <button
+          type="button"
+          class="object-tab-btn"
+          [class.active]="activeObjectTab() === 'tables'"
+          (click)="setActiveObjectTab('tables')"
+          role="tab"
+        >
+          <span class="tab-icon">📊</span>
+          <span class="tab-label">جداول (Tables)</span>
+          <span class="tab-count-badge">{{ objectCounts().tables }}</span>
+        </button>
 
-        <!-- Virtual Scroll Viewport -->
-        <cdk-virtual-scroll-viewport itemSize="68" class="viewport">
-          <div
-            *cdkVirtualFor="let hit of store.searchHits(); trackBy: trackByHitId"
-            class="table-row"
-            [class.row-selected]="isTableSelected(hit.id)"
-          >
+        <button
+          type="button"
+          class="object-tab-btn"
+          [class.active]="activeObjectTab() === 'views'"
+          (click)="setActiveObjectTab('views')"
+          role="tab"
+        >
+          <span class="tab-icon">👁️</span>
+          <span class="tab-label">نماها (Views)</span>
+          <span class="tab-count-badge">{{ objectCounts().views }}</span>
+        </button>
+
+        <button
+          type="button"
+          class="object-tab-btn"
+          [class.active]="activeObjectTab() === 'indexes'"
+          (click)="setActiveObjectTab('indexes')"
+          role="tab"
+        >
+          <span class="tab-icon">⚡</span>
+          <span class="tab-label">ایندکس‌ها (Indexes)</span>
+          <span class="tab-count-badge">{{ objectCounts().indexes }}</span>
+        </button>
+
+        <button
+          type="button"
+          class="object-tab-btn"
+          [class.active]="activeObjectTab() === 'procedures'"
+          (click)="setActiveObjectTab('procedures')"
+          role="tab"
+        >
+          <span class="tab-icon">⚙️</span>
+          <span class="tab-label">روال‌های ذخیره (Stored Procedures)</span>
+          <span class="tab-count-badge">{{ objectCounts().procedures }}</span>
+        </button>
+
+        <button
+          type="button"
+          class="object-tab-btn"
+          [class.active]="activeObjectTab() === 'functions'"
+          (click)="setActiveObjectTab('functions')"
+          role="tab"
+        >
+          <span class="tab-icon">ƒ</span>
+          <span class="tab-label">توابع (Functions)</span>
+          <span class="tab-count-badge">{{ objectCounts().functions }}</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- Keyset Results CDK Virtual Scroll Table & Dedicated Objects Views -->
+    <div class="table-container">
+      @if (activeObjectTab() === 'tables') {
+        @if (store.isLoading() && store.searchHits().length === 0) {
+          <div class="loading-state">
+            <div class="spinner"></div>
+            <p>در حال کاوش و دریافت ساختار متادیتا...</p>
+          </div>
+        } @else if (store.searchHits().length === 0) {
+          <div class="empty-state" dir="rtl">
+            <div class="empty-icon">🔍</div>
+            <h3>موردی در کاتالوگ متادیتا یافت نشد</h3>
+            <p>هیچ جدولی با شرایط فیلتر یا کلیدواژه جستجوی فعلی تطابق ندارد یا سطح دسترسی شما برای مشاهده آن محدود است.</p>
+            <div class="completeness-hint-box">
+              <span class="hint-icon">💡</span>
+              <div class="hint-content">
+                <strong>راهنمای حاکمیت داده و تکمیل متادیتا:</strong><br />
+                شاخص تکمیل متادیتا (Metadata Completeness) بر پایه ثبت همزمان
+                <strong>«شرح جدول» (Table Description)</strong> و <strong>«مالک سازمانی داده» (Data Owner)</strong> محاسبه می‌شود. با تکمیل شناسنامه جداول، امتیاز حاکمیتی سازمان در داشبورد گزارشات مدیریتی ارتقا می‌یابد.
+              </div>
+            </div>
+            <button class="btn btn-primary btn-sm" (click)="resetFilters()">مشاهده تمامی جداول در دسترس</button>
+          </div>
+        } @else {
+          <!-- Table Column Headers -->
+          <div class="table-header-row">
             <div class="col-checkbox">
               <input
                 type="checkbox"
-                [checked]="isTableSelected(hit.id)"
-                (change)="toggleTableSelection(hit.id)"
+                [checked]="selectedCount() === store.searchHits().length && selectedCount() > 0"
+                (change)="toggleSelectAll()"
               />
             </div>
+            <div class="col-name">نام جدول</div>
+            <div class="col-stats">تعداد رکورد / حجم</div>
+            <div class="col-tags">تگ‌های متصل</div>
+            <div class="col-desc">توضیحات جدول</div>
+            <div class="col-action">عملیات</div>
+          </div>
 
-            <div class="col-name" (click)="inspectTable(hit.id)">
-              <div class="table-title mono-font">
-                <span class="type-icon">📊</span>
-                <strong>{{ hit.name }}</strong>
-                @if (hit.description_drift_detected) {
-                  <span class="drift-badge" title="تعارض شرح">تعارض شرح</span>
-                }
+          <!-- Virtual Scroll Viewport -->
+          <cdk-virtual-scroll-viewport itemSize="68" class="viewport">
+            <div
+              *cdkVirtualFor="let hit of store.searchHits(); trackBy: trackByHitId"
+              class="table-row"
+              [class.row-selected]="isTableSelected(hit.id)"
+            >
+              <div class="col-checkbox">
+                <input
+                  type="checkbox"
+                  [checked]="isTableSelected(hit.id)"
+                  (change)="toggleTableSelection(hit.id)"
+                />
               </div>
-              @if (!selectedDatabase) {
-                <div class="table-source-sub mono-font">
-                  {{ hit.database_name }}.{{ hit.schema_name }}
-                </div>
-              }
-              <div class="table-type-badge">{{ hit.table_type || 'TABLE' }}</div>
-            </div>
 
-            <div class="col-stats">
-              <div>{{ (hit.row_count_estimate || 0).toLocaleString('fa-IR') }} رکورد</div>
-              <div class="text-muted">{{ (hit.size_bytes ? (hit.size_bytes / 1024 / 1024).toFixed(1) : 0) }} مگابایت</div>
-            </div>
-
-            <div class="col-tags">
-              @if (hit.tags && hit.tags.length > 0) {
-                <div class="tags-flex">
-                  @for (tag of hit.tags; track tag.id) {
-                    <app-tag-chip [tag]="tag" [removable]="false"></app-tag-chip>
+              <div class="col-name" (click)="inspectTable(hit.id)">
+                <div class="table-title mono-font">
+                  <span class="type-icon">📊</span>
+                  <strong>{{ hit.name }}</strong>
+                  @if (hit.description_drift_detected) {
+                    <span class="drift-badge" title="تعارض شرح">تعارض شرح</span>
                   }
                 </div>
-              } @else {
-                <span class="text-muted">-</span>
-              }
-            </div>
-
-            <div class="col-desc">
-              @let descData = getDisplayDescription(hit);
-              <div class="desc-cell-container">
-                <div class="desc-line-item">
-                  @if (descData.origin === 'approved') {
-                    <span class="origin-pill origin-approved" title="توضیحات مصوب حاکمیتی">مصوب</span>
-                  } @else if (descData.origin === 'source') {
-                    <span class="origin-pill origin-source" title="توضیحات استخراج شده از مبدأ دیتابیس">مبدأ</span>
-                  }
-                  <span class="desc-main-text" [class.text-muted]="descData.origin === 'none'" [title]="descData.primaryText">
-                    {{ descData.primaryText }}
-                  </span>
-                </div>
-                @if (descData.secondaryText) {
-                  <div class="desc-line-item secondary-desc">
-                    @if (descData.secondaryOrigin === 'source') {
-                      <span class="origin-pill origin-source" title="توضیحات استخراج شده از مبدأ دیتابیس">مبدأ</span>
-                    } @else if (descData.secondaryOrigin === 'approved') {
-                      <span class="origin-pill origin-approved" title="توضیحات مصوب حاکمیتی">مصوب</span>
-                    }
-                    <span class="desc-secondary-text" [title]="descData.secondaryText">
-                      {{ descData.secondaryText }}
-                    </span>
+                @if (!selectedDatabase) {
+                  <div class="table-source-sub mono-font">
+                    {{ hit.database_name }}.{{ hit.schema_name }}
                   </div>
                 }
+                <div class="table-type-badge">{{ hit.table_type || 'TABLE' }}</div>
+              </div>
+
+              <div class="col-stats">
+                <div>{{ (hit.row_count_estimate || 0).toLocaleString('fa-IR') }} رکورد</div>
+                <div class="text-muted">{{ (hit.size_bytes ? (hit.size_bytes / 1024 / 1024).toFixed(1) : 0) }} مگابایت</div>
+              </div>
+
+              <div class="col-tags">
+                @if (hit.tags && hit.tags.length > 0) {
+                  <div class="tags-flex">
+                    @for (tag of hit.tags; track tag.id) {
+                      <app-tag-chip [tag]="tag" [removable]="false"></app-tag-chip>
+                    }
+                  </div>
+                } @else {
+                  <span class="text-muted">-</span>
+                }
+              </div>
+
+              <div class="col-desc">
+                @let descData = getDisplayDescription(hit);
+                <div class="desc-cell-container">
+                  <div class="desc-line-item">
+                    @if (descData.origin === 'approved') {
+                      <span
+                        class="origin-pill origin-approved"
+                        [title]="hit.description_source === 'AI_APPROVED' ? 'تایید هوش مصنوعی' : 'توضیحات مصوب حاکمیتی'"
+                      >
+                        {{ hit.description_source === 'AI_APPROVED' ? 'تایید هوش مصنوعی' : 'مصوب' }}
+                      </span>
+                    } @else if (descData.origin === 'source') {
+                      <span class="origin-pill origin-source" title="توضیحات استخراج شده از مبدأ دیتابیس">مبدأ</span>
+                    }
+                    <span class="desc-main-text" [class.text-muted]="descData.origin === 'none'" [title]="descData.primaryText">
+                      {{ descData.primaryText }}
+                    </span>
+                  </div>
+                  @if (descData.secondaryText) {
+                    <div class="desc-line-item secondary-desc">
+                      @if (descData.secondaryOrigin === 'source') {
+                        <span class="origin-pill origin-source" title="توضیحات استخراج شده از مبدأ دیتابیس">مبدأ</span>
+                      } @else if (descData.secondaryOrigin === 'approved') {
+                        <span
+                          class="origin-pill origin-approved"
+                          [title]="hit.description_source === 'AI_APPROVED' ? 'تایید هوش مصنوعی' : 'توضیحات مصوب حاکمیتی'"
+                        >
+                          {{ hit.description_source === 'AI_APPROVED' ? 'تایید هوش مصنوعی' : 'مصوب' }}
+                        </span>
+                      }
+                      <span class="desc-secondary-text" [title]="descData.secondaryText">
+                        {{ descData.secondaryText }}
+                      </span>
+                    </div>
+                  }
+                </div>
+              </div>
+
+              <div class="col-action">
+                <button class="btn btn-secondary btn-sm" (click)="inspectTable(hit.id)">
+                  شناسنامه جدول 🔍
+                </button>
               </div>
             </div>
-
-            <div class="col-action">
-              <button class="btn btn-secondary btn-sm" (click)="inspectTable(hit.id)">
-                شناسنامه جدول 🔍
-              </button>
-            </div>
-          </div>
-        </cdk-virtual-scroll-viewport>
+          </cdk-virtual-scroll-viewport>
+        }
+      } @else if (activeObjectTab() === 'views') {
+        <!-- Views Tab View -->
+        <div class="objects-table-wrapper">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>نام نما (View Name)</th>
+                <th>اسکیما / پایگاه داده</th>
+                <th>رکورد / حجم تقریبی</th>
+                <th>توضیحات مبدأ</th>
+                <th>توضیحات مصوب / هوش مصنوعی</th>
+                <th>عملیات</th>
+              </tr>
+            </thead>
+            <tbody>
+              @for (view of catalogObjects()?.views || []; track view.id) {
+                <tr>
+                  <td class="mono-font fw-bold">
+                    <span class="type-icon">👁️</span> {{ view.name }}
+                  </td>
+                  <td class="mono-font text-muted">
+                    {{ view.database_name }}.{{ view.schema_name }}
+                  </td>
+                  <td>
+                    {{ ((view.details?.['row_count_estimate'] || 0)).toLocaleString('fa-IR') }} رکورد
+                  </td>
+                  <td>
+                    @if (view.source_description) {
+                      <div class="desc-line-item">
+                        <span class="origin-pill origin-source">مبدأ</span>
+                        <span>{{ view.source_description }}</span>
+                      </div>
+                    } @else {
+                      <span class="text-muted">-</span>
+                    }
+                  </td>
+                  <td>
+                    @if (view.approved_description) {
+                      <div class="desc-line-item">
+                        <span class="origin-pill origin-approved">
+                          {{ view.description_source === 'AI_APPROVED' ? 'تایید هوش مصنوعی' : 'مصوب' }}
+                        </span>
+                        <span>{{ view.approved_description }}</span>
+                      </div>
+                    } @else {
+                      <span class="text-muted">-</span>
+                    }
+                  </td>
+                  <td>
+                    <button class="btn btn-secondary btn-sm" (click)="inspectTable(view.id)">
+                      شناسنامه نما 🔍
+                    </button>
+                  </td>
+                </tr>
+              } @empty {
+                <tr>
+                  <td colspan="6" class="text-center empty-hint py-4">هیچ نمایی (View) در این محدوده ثبت نشده است.</td>
+                </tr>
+              }
+            </tbody>
+          </table>
+        </div>
+      } @else if (activeObjectTab() === 'indexes') {
+        <!-- Indexes Tab View -->
+        <div class="objects-table-wrapper">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>نام ایندکس (Index Name)</th>
+                <th>جدول و اسکیما</th>
+                <th>نوع ایندکس</th>
+                <th>ویژگی</th>
+                <th>ستون‌ها (Columns List)</th>
+                <th>تعریف DDL (Index Definition)</th>
+              </tr>
+            </thead>
+            <tbody>
+              @for (idx of catalogObjects()?.indexes || []; track idx.id) {
+                <tr>
+                  <td class="mono-font fw-bold">
+                    <span class="type-icon">⚡</span> {{ idx.name }}
+                  </td>
+                  <td class="mono-font text-muted">
+                    {{ idx.table_name || idx.details?.['table_name'] }} ({{ idx.schema_name }})
+                  </td>
+                  <td>
+                    <span class="code-badge">{{ idx.details?.['index_type'] || 'BTREE' }}</span>
+                  </td>
+                  <td>
+                    @if (idx.details?.['is_primary']) {
+                      <span class="badge badge-danger">PRIMARY KEY</span>
+                    }
+                    @if (idx.details?.['is_unique']) {
+                      <span class="badge badge-internal">UNIQUE</span>
+                    }
+                    @if (!idx.details?.['is_primary'] && !idx.details?.['is_unique']) {
+                      <span class="text-muted">INDEX</span>
+                    }
+                  </td>
+                  <td class="mono-font">
+                    {{ idx.details?.['columns_list']?.join(', ') || '-' }}
+                  </td>
+                  <td class="mono-font text-muted definition-cell" [title]="idx.details?.['definition'] || ''">
+                    <code>{{ idx.details?.['definition'] || '-' }}</code>
+                  </td>
+                </tr>
+              } @empty {
+                <tr>
+                  <td colspan="6" class="text-center empty-hint py-4">هیچ ایندکسی (Index) در این محدوده ثبت نشده است.</td>
+                </tr>
+              }
+            </tbody>
+          </table>
+        </div>
+      } @else if (activeObjectTab() === 'procedures') {
+        <!-- Stored Procedures Tab View -->
+        <div class="objects-table-wrapper">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>نام روال (Procedure Name)</th>
+                <th>اسکیما و پایگاه داده</th>
+                <th>زبان</th>
+                <th>امضا و پارامترها (Arguments)</th>
+                <th>توضیحات مبدأ</th>
+                <th>توضیحات مصوب</th>
+              </tr>
+            </thead>
+            <tbody>
+              @for (proc of catalogObjects()?.procedures || []; track proc.id) {
+                <tr>
+                  <td class="mono-font fw-bold">
+                    <span class="type-icon">⚙️</span> {{ proc.name }}
+                  </td>
+                  <td class="mono-font text-muted">
+                    {{ proc.database_name }}.{{ proc.schema_name }}
+                  </td>
+                  <td>
+                    <span class="code-badge">{{ proc.details?.['language'] || 'sql' }}</span>
+                  </td>
+                  <td class="mono-font text-muted" [title]="proc.details?.['arguments_signature'] || ''">
+                    <code>{{ proc.details?.['arguments_signature'] || '()' }}</code>
+                  </td>
+                  <td>
+                    @if (proc.source_description) {
+                      <div class="desc-line-item">
+                        <span class="origin-pill origin-source">مبدأ</span>
+                        <span>{{ proc.source_description }}</span>
+                      </div>
+                    } @else {
+                      <span class="text-muted">-</span>
+                    }
+                  </td>
+                  <td>
+                    @if (proc.approved_description) {
+                      <div class="desc-line-item">
+                        <span class="origin-pill origin-approved">
+                          {{ proc.description_source === 'AI_APPROVED' ? 'تایید هوش مصنوعی' : 'مصوب' }}
+                        </span>
+                        <span>{{ proc.approved_description }}</span>
+                      </div>
+                    } @else {
+                      <span class="text-muted">-</span>
+                    }
+                  </td>
+                </tr>
+              } @empty {
+                <tr>
+                  <td colspan="6" class="text-center empty-hint py-4">هیچ روال ذخیره‌شده‌ای (Stored Procedure) در این محدوده ثبت نشده است.</td>
+                </tr>
+              }
+            </tbody>
+          </table>
+        </div>
+      } @else if (activeObjectTab() === 'functions') {
+        <!-- Functions Tab View -->
+        <div class="objects-table-wrapper">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>نام تابع (Function Name)</th>
+                <th>اسکیما و پایگاه داده</th>
+                <th>نوع بازگشتی (Return Type)</th>
+                <th>زبان</th>
+                <th>امضا و پارامترها (Arguments)</th>
+                <th>توضیحات</th>
+              </tr>
+            </thead>
+            <tbody>
+              @for (fn of catalogObjects()?.functions || []; track fn.id) {
+                <tr>
+                  <td class="mono-font fw-bold">
+                    <span class="type-icon">ƒ</span> {{ fn.name }}
+                  </td>
+                  <td class="mono-font text-muted">
+                    {{ fn.database_name }}.{{ fn.schema_name }}
+                  </td>
+                  <td>
+                    <span class="code-badge badge-return">{{ fn.details?.['return_type'] || 'void' }}</span>
+                  </td>
+                  <td>
+                    <span class="code-badge">{{ fn.details?.['language'] || 'sql' }}</span>
+                  </td>
+                  <td class="mono-font text-muted" [title]="fn.details?.['arguments_signature'] || ''">
+                    <code>{{ fn.details?.['arguments_signature'] || '()' }}</code>
+                  </td>
+                  <td>
+                    @if (fn.approved_description) {
+                      <div class="desc-line-item">
+                        <span class="origin-pill origin-approved">
+                          {{ fn.description_source === 'AI_APPROVED' ? 'تایید هوش مصنوعی' : 'مصوب' }}
+                        </span>
+                        <span>{{ fn.approved_description }}</span>
+                      </div>
+                    } @else if (fn.source_description) {
+                      <div class="desc-line-item">
+                        <span class="origin-pill origin-source">مبدأ</span>
+                        <span>{{ fn.source_description }}</span>
+                      </div>
+                    } @else {
+                      <span class="text-muted">-</span>
+                    }
+                  </td>
+                </tr>
+              } @empty {
+                <tr>
+                  <td colspan="6" class="text-center empty-hint py-4">هیچ تابعی (Function) در این محدوده ثبت نشده است.</td>
+                </tr>
+              }
+            </tbody>
+          </table>
+        </div>
       }
     </div>
   </main>
@@ -721,22 +1093,30 @@
 
             <div class="meta-card">
               <div class="desc-header-row">
-                <h3>توضیحات استخراج شده از مبدا (Source Description)</h3>
-                <span class="priority-hint-badge">اولویت مبدا (در صورت وجود)</span>
+                <div class="desc-title-with-badge">
+                  <h3>توضیحات استخراج شده از مبدأ (Source Description)</h3>
+                  <span class="origin-pill origin-source">مبدأ دیتابیس</span>
+                </div>
               </div>
               <div class="source-desc-box">
                 @if (selectedTable()!.source_description) {
                   <p class="source-desc-text">{{ selectedTable()!.source_description }}</p>
                 } @else {
-                  <p class="source-desc-text empty-hint">بدون توضیحات در دیتابیس مبدا (استفاده خودکار از توضیحات حاکمیتی مصوب)</p>
+                  <p class="source-desc-text empty-hint">بدون توضیحات در دیتابیس مبدأ</p>
                 }
               </div>
             </div>
 
             <div class="meta-card">
               <div class="desc-header-row">
-                <h3>توضیحات مصوب حاکمیتی جدول (Approved Description)</h3>
-                <span class="fallback-hint-badge">جایگزین در صورت خالی بودن مبدا</span>
+                <div class="desc-title-with-badge">
+                  <h3>توضیحات مصوب / هوش مصنوعی (Approved / AI Description)</h3>
+                  @if (selectedTable()!.description_source === 'AI_APPROVED') {
+                    <span class="origin-pill origin-approved">تایید هوش مصنوعی</span>
+                  } @else {
+                    <span class="origin-pill origin-approved">مصوب حاکمیتی</span>
+                  }
+                </div>
               </div>
               <app-inline-desc-editor
                 [description]="selectedTable()!.approved_description"
@@ -752,7 +1132,33 @@
               </div>
               <div class="meta-item">
                 <span class="meta-label">مالک داده (Owner):</span>
-                <span class="meta-val mono-font">{{ selectedTable()!.owner || 'تعیین نشده' }}</span>
+                @if (!isEditingOwner()) {
+                  <div class="owner-display-row">
+                    <span class="meta-val mono-font">{{ selectedTable()!.owner || 'تعیین نشده' }}</span>
+                    <button
+                      type="button"
+                      class="btn-edit-owner"
+                      (click)="startEditingOwner()"
+                      title="ویرایش مالک داده"
+                    >
+                      ✏️
+                    </button>
+                  </div>
+                } @else {
+                  <div class="owner-edit-row">
+                    <input
+                      type="text"
+                      class="input-owner-edit"
+                      [value]="editOwnerValue()"
+                      (input)="editOwnerValue.set($any($event.target).value)"
+                      (keydown.enter)="saveTableOwner()"
+                      (keydown.escape)="cancelEditingOwner()"
+                      placeholder="نام یا تیم مالک داده..."
+                    />
+                    <button type="button" class="btn btn-sm btn-save-owner" (click)="saveTableOwner()">ذخیره</button>
+                    <button type="button" class="btn btn-sm btn-cancel-owner" (click)="cancelEditingOwner()">انصراف</button>
+                  </div>
+                }
               </div>
               <div class="meta-item">
                 <span class="meta-label">تخمین تعداد رکوردها:</span>

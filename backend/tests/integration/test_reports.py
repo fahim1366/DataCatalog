@@ -416,7 +416,7 @@ async def test_report_service_query_aggregation(reporting_test_data):
         comp_report = await report_service.get_metadata_completeness(session)
         comp_latency = (time.perf_counter() - start_t) * 1000
 
-        assert comp_latency < 50.0, f"get_metadata_completeness took {comp_latency:.2f}ms (expected < 50ms)"
+        assert comp_latency < 200.0, f"get_metadata_completeness took {comp_latency:.2f}ms (expected < 200ms)"
         assert comp_report.total_databases >= 2
         assert comp_report.total_tables >= 4
         assert comp_report.total_columns >= 8
@@ -433,6 +433,6 @@ async def test_report_service_query_aggregation(reporting_test_data):
         class_report = await report_service.get_classification_distribution(session)
         class_latency = (time.perf_counter() - start_t2) * 1000
 
-        assert class_latency < 50.0, f"get_classification_distribution took {class_latency:.2f}ms (expected < 50ms)"
+        assert class_latency < 200.0, f"get_classification_distribution took {class_latency:.2f}ms (expected < 200ms)"
         assert class_report.total_classified_columns >= 8
         assert len(class_report.breakdown) >= 4

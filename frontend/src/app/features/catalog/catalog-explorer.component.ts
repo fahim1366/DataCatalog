@@ -12,6 +12,8 @@ import { HttpClient } from '@angular/common/http';
 import { ScrollingModule } from '@angular/cdk/scrolling';
 import { CatalogStore } from './stores/catalog.store';
 import {
+  CatalogObjectItem,
+  CatalogObjectsResponse,
   CategoryTreeNode,
   ChangeLogItem,
   ColumnItem,
@@ -57,7 +59,7 @@ export class CatalogExplorerComponent implements OnInit {
   private readonly route = inject(ActivatedRoute, { optional: true });
 
   // Description Display Policy: 'APPROVED_FIRST' | 'SOURCE_FIRST' | 'BOTH'
-  readonly descPolicy = signal<DescriptionPolicy>('APPROVED_FIRST');
+  readonly descPolicy = signal<DescriptionPolicy>('BOTH');
 
   // Search & Filter State
   searchQuery = '';
@@ -69,12 +71,67 @@ export class CatalogExplorerComponent implements OnInit {
   selectedCategory = '';
   missingDescriptionsOnly = signal<boolean>(false);
 
+  // Advanced Tree Filtering State
+  readonly dbSearchFilter = signal<string>('');
+  readonly dbHostFilter = signal<string>('');
+  readonly dbEngineFilter = signal<string>('');
+  readonly dbOwnerFilter = signal<string>('');
+
   // Trees State
   activeTreeTab = signal<'physical' | 'category'>('physical');
   physicalTree = signal<PhysicalDatabaseNode[]>([]);
   categoryTree = signal<CategoryTreeNode[]>([]);
   isTreeLoading = signal<boolean>(false);
   isSidebarExpanded = signal<boolean>(true);
+
+  // Filtered physical database tree based on search & filter criteria
+  readonly filteredPhysicalTree = computed<PhysicalDatabaseNode[]>(() => {
+    const term = this.dbSearchFilter().trim().toLowerCase();
+    const hostTerm = this.dbHostFilter().trim().toLowerCase();
+    const engineTerm = this.dbEngineFilter().trim().toUpperCase();
+    const ownerTerm = this.dbOwnerFilter().trim().toLowerCase();
+
+    return this.physicalTree().filter((conn) => {
+      if (term) {
+        const matchesName = (conn.name || '').toLowerCase().includes(term);
+        const matchesDb = (conn.database_name || '').toLowerCase().includes(term);
+        if (!matchesName && !matchesDb) return false;
+      }
+      if (hostTerm) {
+        if (!conn.host || !conn.host.toLowerCase().includes(hostTerm)) return false;
+      }
+      if (engineTerm) {
+        if (!conn.engine_type || conn.engine_type.toUpperCase() !== engineTerm) return false;
+      }
+      if (ownerTerm) {
+        if (!conn.owner || !conn.owner.toLowerCase().includes(ownerTerm)) return false;
+      }
+      return true;
+    });
+  });
+
+  clearDbFilters(): void {
+    this.dbSearchFilter.set('');
+    this.dbHostFilter.set('');
+    this.dbEngineFilter.set('');
+    this.dbOwnerFilter.set('');
+  }
+
+  // 5 Dedicated Object Tabs State
+  readonly activeObjectTab = signal<'tables' | 'views' | 'indexes' | 'procedures' | 'functions'>('tables');
+  readonly catalogObjects = signal<CatalogObjectsResponse | null>(null);
+  readonly isLoadingObjects = signal<boolean>(false);
+
+  readonly objectCounts = computed(() => {
+    const objs = this.catalogObjects();
+    return {
+      tables: objs?.counts?.tables ?? this.store.searchHits().length,
+      views: objs?.counts?.views ?? 0,
+      indexes: objs?.counts?.indexes ?? 0,
+      procedures: objs?.counts?.procedures ?? 0,
+      functions: objs?.counts?.functions ?? 0,
+    };
+  });
 
   // Multi-selection for bulk tagging
   selectedTableIds = signal<Set<string>>(new Set());
@@ -132,6 +189,10 @@ export class CatalogExplorerComponent implements OnInit {
   // Toast Notification
   toastMessage = signal<string | null>(null);
   toastType = signal<'success' | 'error' | 'info'>('success');
+
+  // Inline Owner Editor
+  isEditingOwner = signal<boolean>(false);
+  editOwnerValue = signal<string>('');
 
   // Computed Selection
   hasSelectedTables = computed(() => this.selectedTableIds().size > 0);
@@ -198,6 +259,28 @@ export class CatalogExplorerComponent implements OnInit {
 
     // 4. Load Available Tags
     this.loadAvailableTags();
+
+    // 5. Load Scope Catalog Objects
+    this.loadCatalogObjects();
+  }
+
+  async loadCatalogObjects(): Promise<void> {
+    this.isLoadingObjects.set(true);
+    try {
+      const res = await this.store.getCatalogObjects({
+        database: this.selectedDatabase || undefined,
+        schema: this.selectedSchema || undefined,
+      });
+      this.catalogObjects.set(res);
+    } catch {
+      // Handled gracefully
+    } finally {
+      this.isLoadingObjects.set(false);
+    }
+  }
+
+  setActiveObjectTab(tab: 'tables' | 'views' | 'indexes' | 'procedures' | 'functions'): void {
+    this.activeObjectTab.set(tab);
   }
 
   setDescPolicy(policy: DescriptionPolicy): void {
@@ -307,6 +390,7 @@ export class CatalogExplorerComponent implements OnInit {
     this.store.search(this.searchQuery, true, filters).catch(() => {
       this.showToast('خطا در برقراری ارتباط با سرور متادیتا', 'error');
     });
+    this.loadCatalogObjects();
   }
 
   toggleMissingDescriptionsOnly(): void {
@@ -412,6 +496,7 @@ export class CatalogExplorerComponent implements OnInit {
 
   // Table Detail Inspector Drawer
   async inspectTable(tableId: string): Promise<void> {
+    this.isEditingOwner.set(false);
     this.selectedTableId.set(tableId);
     this.isInspectorLoading.set(true);
     try {
@@ -428,6 +513,7 @@ export class CatalogExplorerComponent implements OnInit {
   }
 
   closeInspector(): void {
+    this.isEditingOwner.set(false);
     this.selectedTable.set(null);
     this.selectedTableId.set(null);
   }
@@ -475,6 +561,33 @@ export class CatalogExplorerComponent implements OnInit {
       this.showToast('توضیحات جدول با موفقیت ذخیره و در زنجیره تغییرات ثبت شد', 'success');
     } catch {
       this.showToast('خطا در ذخیره توضیحات جدول', 'error');
+    }
+  }
+
+  // Table Owner Inline Editor
+  startEditingOwner(): void {
+    const current = this.selectedTable()?.owner || '';
+    this.editOwnerValue.set(current);
+    this.isEditingOwner.set(true);
+  }
+
+  cancelEditingOwner(): void {
+    this.isEditingOwner.set(false);
+  }
+
+  async saveTableOwner(): Promise<void> {
+    const tbl = this.selectedTable();
+    if (!tbl) return;
+    const newOwner = this.editOwnerValue().trim();
+    try {
+      const updated = await this.store.updateTableOwner(tbl.id, newOwner);
+      this.selectedTable.update((curr) => (curr ? { ...curr, owner: updated.owner } : curr));
+      this.isEditingOwner.set(false);
+      const history = await this.store.getTableHistory(tbl.id);
+      this.tableHistory.set(history);
+      this.showToast('مالک جدول با موفقیت ذخیره و در زنجیره تغییرات ثبت شد', 'success');
+    } catch {
+      this.showToast('خطا در ذخیره مالک جدول', 'error');
     }
   }
 

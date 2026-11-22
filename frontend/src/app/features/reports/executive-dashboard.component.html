@@ -443,6 +443,80 @@
             </div>
           </div>
         </section>
+
+        <!-- Data Dictionary Preview Section (Both Descriptions + Description Source) -->
+        <section class="dashboard-section preview-section">
+          <div class="section-card">
+            <div class="section-card-header">
+              <div class="card-title-group">
+                <h3 class="card-title">پیش‌نمایش شناسنامه اقلام داده و دیکشنری متادیتا (Data Dictionary Preview)</h3>
+                <span class="card-subtitle">نمایش همزمان توضیحات مبدأ، توضیحات مصوب / هوش مصنوعی و منبع شرح</span>
+              </div>
+              <span class="preview-count-badge">{{ reportPreview().length }} جدول</span>
+            </div>
+
+            <div class="table-responsive">
+              <table class="report-table" data-testid="report-preview-table">
+                <thead>
+                  <tr>
+                    <th>پایگاه داده / اسکیما</th>
+                    <th>نام جدول</th>
+                    <th>نوع جدول</th>
+                    <th>توضیحات مبدأ (Source)</th>
+                    <th>توضیحات مصوب / هوش مصنوعی (Approved / AI)</th>
+                    <th>مالک (Owner)</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  @for (item of reportPreview(); track item.database_name + '.' + item.schema_name + '.' + item.table_name) {
+                    <tr>
+                      <td class="mono-font text-muted">
+                        {{ item.database_name }}.{{ item.schema_name }}
+                      </td>
+                      <td class="mono-font fw-bold">
+                        {{ item.table_name }}
+                      </td>
+                      <td>
+                        <span class="table-type-tag">{{ item.table_type }}</span>
+                      </td>
+                      <td>
+                        @if (item.source_description) {
+                          <div class="desc-cell-line">
+                            <span class="origin-pill origin-source">مبدأ</span>
+                            <span>{{ item.source_description }}</span>
+                          </div>
+                        } @else {
+                          <span class="text-muted">-</span>
+                        }
+                      </td>
+                      <td>
+                        @if (item.approved_description) {
+                          <div class="desc-cell-line">
+                            <span class="origin-pill origin-approved">
+                              {{ item.description_source === 'AI_APPROVED' ? 'تایید هوش مصنوعی' : 'مصوب' }}
+                            </span>
+                            <span>{{ item.approved_description }}</span>
+                          </div>
+                        } @else {
+                          <span class="text-muted">-</span>
+                        }
+                      </td>
+                      <td class="mono-font">
+                        {{ item.owner || '-' }}
+                      </td>
+                    </tr>
+                  } @empty {
+                    <tr>
+                      <td colspan="6" class="text-center empty-hint py-4">
+                        هیچ جدولی برای نمایش پیش‌نمایش در این محدوده انتخاب‌شده یافت نشد.
+                      </td>
+                    </tr>
+                  }
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </section>
       }
     </main>
   </div>

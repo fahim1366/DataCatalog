@@ -231,4 +231,54 @@ describe('ConnectionDialogComponent', () => {
     expect(wasEmitted).toBe(false);
     expect(component.isCustomParamsOpen()).toBe(true);
   });
+
+  it('should discover databases and populate combobox when discoverDatabases is called', () => {
+    vi.spyOn(connectionService, 'discoverDatabases').mockReturnValue(
+      of({
+        success: true,
+        databases: ['postgres', 'analytics_dw', 'orders_db'],
+        latency_ms: 18,
+        message: 'Discovered 3 databases',
+      })
+    );
+
+    component.form.patchValue({
+      host: 'pg.internal.com',
+      port: 5432,
+      username: 'db_admin',
+      password: 'secret_password',
+      database_name: '',
+    });
+
+    component.discoverDatabases();
+
+    expect(component.discoveredDatabases()).toEqual(['postgres', 'analytics_dw', 'orders_db']);
+    expect(component.form.controls.database_name.value).toBe('postgres');
+  });
+
+  it('should run live diagnostic pre-save test and display inline result banner', () => {
+    vi.spyOn(connectionService, 'testUnsavedConnection').mockReturnValue(
+      of({
+        success: true,
+        latency_ms: 24,
+        dialect: 'POSTGRESQL',
+        message: 'Successfully connected and verified PostgreSQL 16.2',
+        tested_at: new Date().toISOString(),
+      })
+    );
+
+    component.form.patchValue({
+      host: 'pg.internal.com',
+      port: 5432,
+      username: 'db_admin',
+      password: 'secret_password',
+      database_name: 'analytics_dw',
+    });
+
+    component.testUnsavedConnection();
+
+    expect(component.testResult()).toBeTruthy();
+    expect(component.testResult()?.success).toBe(true);
+    expect(component.testResult()?.latency_ms).toBe(24);
+  });
 });

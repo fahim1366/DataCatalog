@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 import uuid
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -13,6 +13,8 @@ from backend.src.api.dependencies.rbac import UserContext, build_table_rbac_filt
 from backend.src.core.database import get_db_session
 from backend.src.models.catalog import (
     CatalogColumn,
+    CatalogIndex,
+    CatalogRoutine,
     CatalogTable,
     ClassificationLevel,
     DatabaseSchema,
@@ -32,6 +34,7 @@ from backend.src.schemas.catalog import (
     DescriptionUpdateRequest,
     TableDetail,
     TableListResponse,
+    TableOwnerUpdateRequest,
 )
 from backend.src.services.audit.audit_service import record_audit_event
 from backend.src.services.catalog.search_service import search_service
@@ -60,6 +63,10 @@ class PhysicalDatabaseNode(BaseModel):
     name: str
     database_name: str
     engine_type: str
+    host: Optional[str] = None
+    port: Optional[int] = None
+    owner: Optional[str] = None
+    is_active: Optional[bool] = True
     schemas: List[PhysicalSchemaNode]
 
 
@@ -76,25 +83,74 @@ class ChangeLogItem(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class CatalogObjectItem(BaseModel):
+    id: uuid.UUID
+    name: str
+    object_type: str  # TABLE, VIEW, INDEX, PROCEDURE, FUNCTION
+    database_name: Optional[str] = None
+    schema_name: Optional[str] = None
+    table_name: Optional[str] = None
+    details: Dict[str, Any] = Field(default_factory=dict)
+    source_description: Optional[str] = None
+    approved_description: Optional[str] = None
+    description_source: Optional[str] = "SOURCE_DB"
+    owner: Optional[str] = None
+    created_at: Optional[Any] = None
+
+
+class CatalogObjectsResponse(BaseModel):
+    counts: Dict[str, int]
+    tables: List[CatalogObjectItem] = Field(default_factory=list)
+    views: List[CatalogObjectItem] = Field(default_factory=list)
+    indexes: List[CatalogObjectItem] = Field(default_factory=list)
+    procedures: List[CatalogObjectItem] = Field(default_factory=list)
+    functions: List[CatalogObjectItem] = Field(default_factory=list)
+
+
 @router.get(
     "/tables/tree/physical",
     response_model=List[PhysicalDatabaseNode],
     summary="Get physical database hierarchy tree",
 )
 async def get_physical_tree(
+    search: Optional[str] = Query(None, description="Search connection name, database, host, or owner"),
+    engine_type: Optional[str] = Query(None, description="Filter by engine dialect"),
+    host: Optional[str] = Query(None, description="Filter by host IP or address"),
+    owner: Optional[str] = Query(None, description="Filter by database owner"),
+    is_active: Optional[bool] = Query(None, description="Filter by active status"),
     user_ctx: UserContext = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session),
 ) -> List[PhysicalDatabaseNode]:
     """
-    Returns full physical tree (Connection -> Schema -> Table) filtered by user RBAC VIEW_METADATA.
+    Returns full physical tree (Connection -> Schema -> Table) filtered by user RBAC VIEW_METADATA and optional search criteria.
     """
     # 1. Fetch connections and schemas
     conn_stmt = (
         select(DatabaseConnection)
         .options(selectinload(DatabaseConnection.schemas))
-        .where(DatabaseConnection.is_active == True)
-        .order_by(DatabaseConnection.name.asc())
     )
+    if is_active is not None:
+        conn_stmt = conn_stmt.where(DatabaseConnection.is_active == is_active)
+    else:
+        conn_stmt = conn_stmt.where(DatabaseConnection.is_active == True)
+
+    if engine_type is not None and engine_type.strip():
+        conn_stmt = conn_stmt.where(DatabaseConnection.engine_type == engine_type.strip())
+    if host is not None and host.strip():
+        conn_stmt = conn_stmt.where(DatabaseConnection.host.ilike(f"%{host.strip()}%"))
+    if owner is not None and owner.strip():
+        conn_stmt = conn_stmt.where(DatabaseConnection.owner.ilike(f"%{owner.strip()}%"))
+    if search is not None and search.strip():
+        term = f"%{search.strip()}%"
+        conn_stmt = conn_stmt.where(
+            or_(
+                DatabaseConnection.name.ilike(term),
+                DatabaseConnection.database_name.ilike(term),
+                DatabaseConnection.host.ilike(term),
+                DatabaseConnection.owner.ilike(term),
+            )
+        )
+    conn_stmt = conn_stmt.order_by(DatabaseConnection.name.asc())
     conn_res = await db.execute(conn_stmt)
     connections = conn_res.scalars().all()
 
@@ -154,11 +210,224 @@ async def get_physical_tree(
                 name=conn.name,
                 database_name=conn.database_name,
                 engine_type=conn.engine_type.value if hasattr(conn.engine_type, "value") else str(conn.engine_type),
+                host=conn.host,
+                port=conn.port,
+                owner=conn.owner,
+                is_active=conn.is_active,
                 schemas=schema_nodes,
             )
         )
 
     return result_tree
+
+
+@router.get(
+    "/catalog/objects",
+    response_model=CatalogObjectsResponse,
+    summary="Get grouped catalog database objects (tables, views, indexes, routines)",
+)
+@router.get(
+    "/tables/catalog/objects",
+    response_model=CatalogObjectsResponse,
+    include_in_schema=False,
+)
+async def get_catalog_objects(
+    database: Optional[str] = Query(None, description="Filter by database connection name"),
+    schema: Optional[str] = Query(None, description="Filter by schema name"),
+    table_id: Optional[uuid.UUID] = Query(None, description="Filter by specific table ID"),
+    object_type: Optional[str] = Query(None, description="Filter category: TABLE, VIEW, INDEX, PROCEDURE, FUNCTION"),
+    user_ctx: UserContext = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+) -> CatalogObjectsResponse:
+    """
+    Returns categorised catalog objects with counts:
+    - Tables
+    - Views / Materialized Views
+    - Indexes
+    - Stored Procedures
+    - Functions
+    Filtered by user RBAC VIEW_METADATA.
+    """
+    # 1. Base query for Tables & Views
+    table_query = (
+        select(
+            CatalogTable,
+            DatabaseSchema.name.label("schema_name"),
+            DatabaseConnection.name.label("database_name"),
+        )
+        .join(DatabaseSchema, DatabaseSchema.id == CatalogTable.schema_id)
+        .join(DatabaseConnection, DatabaseConnection.id == DatabaseSchema.connection_id)
+        .where(
+            CatalogTable.status != LifecycleStatus.DELETED,
+            DatabaseSchema.status != LifecycleStatus.DELETED,
+        )
+    )
+    if database:
+        table_query = table_query.where(
+            or_(
+                DatabaseConnection.name == database,
+                DatabaseConnection.database_name == database,
+            )
+        )
+    if schema:
+        table_query = table_query.where(DatabaseSchema.name == schema)
+    if table_id:
+        table_query = table_query.where(CatalogTable.id == table_id)
+
+    # RBAC filter for tables
+    rbac_filter = build_table_rbac_filter(user_ctx=user_ctx, action=PermissionAction.VIEW_METADATA)
+    table_query = rbac_filter(table_query)
+    table_res = await db.execute(table_query)
+    table_rows = table_res.all()
+
+    tables_list: List[CatalogObjectItem] = []
+    views_list: List[CatalogObjectItem] = []
+
+    for tbl, s_name, db_name in table_rows:
+        ttype = tbl.table_type.value if hasattr(tbl.table_type, "value") else str(tbl.table_type)
+        item = CatalogObjectItem(
+            id=tbl.id,
+            name=tbl.name,
+            object_type=ttype,
+            database_name=db_name,
+            schema_name=s_name,
+            table_name=tbl.name,
+            details={
+                "row_count_estimate": tbl.row_count_estimate,
+                "size_bytes": tbl.size_bytes,
+            },
+            source_description=tbl.source_description,
+            approved_description=tbl.approved_description,
+            description_source=getattr(tbl, "description_source", "SOURCE_DB"),
+            owner=tbl.owner,
+            created_at=tbl.created_at,
+        )
+        if ttype in ("VIEW", "MATERIALIZED_VIEW"):
+            views_list.append(item)
+        else:
+            tables_list.append(item)
+
+    # 2. Indexes Query
+    idx_query = (
+        select(
+            CatalogIndex,
+            CatalogTable.name.label("table_name"),
+            DatabaseSchema.name.label("schema_name"),
+            DatabaseConnection.name.label("database_name"),
+        )
+        .join(CatalogTable, CatalogTable.id == CatalogIndex.table_id)
+        .join(DatabaseSchema, DatabaseSchema.id == CatalogIndex.schema_id)
+        .join(DatabaseConnection, DatabaseConnection.id == DatabaseSchema.connection_id)
+        .where(
+            CatalogTable.status != LifecycleStatus.DELETED,
+            DatabaseSchema.status != LifecycleStatus.DELETED,
+        )
+    )
+    if database:
+        idx_query = idx_query.where(
+            or_(
+                DatabaseConnection.name == database,
+                DatabaseConnection.database_name == database,
+            )
+        )
+    if schema:
+        idx_query = idx_query.where(DatabaseSchema.name == schema)
+    if table_id:
+        idx_query = idx_query.where(CatalogIndex.table_id == table_id)
+
+    idx_res = await db.execute(idx_query)
+    idx_rows = idx_res.all()
+
+    indexes_list: List[CatalogObjectItem] = []
+    for idx_obj, t_name, s_name, db_name in idx_rows:
+        indexes_list.append(
+            CatalogObjectItem(
+                id=idx_obj.id,
+                name=idx_obj.name,
+                object_type="INDEX",
+                database_name=db_name,
+                schema_name=s_name,
+                table_name=t_name,
+                details={
+                    "index_type": idx_obj.index_type,
+                    "is_unique": idx_obj.is_unique,
+                    "is_primary": idx_obj.is_primary,
+                    "columns_list": idx_obj.columns_list or [],
+                    "definition": idx_obj.definition,
+                },
+                created_at=idx_obj.created_at,
+            )
+        )
+
+    # 3. Routines (Procedures & Functions) Query
+    procedures_list: List[CatalogObjectItem] = []
+    functions_list: List[CatalogObjectItem] = []
+
+    # If table_id is specified, procedures and functions don't belong to a specific table directly
+    if not table_id:
+        routine_query = (
+            select(
+                CatalogRoutine,
+                DatabaseSchema.name.label("schema_name"),
+                DatabaseConnection.name.label("database_name"),
+            )
+            .join(DatabaseSchema, DatabaseSchema.id == CatalogRoutine.schema_id)
+            .join(DatabaseConnection, DatabaseConnection.id == DatabaseSchema.connection_id)
+            .where(DatabaseSchema.status != LifecycleStatus.DELETED)
+        )
+        if database:
+            routine_query = routine_query.where(
+                or_(
+                    DatabaseConnection.name == database,
+                    DatabaseConnection.database_name == database,
+                )
+            )
+        if schema:
+            routine_query = routine_query.where(DatabaseSchema.name == schema)
+
+        routine_res = await db.execute(routine_query)
+        routine_rows = routine_res.all()
+
+        for r_obj, s_name, db_name in routine_rows:
+            r_type = (r_obj.routine_type or "FUNCTION").upper()
+            item = CatalogObjectItem(
+                id=r_obj.id,
+                name=r_obj.name,
+                object_type=r_type,
+                database_name=db_name,
+                schema_name=s_name,
+                details={
+                    "language": r_obj.language,
+                    "arguments_signature": r_obj.arguments_signature,
+                    "return_type": r_obj.return_type,
+                },
+                source_description=r_obj.source_description,
+                approved_description=r_obj.approved_description,
+                description_source="SOURCE_DB",
+                created_at=r_obj.created_at,
+            )
+            if r_type == "PROCEDURE":
+                procedures_list.append(item)
+            else:
+                functions_list.append(item)
+
+    counts = {
+        "tables": len(tables_list),
+        "views": len(views_list),
+        "indexes": len(indexes_list),
+        "procedures": len(procedures_list),
+        "functions": len(functions_list),
+    }
+
+    req_type = (object_type or "").upper()
+    return CatalogObjectsResponse(
+        counts=counts,
+        tables=tables_list if not req_type or req_type in ("TABLE", "ALL") else [],
+        views=views_list if not req_type or req_type in ("VIEW", "ALL") else [],
+        indexes=indexes_list if not req_type or req_type in ("INDEX", "ALL") else [],
+        procedures=procedures_list if not req_type or req_type in ("PROCEDURE", "ALL") else [],
+        functions=functions_list if not req_type or req_type in ("FUNCTION", "ALL") else [],
+    )
 
 
 @router.get(
@@ -354,6 +623,88 @@ async def update_table_description(
             "old_value": old_desc,
             "new_value": new_desc,
             "description_source": "ADMIN_MANUAL",
+        },
+        flush=True,
+    )
+    await db.flush()
+
+    detail = await search_service.get_table_details(
+        session=db,
+        table_id=table.id,
+        user_ctx=user_ctx,
+    )
+    if detail is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Table {table_id} could not be retrieved after update",
+        )
+    return TableDetail(**detail)
+
+
+@router.patch(
+    "/tables/{table_id}/owner",
+    response_model=TableDetail,
+    summary="Inline edit of table owner",
+)
+async def update_table_owner(
+    table_id: uuid.UUID,
+    payload: TableOwnerUpdateRequest,
+    user_ctx: UserContext = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+) -> TableDetail:
+    """
+    Updates the owner of a catalog table.
+    Enforces EDIT_DESCRIPTION RBAC permission, logs SCHEMA_CHANGE_LOG, and writes immutable AuditLog.
+    """
+    table = await db.get(CatalogTable, table_id)
+    if not table or table.status == LifecycleStatus.DELETED:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Table {table_id} not found",
+        )
+
+    if not user_ctx.is_superadmin:
+        effect = await CategoryService.resolve_effective_permission(
+            session=db,
+            user_ctx=user_ctx,
+            entity_type=EntityType.TABLE,
+            entity_id=table.id,
+            action=PermissionAction.EDIT_DESCRIPTION,
+        )
+        if effect != PermissionEffect.ALLOW:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Forbidden: User lacks EDIT_DESCRIPTION permission for table {table_id}",
+            )
+
+    old_owner = table.owner
+    new_owner = payload.owner.strip() if payload.owner else None
+    table.owner = new_owner
+
+    # Insert SchemaChangeLog
+    change_log = SchemaChangeLog(
+        id=uuid.uuid4(),
+        table_id=table.id,
+        change_type=SchemaChangeType.DESCRIPTION_UPDATED,
+        column_name=None,
+        old_value={"owner": old_owner},
+        new_value={"owner": new_owner},
+        actor_id=user_ctx.user_id,
+    )
+    db.add(change_log)
+
+    # Insert AuditLog
+    await record_audit_event(
+        session=db,
+        actor_username=user_ctx.user.username,
+        actor_id=user_ctx.user_id,
+        action="EDIT_DESCRIPTION",
+        entity_type=EntityType.TABLE,
+        entity_id=table.id,
+        diff_jsonb={
+            "field": "owner",
+            "old_value": old_owner,
+            "new_value": new_owner,
         },
         flush=True,
     )

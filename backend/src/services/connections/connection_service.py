@@ -4,7 +4,7 @@ import logging
 import uuid
 from typing import Any, Dict, List, Optional
 
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -216,14 +216,36 @@ class ConnectionService:
         return conn
 
     async def list_connections(
-        self, session: AsyncSession, is_active: Optional[bool] = None
+        self,
+        session: AsyncSession,
+        is_active: Optional[bool] = None,
+        search: Optional[str] = None,
+        engine_type: Optional[Any] = None,
+        host: Optional[str] = None,
+        owner: Optional[str] = None,
     ) -> List[DatabaseConnection]:
-        """Lists registered database connections with their assigned leaf category."""
+        """Lists registered database connections with their assigned leaf category and optional search/filter criteria."""
         stmt = select(DatabaseConnection).options(
             selectinload(DatabaseConnection.sync_schedule)
         )
         if is_active is not None:
             stmt = stmt.where(DatabaseConnection.is_active == is_active)
+        if engine_type is not None:
+            stmt = stmt.where(DatabaseConnection.engine_type == engine_type)
+        if host is not None and host.strip():
+            stmt = stmt.where(DatabaseConnection.host.ilike(f"%{host.strip()}%"))
+        if owner is not None and owner.strip():
+            stmt = stmt.where(DatabaseConnection.owner.ilike(f"%{owner.strip()}%"))
+        if search is not None and search.strip():
+            term = f"%{search.strip()}%"
+            stmt = stmt.where(
+                or_(
+                    DatabaseConnection.name.ilike(term),
+                    DatabaseConnection.database_name.ilike(term),
+                    DatabaseConnection.host.ilike(term),
+                    DatabaseConnection.owner.ilike(term),
+                )
+            )
         stmt = stmt.order_by(DatabaseConnection.name.asc())
         result = await session.execute(stmt)
         connections = list(result.scalars().all())

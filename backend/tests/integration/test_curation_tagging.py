@@ -294,6 +294,71 @@ async def test_inline_table_description_update(
 
 
 @pytest.mark.asyncio
+async def test_curate_table_owner_updates_and_creates_audit_log(
+    test_db_session: AsyncSession,
+    curation_test_data: dict,
+):
+    """
+    Assert PATCH /api/v1/tables/{table_id}/owner updates owner,
+    records DESCRIPTION_UPDATED in schema_change_logs, and persists an AuditLog entry.
+    """
+    table = curation_test_data["table"]
+    steward = curation_test_data["steward"]
+
+    async def override_db():
+        yield test_db_session
+
+    app.dependency_overrides[get_db_session] = override_db
+    transport = ASGITransport(app=app)
+    try:
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            new_owner = "data_platform_lead@company.internal"
+            resp = await client.patch(
+                f"/api/v1/tables/{table.id}/owner",
+                json={"owner": new_owner},
+                headers=curation_test_data["steward_headers"],
+            )
+            assert resp.status_code == 200, resp.text
+            data = resp.json()
+            assert data["id"] == str(table.id)
+            assert data["owner"] == new_owner
+
+            # 1. Verify DB update on CatalogTable
+            stmt = select(CatalogTable).where(CatalogTable.id == table.id)
+            result = await test_db_session.execute(stmt)
+            updated_tbl = result.scalar_one()
+            assert updated_tbl.owner == new_owner
+
+            # 2. Verify SchemaChangeLog record
+            change_stmt = select(SchemaChangeLog).where(
+                SchemaChangeLog.table_id == table.id,
+                SchemaChangeLog.change_type == SchemaChangeType.DESCRIPTION_UPDATED,
+            )
+            change_result = await test_db_session.execute(change_stmt)
+            logs = change_result.scalars().all()
+            owner_log = next((l for l in logs if "owner" in l.new_value), None)
+            assert owner_log is not None
+            assert owner_log.new_value == {"owner": new_owner}
+            assert owner_log.actor_id == steward.id
+
+            # 3. Verify immutable AuditLog record
+            audit_stmt = select(AuditLog).where(
+                AuditLog.entity_type == EntityType.TABLE,
+                AuditLog.entity_id == table.id,
+                AuditLog.action == "EDIT_DESCRIPTION",
+            )
+            audit_result = await test_db_session.execute(audit_stmt)
+            audits = audit_result.scalars().all()
+            owner_audit = next((a for a in audits if a.diff_jsonb.get("field") == "owner"), None)
+            assert owner_audit is not None
+            assert owner_audit.actor_id == steward.id
+            assert owner_audit.actor_username == steward.username
+            assert owner_audit.diff_jsonb.get("new_value") == new_owner
+    finally:
+        app.dependency_overrides.pop(get_db_session, None)
+
+
+@pytest.mark.asyncio
 async def test_inline_column_description_update(
     test_db_session: AsyncSession,
     curation_test_data: dict,

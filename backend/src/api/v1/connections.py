@@ -7,7 +7,7 @@ import uuid
 from typing import List, Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -19,7 +19,7 @@ from backend.src.api.dependencies.rbac import (
     user_rule_matches,
 )
 from backend.src.core.database import get_db_session
-from backend.src.models.connections import DatabaseConnection, SyncSchedule
+from backend.src.models.connections import DatabaseConnection, DatabaseEngine, SyncSchedule
 from backend.src.models.sync_jobs import SyncJob, SyncJobStatus, SyncTriggerType
 from backend.src.models.rbac import (
     Category,
@@ -34,8 +34,11 @@ from backend.src.schemas.connections import (
     ConnectionResponse,
     ConnectionTestResponse,
     ConnectionUpdateRequest,
+    DiscoverDatabasesRequest,
+    DiscoverDatabasesResponse,
     SyncScheduleResponse,
     SyncScheduleUpdateRequest,
+    TestUnsavedConnectionRequest,
 )
 from backend.src.schemas.sync_jobs import (
     CircuitBreakerStatusResponse,
@@ -53,6 +56,8 @@ from backend.src.services.workers.tasks import (
 from backend.src.services.audit.audit_service import record_audit_event
 from backend.src.services.connections.connection_service import connection_service
 from backend.src.services.connections.cron_validator import validate_cron_expression
+from backend.src.services.connectors.registry import default_connector_registry
+from backend.src.services.connectors.postgres import PostgresConnector
 
 logger = logging.getLogger(__name__)
 
@@ -139,14 +144,115 @@ async def create_connection(
 )
 async def list_connections(
     is_active: Optional[bool] = Query(None, description="Filter by active status"),
+    search: Optional[str] = Query(None, description="Search by name, database, host, or owner"),
+    engine_type: Optional[DatabaseEngine] = Query(None, description="Filter by engine type"),
+    host: Optional[str] = Query(None, description="Filter by host/IP"),
+    owner: Optional[str] = Query(None, description="Filter by owner"),
     user_ctx: UserContext = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session),
 ) -> List[ConnectionResponse]:
     """
-    Returns registered database connection profiles with masked credentials.
+    Returns registered database connection profiles with masked credentials and optional search/filter criteria.
     """
-    connections = await connection_service.list_connections(session=db, is_active=is_active)
+    connections = await connection_service.list_connections(
+        session=db,
+        is_active=is_active,
+        search=search,
+        engine_type=engine_type,
+        host=host,
+        owner=owner,
+    )
     return [connection_service.serialize_response(c) for c in connections]
+
+
+@router.post(
+    "/discover-databases",
+    response_model=DiscoverDatabasesResponse,
+    summary="Auto-discover non-template databases from host",
+)
+async def discover_databases(
+    payload: DiscoverDatabasesRequest,
+    user_ctx: UserContext = Depends(require_permission(PermissionAction.MANAGE_CONNECTIONS)),
+) -> DiscoverDatabasesResponse:
+    """
+    Connects transiently (NullPool, READ ONLY, 5s timeout) to the maintenance DB
+    and queries pg_database (for PostgreSQL) returning list of active non-template databases.
+    """
+    config = {
+        "host": payload.host,
+        "port": payload.port,
+        "username": payload.credentials.get("username", "postgres"),
+        "password": payload.credentials.get("password", ""),
+        "custom_params": payload.custom_params or {},
+    }
+
+    if payload.engine_type == DatabaseEngine.POSTGRESQL or str(payload.engine_type).upper() == "POSTGRESQL":
+        result = await PostgresConnector.discover_databases_from_config(config)
+        return DiscoverDatabasesResponse(
+            success=result["success"],
+            databases=result["databases"],
+            latency_ms=result["latency_ms"],
+            server_version=result.get("server_version"),
+            message=result["message"],
+        )
+    else:
+        return DiscoverDatabasesResponse(
+            success=False,
+            databases=[],
+            latency_ms=0.0,
+            server_version=None,
+            message=f"Database auto-discovery not yet supported for engine '{payload.engine_type}'.",
+        )
+
+
+@router.post(
+    "/test-unsaved",
+    response_model=ConnectionDiagnosticTestResponse,
+    summary="Execute live dialect connection diagnostic test before saving",
+)
+async def test_unsaved_connection(
+    payload: TestUnsavedConnectionRequest,
+    user_ctx: UserContext = Depends(require_permission(PermissionAction.MANAGE_CONNECTIONS)),
+) -> ConnectionDiagnosticTestResponse:
+    """
+    Executes a transient 5-point dialect connectivity test bounded by a strict 5.0s timeout
+    on unsaved connection credentials before persisting the connection profile.
+    """
+    config = {
+        "host": payload.host,
+        "port": payload.port,
+        "database_name": payload.database_name,
+        "database": payload.database_name,
+        "username": payload.credentials.get("username", "postgres"),
+        "password": payload.credentials.get("password", ""),
+        "custom_params": payload.custom_params or {},
+    }
+
+    try:
+        connector = default_connector_registry.create_connector(payload.engine_type, config)
+        async with connector:
+            test_res = await connector.test_connection()
+
+        return ConnectionDiagnosticTestResponse(
+            success=test_res.success,
+            latency_ms=test_res.latency_ms,
+            dialect=test_res.dialect,
+            server_version=test_res.server_version,
+            message=test_res.message,
+            diagnostic_details=test_res.diagnostic_details,
+            tested_at=test_res.tested_at,
+        )
+    except Exception as exc:
+        logger.warning("Unsaved connection test failed for %s:%s: %s", payload.host, payload.port, exc)
+        return ConnectionDiagnosticTestResponse(
+            success=False,
+            latency_ms=0.0,
+            dialect=str(payload.engine_type.value if hasattr(payload.engine_type, "value") else payload.engine_type),
+            server_version=None,
+            message=f"Connection test failed: {str(exc)}",
+            diagnostic_details={"error": str(exc)},
+            tested_at=datetime.now(timezone.utc),
+        )
 
 
 @router.get(
@@ -352,7 +458,7 @@ async def delete_connection(
 )
 async def test_connection_ping(
     connection_id: uuid.UUID,
-    user_ctx: UserContext = Depends(get_current_user),
+    user_ctx: UserContext = Depends(require_permission(PermissionAction.MANAGE_CONNECTIONS)),
     db: AsyncSession = Depends(get_db_session),
 ) -> ConnectionDiagnosticTestResponse:
     """
@@ -602,7 +708,7 @@ async def reset_circuit_breaker(
     )
 
 
-from backend.src.api.v1.sync_jobs import decode_sync_cursor
+from backend.src.api.v1.sync_jobs import decode_sync_cursor, encode_sync_cursor
 
 
 @router.get(

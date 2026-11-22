@@ -100,6 +100,33 @@ class TableStatisticsMetadata:
 
 
 @dataclass
+class IndexMetadata:
+    """Introspected table index metadata."""
+
+    schema_name: str
+    table_name: str
+    name: str
+    is_unique: bool = False
+    is_primary: bool = False
+    index_type: str = "BTREE"
+    columns_list: List[str] = field(default_factory=list)
+    definition: Optional[str] = None
+
+
+@dataclass
+class RoutineMetadata:
+    """Introspected stored procedure or function routine metadata."""
+
+    schema_name: str
+    name: str
+    routine_type: str  # PROCEDURE, FUNCTION
+    language: str = "sql"
+    arguments_signature: Optional[str] = None
+    return_type: Optional[str] = None
+    source_description: Optional[str] = None
+
+
+@dataclass
 class SchemaExtractionResult:
     """Complete metadata bundle for a single database schema."""
 
@@ -108,6 +135,8 @@ class SchemaExtractionResult:
     columns: List[ColumnMetadata] = field(default_factory=list)
     foreign_keys: List[ForeignKeyMetadata] = field(default_factory=list)
     statistics: List[TableStatisticsMetadata] = field(default_factory=list)
+    indexes: List[IndexMetadata] = field(default_factory=list)
+    routines: List[RoutineMetadata] = field(default_factory=list)
     success: bool = True
     error_message: Optional[str] = None
     error_code: Optional[str] = None

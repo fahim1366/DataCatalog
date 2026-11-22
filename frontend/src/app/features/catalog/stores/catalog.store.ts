@@ -1,8 +1,9 @@
 import { Injectable, computed, inject, signal } from '@angular/core';
-import { HttpClient } from '@angular/common/http';
+import { HttpClient, HttpParams } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
 import {
   BulkTagRequest,
+  CatalogObjectsResponse,
   CategoryTreeNode,
   ChangeLogItem,
   ColumnItem,
@@ -146,6 +147,24 @@ export class CatalogStore {
   }
 
   /**
+   * Updates owner for a table and synchronizes reactive state.
+   */
+  async updateTableOwner(tableId: string, owner: string): Promise<TableDetail> {
+    const updated = await firstValueFrom(
+      this.http.patch<TableDetail>(
+        `/api/v1/tables/${tableId}/owner`,
+        { owner }
+      )
+    );
+
+    this._tables.update(list =>
+      list.map(t => (t.id === tableId ? { ...t, owner: updated.owner } : t))
+    );
+
+    return updated;
+  }
+
+  /**
    * Retrieves full table details including columns and tags.
    */
   async getTableDetails(tableId: string): Promise<TableDetail> {
@@ -207,10 +226,39 @@ export class CatalogStore {
   }
 
   /**
-   * Fetches physical database tree.
+   * Fetches physical database tree with optional advanced search and filtering.
    */
-  async getPhysicalTree(): Promise<PhysicalDatabaseNode[]> {
-    return firstValueFrom(this.http.get<PhysicalDatabaseNode[]>('/api/v1/tables/tree/physical'));
+  async getPhysicalTree(filters?: {
+    search?: string;
+    engine_type?: string;
+    host?: string;
+    owner?: string;
+    is_active?: boolean;
+  }): Promise<PhysicalDatabaseNode[]> {
+    let params = new HttpParams();
+    if (filters?.search) params = params.set('search', filters.search);
+    if (filters?.engine_type) params = params.set('engine_type', filters.engine_type);
+    if (filters?.host) params = params.set('host', filters.host);
+    if (filters?.owner) params = params.set('owner', filters.owner);
+    if (filters?.is_active !== undefined) params = params.set('is_active', String(filters.is_active));
+    return firstValueFrom(this.http.get<PhysicalDatabaseNode[]>('/api/v1/tables/tree/physical', { params }));
+  }
+
+  /**
+   * Fetches dedicated catalog objects (Tables, Views, Indexes, Procedures, Functions) for a given scope.
+   */
+  async getCatalogObjects(scope?: {
+    database?: string;
+    schema?: string;
+    table_id?: string;
+    object_type?: string;
+  }): Promise<CatalogObjectsResponse> {
+    let params = new HttpParams();
+    if (scope?.database) params = params.set('database', scope.database);
+    if (scope?.schema) params = params.set('schema', scope.schema);
+    if (scope?.table_id) params = params.set('table_id', scope.table_id);
+    if (scope?.object_type) params = params.set('object_type', scope.object_type);
+    return firstValueFrom(this.http.get<CatalogObjectsResponse>('/api/v1/catalog/objects', { params }));
   }
 
   /**

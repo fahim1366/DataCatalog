@@ -233,6 +233,7 @@ describe('Executive Governance Reporting Dashboard (T044: Apache ECharts Executi
       vi.spyOn(reportService, 'getClassificationDistribution').mockReturnValue(
         of(mockClassificationReport)
       );
+      vi.spyOn(reportService, 'getReportPreview').mockReturnValue(of([]));
       vi.spyOn(reportService, 'refreshMaterializedViews').mockReturnValue(of(mockRefreshResponse));
 
       fixture = TestBed.createComponent(ExecutiveDashboardComponent);
@@ -370,6 +371,7 @@ describe('Executive Governance Reporting Dashboard (T044: Apache ECharts Executi
       component.generateReport();
       expect(reportService.getCompletenessReport).toHaveBeenCalledWith(['11111111-1111-1111-1111-111111111111']);
       expect(reportService.getClassificationDistribution).toHaveBeenCalledWith(['11111111-1111-1111-1111-111111111111']);
+      expect(reportService.getReportPreview).toHaveBeenCalledWith(['11111111-1111-1111-1111-111111111111']);
     });
 
     it('should support selecting all databases, toggling individual databases, and clearing selection', () => {

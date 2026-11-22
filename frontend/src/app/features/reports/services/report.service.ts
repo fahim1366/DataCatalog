@@ -5,6 +5,7 @@ import {
   CompletenessReport,
   ClassificationReport,
   ReportRefreshResponse,
+  ReportPreviewItem,
 } from '../models/report.models';
 
 @Injectable({
@@ -45,6 +46,19 @@ export class ReportService {
    */
   refreshMaterializedViews(): Observable<ReportRefreshResponse> {
     return this.http.post<ReportRefreshResponse>(`${this.baseUrl}/refresh`, {});
+  }
+
+  /**
+   * Fetches data dictionary preview items including both source and approved descriptions.
+   */
+  getReportPreview(connectionIds?: string[], limit: number = 100): Observable<ReportPreviewItem[]> {
+    let params = new HttpParams().set('limit', limit);
+    if (connectionIds && connectionIds.length > 0) {
+      connectionIds.forEach((id) => {
+        params = params.append('connection_ids', id);
+      });
+    }
+    return this.http.get<ReportPreviewItem[]>(`${this.baseUrl}/preview`, { params });
   }
 
   /**

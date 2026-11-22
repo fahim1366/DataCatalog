@@ -97,7 +97,15 @@ class SearchService:
 
         # Filters
         if database_name:
-            stmt = stmt.where(DatabaseConnection.database_name.ilike(f"%{database_name}%"))
+            stmt = stmt.where(
+                or_(
+                    DatabaseConnection.name == database_name,
+                    and_(
+                        DatabaseConnection.database_name.ilike(f"%{database_name}%"),
+                        ~select(DatabaseConnection.id).where(DatabaseConnection.name == database_name).exists(),
+                    ),
+                )
+            )
         if schema_name:
             stmt = stmt.where(DatabaseSchema.name.ilike(f"%{schema_name}%"))
         if lifecycle_status:

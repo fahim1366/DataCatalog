@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -110,3 +110,28 @@ class ConnectionTestResponse(BaseModel):
     message: str
     diagnostic_details: Optional[Dict[str, Any]] = None
     tested_at: datetime
+
+
+class DiscoverDatabasesRequest(BaseModel):
+    engine_type: DatabaseEngine
+    host: str = Field(..., min_length=1, max_length=255)
+    port: int = Field(..., ge=1, le=65535)
+    credentials: Dict[str, Any] = Field(..., description="Credentials containing username and password")
+    custom_params: Dict[str, Any] = Field(default_factory=dict)
+
+
+class DiscoverDatabasesResponse(BaseModel):
+    success: bool
+    databases: List[str] = Field(default_factory=list)
+    latency_ms: float
+    server_version: Optional[str] = None
+    message: str
+
+
+class TestUnsavedConnectionRequest(BaseModel):
+    engine_type: DatabaseEngine
+    host: str = Field(..., min_length=1, max_length=255)
+    port: int = Field(..., ge=1, le=65535)
+    database_name: str = Field(..., min_length=1, max_length=255)
+    credentials: Dict[str, Any] = Field(..., description="Credentials containing username and password")
+    custom_params: Dict[str, Any] = Field(default_factory=dict)

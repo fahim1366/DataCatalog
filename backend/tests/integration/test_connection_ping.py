@@ -258,3 +258,49 @@ async def test_ping_nonexistent_connection_returns_404(
     finally:
         app.dependency_overrides.pop(get_db_session, None)
 
+
+@pytest.mark.asyncio
+async def test_ping_connection_requires_manage_connections_permission(
+    test_db_session: AsyncSession,
+):
+    """Asserts attempting to test connection ping without MANAGE_CONNECTIONS permission returns 403 Forbidden."""
+    async def override_db():
+        yield test_db_session
+
+    app.dependency_overrides[get_db_session] = override_db
+    transport = ASGITransport(app=app)
+    missing_id = uuid.uuid4()
+
+    suffix = uuid.uuid4().hex[:8]
+    viewer_user = User(
+        id=uuid.uuid4(),
+        username=f"pingviewer_{suffix}",
+        email=f"pingviewer_{suffix}@company.internal",
+        hashed_password=auth_service.hash_password("SuperSecret#2026"),
+        full_name="Ping Viewer",
+        status=UserStatus.ACTIVE,
+        is_superadmin=False,
+    )
+    test_db_session.add(viewer_user)
+    await test_db_session.flush()
+
+    token = auth_service.create_access_token(
+        data={
+            "sub": str(viewer_user.id),
+            "username": viewer_user.username,
+            "email": viewer_user.email,
+            "roles": [],
+            "is_superadmin": False,
+        }
+    )
+
+    try:
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            response = await client.post(
+                f"/api/v1/connections/{missing_id}/test",
+                headers={"Authorization": f"Bearer {token}"},
+            )
+            assert response.status_code == 403
+    finally:
+        app.dependency_overrides.pop(get_db_session, None)
+

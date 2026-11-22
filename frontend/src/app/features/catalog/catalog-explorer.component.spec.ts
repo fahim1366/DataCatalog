@@ -109,6 +109,14 @@ describe('CatalogExplorerComponent (Phase 2 UI/UX Overhaul)', () => {
     });
     vi.spyOn(store, 'getPhysicalTree').mockResolvedValue([]);
     vi.spyOn(store, 'getCategoryTree').mockResolvedValue([]);
+    vi.spyOn(store, 'getCatalogObjects').mockResolvedValue({
+      counts: { tables: 3, views: 0, indexes: 0, procedures: 0, functions: 0 },
+      tables: [],
+      views: [],
+      indexes: [],
+      procedures: [],
+      functions: [],
+    });
 
     fixture = TestBed.createComponent(CatalogExplorerComponent);
     component = fixture.componentInstance;
@@ -118,9 +126,9 @@ describe('CatalogExplorerComponent (Phase 2 UI/UX Overhaul)', () => {
     fakeLocalStorage.clear();
   });
 
-  it('should create the CatalogExplorerComponent instance with default APPROVED_FIRST policy', () => {
+  it('should create the CatalogExplorerComponent instance with default BOTH policy', () => {
     expect(component).toBeTruthy();
-    expect(component.descPolicy()).toBe('APPROVED_FIRST');
+    expect(component.descPolicy()).toBe('BOTH');
   });
 
   it('should persist and load description policy from localStorage', () => {
@@ -215,5 +223,41 @@ describe('CatalogExplorerComponent (Phase 2 UI/UX Overhaul)', () => {
     expect(stopSpy).toHaveBeenCalled();
     expect(triggerSpy).toHaveBeenCalledWith('conn-123');
     expect(component.toastMessage()).toContain('همگام‌سازی متادیتا برای پایگاه داده «crm_postgres» آغاز شد.');
+  });
+
+  it('should start editing, save table owner, and update reactive state', async () => {
+    component.selectedTable.set({
+      id: 'tbl-123',
+      schema_id: 'sch-1',
+      database_name: 'prod_db',
+      schema_name: 'public',
+      name: 'customers',
+      table_type: 'BASE TABLE',
+      status: 'ACTIVE',
+      owner: 'old_owner',
+      row_count_estimate: 1000,
+      size_bytes: 2048,
+      columns: [],
+      tags: [],
+    } as any);
+
+    component.startEditingOwner();
+    expect(component.isEditingOwner()).toBe(true);
+    expect(component.editOwnerValue()).toBe('old_owner');
+
+    component.editOwnerValue.set('steward_team@company.internal');
+
+    const updateSpy = vi.spyOn(store, 'updateTableOwner').mockResolvedValue({
+      id: 'tbl-123',
+      owner: 'steward_team@company.internal',
+    } as any);
+    const historySpy = vi.spyOn(store, 'getTableHistory').mockResolvedValue([]);
+
+    await component.saveTableOwner();
+
+    expect(updateSpy).toHaveBeenCalledWith('tbl-123', 'steward_team@company.internal');
+    expect(component.selectedTable()?.owner).toBe('steward_team@company.internal');
+    expect(component.isEditingOwner()).toBe(false);
+    expect(component.toastMessage()).toContain('مالک جدول با موفقیت ذخیره');
   });
 });

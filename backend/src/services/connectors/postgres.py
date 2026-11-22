@@ -16,6 +16,8 @@ from backend.src.services.connectors.base import (
     ColumnMetadata,
     ConnectionTestResult,
     ForeignKeyMetadata,
+    IndexMetadata,
+    RoutineMetadata,
     SchemaExtractionResult,
     SchemaMetadata,
     TableMetadata,
@@ -144,6 +146,48 @@ class PostgresConnector(BaseMetadataConnector):
             WHERE n.nspname = :schema_name 
               AND c.relkind IN ('r', 'v', 'm', 'p', 'f')
             ORDER BY c.relname;
+        """,
+        "INDEXES": """
+            SELECT
+                c.relname AS table_name,
+                i.relname AS index_name,
+                idx.indisunique AS is_unique,
+                idx.indisprimary AS is_primary,
+                am.amname AS index_type,
+                pg_catalog.pg_get_indexdef(idx.indexrelid) AS definition,
+                (
+                    SELECT string_agg(a.attname, ', ' ORDER BY array_position(idx.indkey, a.attnum))
+                    FROM pg_catalog.pg_attribute a
+                    WHERE a.attrelid = c.oid AND a.attnum = ANY(idx.indkey)
+                ) AS column_names
+            FROM pg_catalog.pg_index idx
+            JOIN pg_catalog.pg_class c ON c.oid = idx.indrelid
+            JOIN pg_catalog.pg_class i ON i.oid = idx.indexrelid
+            JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+            JOIN pg_catalog.pg_am am ON am.oid = i.relam
+            WHERE n.nspname = :schema_name
+              AND c.relkind IN ('r', 'm', 'p')
+            ORDER BY c.relname, i.relname;
+        """,
+        "ROUTINES": """
+            SELECT
+                p.proname AS routine_name,
+                CASE p.prokind
+                    WHEN 'p' THEN 'PROCEDURE'
+                    WHEN 'f' THEN 'FUNCTION'
+                    ELSE 'FUNCTION'
+                END AS routine_type,
+                l.lanname AS language,
+                pg_catalog.pg_get_function_arguments(p.oid) AS arguments_signature,
+                pg_catalog.pg_get_function_result(p.oid) AS return_type,
+                d.description AS source_description
+            FROM pg_catalog.pg_proc p
+            JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
+            LEFT JOIN pg_catalog.pg_language l ON l.oid = p.prolang
+            LEFT JOIN pg_catalog.pg_description d ON d.objoid = p.oid AND d.objsubid = 0
+            WHERE n.nspname = :schema_name
+              AND p.prokind IN ('p', 'f')
+            ORDER BY p.proname;
         """,
     }
 
@@ -394,6 +438,43 @@ class PostgresConnector(BaseMetadataConnector):
                     for row in stats_res.mappings().all()
                 ]
 
+                # Query 5: Indexes
+                idx_res = await conn.execute(
+                    text(self.QUERIES["INDEXES"]),
+                    {"schema_name": schema_name},
+                )
+                indexes = [
+                    IndexMetadata(
+                        schema_name=schema_name,
+                        table_name=row.table_name,
+                        name=row.index_name,
+                        is_unique=bool(row.is_unique),
+                        is_primary=bool(row.is_primary),
+                        index_type=row.index_type or "BTREE",
+                        columns_list=[c.strip() for c in (row.column_names or "").split(",") if c.strip()],
+                        definition=row.definition,
+                    )
+                    for row in idx_res.mappings().all()
+                ]
+
+                # Query 6: Routines
+                routines_res = await conn.execute(
+                    text(self.QUERIES["ROUTINES"]),
+                    {"schema_name": schema_name},
+                )
+                routines = [
+                    RoutineMetadata(
+                        schema_name=schema_name,
+                        name=row.routine_name,
+                        routine_type=row.routine_type,
+                        language=row.language or "sql",
+                        arguments_signature=row.arguments_signature,
+                        return_type=row.return_type,
+                        source_description=row.source_description,
+                    )
+                    for row in routines_res.mappings().all()
+                ]
+
                 schema_meta = SchemaMetadata(name=schema_name)
                 return SchemaExtractionResult(
                     schema=schema_meta,
@@ -401,8 +482,70 @@ class PostgresConnector(BaseMetadataConnector):
                     columns=columns,
                     foreign_keys=foreign_keys,
                     statistics=statistics,
+                    indexes=indexes,
+                    routines=routines,
                     success=True,
                 )
+        finally:
+            if should_dispose:
+                await engine.dispose()
+
+    @classmethod
+    async def discover_databases_from_config(cls, config: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Connects transiently (NullPool, READ ONLY, 5s timeout) to the 'postgres' maintenance DB
+        and queries non-template databases.
+        """
+        start_time = time.monotonic()
+        discovery_config = dict(config)
+        # Use postgres maintenance database unless overridden
+        discovery_config["database"] = discovery_config.get("database") or "postgres"
+        connector = cls(discovery_config)
+        try:
+            return await asyncio.wait_for(connector._run_database_discovery(start_time), timeout=5.0)
+        except asyncio.TimeoutError:
+            elapsed_ms = round((time.monotonic() - start_time) * 1000, 2)
+            return {
+                "success": False,
+                "databases": [],
+                "latency_ms": elapsed_ms,
+                "server_version": None,
+                "message": "Database discovery probe timed out after 5.0 seconds.",
+            }
+        except Exception as exc:
+            elapsed_ms = round((time.monotonic() - start_time) * 1000, 2)
+            return {
+                "success": False,
+                "databases": [],
+                "latency_ms": elapsed_ms,
+                "server_version": None,
+                "message": f"Database discovery failed: {str(exc)}",
+            }
+
+    async def _run_database_discovery(self, start_time: float) -> Dict[str, Any]:
+        engine = self._engine or self._create_engine()
+        should_dispose = self._engine is None
+        try:
+            async with engine.connect() as conn:
+                for stmt in self.get_session_setup_statements():
+                    await conn.execute(text(stmt))
+
+                ver_res = await conn.execute(text("SELECT version(), current_setting('server_version');"))
+                ver_row = ver_res.fetchone()
+                server_ver = ver_row[1] if ver_row else None
+
+                db_res = await conn.execute(
+                    text("SELECT datname FROM pg_database WHERE datistemplate = false ORDER BY datname;")
+                )
+                databases = [r[0] for r in db_res.fetchall()]
+                elapsed_ms = round((time.monotonic() - start_time) * 1000, 2)
+                return {
+                    "success": True,
+                    "databases": databases,
+                    "latency_ms": elapsed_ms,
+                    "server_version": server_ver,
+                    "message": f"Successfully discovered {len(databases)} databases.",
+                }
         finally:
             if should_dispose:
                 await engine.dispose()

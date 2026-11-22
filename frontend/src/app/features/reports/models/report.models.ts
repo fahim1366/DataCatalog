@@ -32,3 +32,16 @@ export interface ReportRefreshResponse {
   refreshed_views: string[];
 }
 
+export interface ReportPreviewItem {
+  database_name: string;
+  schema_name: string;
+  table_name: string;
+  table_type: string;
+  row_count_estimate: number;
+  size_bytes: number;
+  owner?: string | null;
+  source_description?: string | null;
+  approved_description?: string | null;
+  description_source?: string | null;
+}
+

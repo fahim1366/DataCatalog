@@ -67,5 +67,35 @@ export class ConnectionService {
   testConnection(id: string): Observable<ConnectionTestResult> {
     return this.http.post<ConnectionTestResult>(`${this.baseUrl}/${id}/test`, {});
   }
+
+  /**
+   * Auto-discovers non-template databases from host.
+   */
+  discoverDatabases(payload: {
+    engine_type: string;
+    host: string;
+    port: number;
+    credentials: { username: string; password?: string };
+    custom_params?: any;
+  }): Observable<{ success: boolean; databases: string[]; latency_ms: number; server_version?: string; message: string }> {
+    return this.http.post<{ success: boolean; databases: string[]; latency_ms: number; server_version?: string; message: string }>(
+      `${this.baseUrl}/discover-databases`,
+      payload
+    );
+  }
+
+  /**
+   * Executes live diagnostic connectivity test on unsaved connection payload before saving.
+   */
+  testUnsavedConnection(payload: {
+    engine_type: string;
+    host: string;
+    port: number;
+    database_name: string;
+    credentials: { username: string; password?: string };
+    custom_params?: any;
+  }): Observable<ConnectionTestResult> {
+    return this.http.post<ConnectionTestResult>(`${this.baseUrl}/test-unsaved`, payload);
+  }
 }
 

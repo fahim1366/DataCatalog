@@ -31,11 +31,32 @@ class IngestTablePayload(BaseModel):
     columns: List[IngestColumnPayload] = Field(default_factory=list)
 
 
+class IngestIndexPayload(BaseModel):
+    table_name: str = Field(..., max_length=255)
+    name: str = Field(..., max_length=255)
+    is_unique: bool = False
+    is_primary: bool = False
+    index_type: str = "BTREE"
+    columns_list: List[str] = Field(default_factory=list)
+    definition: Optional[str] = None
+
+
+class IngestRoutinePayload(BaseModel):
+    name: str = Field(..., max_length=255)
+    routine_type: str = "FUNCTION"  # PROCEDURE, FUNCTION
+    language: str = "sql"
+    arguments_signature: Optional[str] = None
+    return_type: Optional[str] = None
+    source_description: Optional[str] = None
+
+
 class BulkIngestionRequest(BaseModel):
     connection_id: uuid.UUID
     schema_name: str = Field(..., max_length=255)
     schema_description: Optional[str] = None
     tables: List[IngestTablePayload] = Field(default_factory=list)
+    indexes: List[IngestIndexPayload] = Field(default_factory=list)
+    routines: List[IngestRoutinePayload] = Field(default_factory=list)
     sync_job_id: Optional[uuid.UUID] = None
     failed_schemas: Optional[List[str]] = None
 

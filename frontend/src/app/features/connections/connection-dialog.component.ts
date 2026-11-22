@@ -1,6 +1,7 @@
 import {
   ChangeDetectionStrategy,
   Component,
+  DestroyRef,
   EventEmitter,
   Input,
   OnInit,
@@ -9,6 +10,7 @@ import {
   inject,
   signal,
 } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
 import {
   AbstractControl,
@@ -18,8 +20,10 @@ import {
   ValidatorFn,
   Validators,
 } from '@angular/forms';
+import { debounceTime, distinctUntilChanged, merge } from 'rxjs';
 import {
   ConnectionCreateRequest,
+  ConnectionTestResult,
   DatabaseConnection,
   DatabaseEngine,
 } from './models/connection.models';
@@ -237,14 +241,40 @@ export interface FlattenedCategoryNode {
             </div>
 
             <div class="form-group">
-              <label for="database_name">نام دیتابیس (Database Name) <span class="required">*</span></label>
-              <input
-                id="database_name"
-                type="text"
-                class="form-control font-mono"
-                formControlName="database_name"
-                placeholder="Target database/catalog"
-              />
+              <div class="field-label-row">
+                <label for="database_name">نام دیتابیس (Database Name) <span class="required">*</span></label>
+                <button
+                  type="button"
+                  class="btn-inline-discover"
+                  (click)="discoverDatabases()"
+                  [disabled]="isDiscoveringDatabases()"
+                  title="شناسایی خودکار پایگاه‌های داده بر اساس مشخصات هاست و دسترسی (Auto-Discover)"
+                >
+                  <i class="pi" [ngClass]="isDiscoveringDatabases() ? 'pi-spin pi-spinner' : 'pi-sync'"></i>
+                  <span>{{ isDiscoveringDatabases() ? 'در حال شناسایی...' : 'شناسایی دیتابیس‌ها' }}</span>
+                </button>
+              </div>
+              <div class="combobox-wrapper">
+                <input
+                  id="database_name"
+                  type="text"
+                  list="discoveredDatabasesList"
+                  class="form-control font-mono"
+                  formControlName="database_name"
+                  placeholder="Target database/catalog یا انتخاب از لیست کشف‌شده"
+                  autocomplete="off"
+                />
+                <datalist id="discoveredDatabasesList">
+                  @for (db of discoveredDatabases(); track db) {
+                    <option [value]="db">{{ db }}</option>
+                  }
+                </datalist>
+                @if (discoveredDatabases().length > 0) {
+                  <span class="discovered-count-badge" title="تعداد دیتابیس‌های کشف‌شده">
+                    {{ discoveredDatabases().length }} دیتابیس یافت شد
+                  </span>
+                }
+              </div>
               @if (form.controls.database_name.touched && form.controls.database_name.invalid) {
                 <div class="field-error">نام پایگاه‌داده الزامی است.</div>
               }
@@ -388,6 +418,23 @@ export interface FlattenedCategoryNode {
             </div>
           </div>
 
+          @if (testResult()) {
+            <div
+              class="test-result-banner animate-fade"
+              [class.test-success]="testResult()!.success"
+              [class.test-failure]="!testResult()!.success"
+            >
+              <div class="test-result-header">
+                <i class="pi" [ngClass]="testResult()!.success ? 'pi-check-circle' : 'pi-times-circle'"></i>
+                <strong>{{ testResult()!.success ? 'تست اتصال موفقیت‌آمیز بود (Connection Verified)' : 'خطا در برقراری اتصال (Connection Failed)' }}</strong>
+                @if (testResult()!.latency_ms) {
+                  <span class="latency-tag mono-font">{{ testResult()!.latency_ms }}ms</span>
+                }
+              </div>
+              <div class="test-result-message">{{ testResult()!.message }}</div>
+            </div>
+          }
+
           @if (errorMessage()) {
             <div class="alert-error">
               <i class="pi pi-exclamation-triangle"></i>
@@ -402,6 +449,21 @@ export interface FlattenedCategoryNode {
               (click)="cancel.emit()"
             >
               انصراف (Cancel)
+            </button>
+            <button
+              type="button"
+              class="btn-test-conn btn-with-icon"
+              (click)="testUnsavedConnection()"
+              [disabled]="isTestingConnection() || !canTestConnection()"
+              title="تست اتصال زنده قبل از ثبت در سامانه (Pre-Save Diagnostic Test)"
+            >
+              @if (isTestingConnection()) {
+                <i class="pi pi-spin pi-spinner"></i>
+                <span>در حال تست اتصال...</span>
+              } @else {
+                <i class="pi pi-bolt"></i>
+                <span>تست اتصال (Test Connection)</span>
+              }
             </button>
             <button
               type="submit"
@@ -935,18 +997,120 @@ export interface FlattenedCategoryNode {
       font-size: 0.75rem;
       color: #64748b;
     }
+    .field-label-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 4px;
+    }
+    .btn-inline-discover {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      background: #eff6ff;
+      border: 1px solid #bfdbfe;
+      color: #1d4ed8;
+      font-size: 0.75rem;
+      font-weight: 600;
+      padding: 2px 8px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-family: inherit;
+      transition: all 0.15s ease;
+    }
+    .btn-inline-discover:hover:not(:disabled) {
+      background: #dbeafe;
+      border-color: #93c5fd;
+    }
+    .btn-inline-discover:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
+    .combobox-wrapper {
+      position: relative;
+      display: flex;
+      flex-direction: column;
+    }
+    .discovered-count-badge {
+      display: inline-block;
+      margin-top: 4px;
+      font-size: 0.72rem;
+      color: #059669;
+      font-weight: 600;
+    }
+    .btn-test-conn {
+      padding: 0.5rem 1rem;
+      background: #0f766e;
+      color: #ffffff;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      font-weight: 500;
+      font-family: inherit;
+      transition: background-color 0.15s ease;
+    }
+    .btn-test-conn:hover:not(:disabled) {
+      background: #0d9488;
+    }
+    .btn-test-conn:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+    .test-result-banner {
+      padding: 10px 14px;
+      border-radius: 6px;
+      margin-bottom: 12px;
+      font-size: 0.82rem;
+      line-height: 1.5;
+    }
+    .test-result-banner.test-success {
+      background: #f0fdf4;
+      border: 1px solid #bbf7d0;
+      color: #166534;
+    }
+    .test-result-banner.test-failure {
+      background: #fef2f2;
+      border: 1px solid #fecaca;
+      color: #991b1b;
+    }
+    .test-result-header {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 0.85rem;
+      margin-bottom: 4px;
+    }
+    .test-result-message {
+      font-size: 0.8rem;
+      opacity: 0.95;
+    }
+    .latency-tag {
+      background: #e2e8f0;
+      color: #334155;
+      font-size: 0.72rem;
+      font-weight: 700;
+      padding: 1px 6px;
+      border-radius: 4px;
+      margin-right: auto;
+    }
   `],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class ConnectionDialogComponent implements OnInit {
   private readonly fb = inject(FormBuilder);
   private readonly connectionService = inject(ConnectionService);
+  private readonly destroyRef = inject(DestroyRef);
 
   @Input() connectionToEdit: DatabaseConnection | null = null;
   @Input() preselectedCategoryId: string | null = null;
 
   @Output() readonly save = new EventEmitter<ConnectionCreateRequest>();
   @Output() readonly cancel = new EventEmitter<void>();
+
+  readonly discoveredDatabases = signal<string[]>([]);
+  readonly isDiscoveringDatabases = signal<boolean>(false);
+  readonly isTestingConnection = signal<boolean>(false);
+  readonly testResult = signal<ConnectionTestResult | null>(null);
 
   readonly supportedEngines: DatabaseEngine[] = [
     'POSTGRESQL',
@@ -1059,6 +1223,25 @@ export class ConnectionDialogComponent implements OnInit {
 
   ngOnInit(): void {
     this.loadCategoryTree();
+
+    // Auto-discover databases when host, port, username, password are all filled (debounced 600ms)
+    merge(
+      this.form.controls.engine_type.valueChanges,
+      this.form.controls.host.valueChanges,
+      this.form.controls.port.valueChanges,
+      this.form.controls.username.valueChanges,
+      this.form.controls.password.valueChanges
+    )
+      .pipe(
+        debounceTime(600),
+        distinctUntilChanged(),
+        takeUntilDestroyed(this.destroyRef)
+      )
+      .subscribe(() => {
+        if (this.canDiscoverDatabases() && !this.isDiscoveringDatabases()) {
+          this.discoverDatabases();
+        }
+      });
 
     if (this.connectionToEdit) {
       const conn = this.connectionToEdit;
@@ -1216,6 +1399,117 @@ export class ConnectionDialogComponent implements OnInit {
       }
     }
     return 'برنامه همگام‌سازی زمان‌بندی شده (Custom Scheduled Sync)';
+  }
+
+  canDiscoverDatabases(): boolean {
+    const val = this.form.getRawValue();
+    const hasCreds = Boolean(val.username && (val.password || this.connectionToEdit));
+    return Boolean(val.host && val.port && hasCreds);
+  }
+
+  discoverDatabases(): void {
+    if (this.isDiscoveringDatabases()) return;
+    const val = this.form.getRawValue();
+    if (!val.host || !val.port || !val.username) return;
+
+    let customParams: Record<string, unknown> = {};
+    if (val.custom_params_json?.trim()) {
+      try {
+        const parsed = JSON.parse(val.custom_params_json.trim());
+        if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) {
+          customParams = parsed;
+        }
+      } catch {}
+    }
+
+    this.isDiscoveringDatabases.set(true);
+    this.connectionService
+      .discoverDatabases({
+        engine_type: val.engine_type,
+        host: val.host,
+        port: val.port,
+        credentials: {
+          username: val.username,
+          password: val.password || undefined,
+        },
+        custom_params: customParams,
+      })
+      .subscribe({
+        next: (res) => {
+          this.isDiscoveringDatabases.set(false);
+          if (res.success && res.databases) {
+            this.discoveredDatabases.set(res.databases);
+            if (!this.form.controls.database_name.value && res.databases.length > 0) {
+              this.form.controls.database_name.setValue(res.databases[0]);
+            }
+          }
+        },
+        error: () => {
+          this.isDiscoveringDatabases.set(false);
+        },
+      });
+  }
+
+  canTestConnection(): boolean {
+    const val = this.form.getRawValue();
+    const hasCreds = Boolean(val.username && (val.password || this.connectionToEdit));
+    return Boolean(val.host && val.port && val.database_name && hasCreds);
+  }
+
+  testUnsavedConnection(): void {
+    if (this.isTestingConnection()) return;
+    const val = this.form.getRawValue();
+    if (!val.host || !val.port || !val.database_name || !val.username) {
+      this.form.controls.database_name.markAsTouched();
+      return;
+    }
+
+    let customParams: Record<string, unknown> = {};
+    if (val.custom_params_json?.trim()) {
+      try {
+        const parsed = JSON.parse(val.custom_params_json.trim());
+        if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) {
+          customParams = parsed;
+        }
+      } catch {}
+    }
+
+    this.isTestingConnection.set(true);
+    this.testResult.set(null);
+
+    this.connectionService
+      .testUnsavedConnection({
+        engine_type: val.engine_type,
+        host: val.host,
+        port: val.port,
+        database_name: val.database_name,
+        credentials: {
+          username: val.username,
+          password: val.password || undefined,
+        },
+        custom_params: customParams,
+      })
+      .subscribe({
+        next: (res) => {
+          this.isTestingConnection.set(false);
+          this.testResult.set(res);
+        },
+        error: (err) => {
+          this.isTestingConnection.set(false);
+          const msg =
+            err.error?.detail ||
+            err.error?.message ||
+            err.message ||
+            'خطا در برقراری ارتباط با پایگاه‌داده';
+          this.testResult.set({
+            success: false,
+            latency_ms: 0,
+            dialect: val.engine_type,
+            message: msg,
+            tested_at: new Date().toISOString(),
+          });
+        },
+      });
   }
 
   onSubmit(): void {

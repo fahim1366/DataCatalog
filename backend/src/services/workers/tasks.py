@@ -24,6 +24,8 @@ from backend.src.models.sync_jobs import SyncJob, SyncJobStatus
 from backend.src.schemas.ingestion import (
     BulkIngestionRequest,
     IngestColumnPayload,
+    IngestIndexPayload,
+    IngestRoutinePayload,
     IngestTablePayload,
 )
 from backend.src.services.connectors import default_connector_registry
@@ -284,11 +286,38 @@ async def execute_metadata_sync(
                     )
                 )
 
+            idx_payloads = [
+                IngestIndexPayload(
+                    table_name=idx.table_name,
+                    name=idx.name,
+                    is_unique=idx.is_unique,
+                    is_primary=idx.is_primary,
+                    index_type=idx.index_type,
+                    columns_list=idx.columns_list,
+                    definition=idx.definition,
+                )
+                for idx in ext.indexes
+            ]
+
+            routine_payloads = [
+                IngestRoutinePayload(
+                    name=rt.name,
+                    routine_type=rt.routine_type,
+                    language=rt.language,
+                    arguments_signature=rt.arguments_signature,
+                    return_type=rt.return_type,
+                    source_description=rt.source_description,
+                )
+                for rt in ext.routines
+            ]
+
             req = BulkIngestionRequest(
                 connection_id=conn.id,
                 schema_name=ext.schema.name,
                 schema_description=ext.schema.description,
                 tables=table_payloads,
+                indexes=idx_payloads,
+                routines=routine_payloads,
                 sync_job_id=job.id,
                 failed_schemas=failed_schemas,
             )

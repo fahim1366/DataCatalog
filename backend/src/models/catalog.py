@@ -89,6 +89,11 @@ class DatabaseSchema(Base):
         back_populates="schema",
         cascade="all, delete-orphan",
     )
+    routines: Mapped[List["CatalogRoutine"]] = relationship(
+        "CatalogRoutine",
+        back_populates="schema",
+        cascade="all, delete-orphan",
+    )
 
     __table_args__ = (
         UniqueConstraint("connection_id", "name", name="uq_connection_schema"),
@@ -206,6 +211,11 @@ class CatalogTable(Base):
         back_populates="table",
         cascade="all, delete-orphan",
         order_by="desc(TableStatisticsHistory.recorded_at)",
+    )
+    indexes: Mapped[List["CatalogIndex"]] = relationship(
+        "CatalogIndex",
+        back_populates="table",
+        cascade="all, delete-orphan",
     )
 
     __table_args__ = (
@@ -425,5 +435,97 @@ class TagAssignment(Base):
             "entity_id",
             "tag_id",
         ),
+    )
+
+
+class CatalogIndex(Base):
+    __tablename__ = "catalog_indexes"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    table_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("catalog_tables.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    schema_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("schemas.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    is_unique: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=text("false")
+    )
+    is_primary: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=text("false")
+    )
+    index_type: Mapped[str] = mapped_column(
+        String(50), nullable=False, default="BTREE", server_default=text("'BTREE'")
+    )
+    columns_list: Mapped[list] = mapped_column(
+        JSONB, nullable=False, default=list, server_default=text("'[]'::jsonb")
+    )
+    definition: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=text("clock_timestamp()")
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=text("clock_timestamp()"),
+        onupdate=text("clock_timestamp()"),
+    )
+
+    table: Mapped["CatalogTable"] = relationship(
+        "CatalogTable", back_populates="indexes"
+    )
+    schema: Mapped["DatabaseSchema"] = relationship("DatabaseSchema")
+
+    __table_args__ = (
+        UniqueConstraint("table_id", "name", name="uq_table_index_name"),
+        Index("idx_catalog_indexes_schema", "schema_id"),
+        Index("idx_catalog_indexes_table", "table_id"),
+    )
+
+
+class CatalogRoutine(Base):
+    __tablename__ = "catalog_routines"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    schema_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("schemas.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    routine_type: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="FUNCTION", server_default=text("'FUNCTION'")
+    )
+    language: Mapped[str] = mapped_column(
+        String(50), nullable=False, default="sql", server_default=text("'sql'")
+    )
+    arguments_signature: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    return_type: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    source_description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    approved_description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=text("clock_timestamp()")
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=text("clock_timestamp()"),
+        onupdate=text("clock_timestamp()"),
+    )
+
+    schema: Mapped["DatabaseSchema"] = relationship(
+        "DatabaseSchema", back_populates="routines"
+    )
+
+    __table_args__ = (
+        UniqueConstraint("schema_id", "name", "routine_type", name="uq_schema_routine_name_type"),
+        Index("idx_catalog_routines_schema", "schema_id"),
     )
 

@@ -423,6 +423,122 @@ class BulkIngestionService:
             )
             columns_upserted_count = len(col_upsert_res.scalars().all())
 
+        # 4b. Upsert Indexes
+        if payload.indexes:
+            idx_table_ids: List[uuid.UUID] = []
+            idx_names: List[str] = []
+            idx_uniques: List[bool] = []
+            idx_primaries: List[bool] = []
+            idx_types: List[str] = []
+            idx_columns_json: List[str] = []
+            idx_definitions: List[Optional[str]] = []
+
+            for idx_p in payload.indexes:
+                target_tid = table_id_map.get(idx_p.table_name)
+                if not target_tid:
+                    continue
+                idx_table_ids.append(target_tid)
+                idx_names.append(idx_p.name)
+                idx_uniques.append(idx_p.is_unique)
+                idx_primaries.append(idx_p.is_primary)
+                idx_types.append(idx_p.index_type or "BTREE")
+                idx_columns_json.append(json.dumps(idx_p.columns_list or []))
+                idx_definitions.append(idx_p.definition)
+
+            if idx_table_ids:
+                idx_upsert_stmt = text("""
+                    INSERT INTO catalog_indexes (
+                        id, table_id, schema_id, name, is_unique, is_primary, index_type,
+                        columns_list, definition, updated_at
+                    )
+                    SELECT
+                        gen_random_uuid(), v.table_id, :schema_id, v.name, v.is_unique, v.is_primary,
+                        v.index_type, v.columns_list::jsonb, v.definition, clock_timestamp()
+                    FROM UNNEST(
+                        CAST(:table_ids AS uuid[]),
+                        CAST(:names AS varchar[]),
+                        CAST(:is_uniques AS boolean[]),
+                        CAST(:is_primaries AS boolean[]),
+                        CAST(:index_types AS varchar[]),
+                        CAST(:columns_lists AS text[]),
+                        CAST(:definitions AS text[])
+                    ) AS v(table_id, name, is_unique, is_primary, index_type, columns_list, definition)
+                    ON CONFLICT (table_id, name) DO UPDATE SET
+                        is_unique = EXCLUDED.is_unique,
+                        is_primary = EXCLUDED.is_primary,
+                        index_type = EXCLUDED.index_type,
+                        columns_list = EXCLUDED.columns_list,
+                        definition = EXCLUDED.definition,
+                        updated_at = clock_timestamp();
+                """)
+                await session.execute(
+                    idx_upsert_stmt,
+                    {
+                        "schema_id": schema_id,
+                        "table_ids": idx_table_ids,
+                        "names": idx_names,
+                        "is_uniques": idx_uniques,
+                        "is_primaries": idx_primaries,
+                        "index_types": idx_types,
+                        "columns_lists": idx_columns_json,
+                        "definitions": idx_definitions,
+                    },
+                )
+
+        # 4c. Upsert Routines
+        if payload.routines:
+            rt_names: List[str] = []
+            rt_types: List[str] = []
+            rt_languages: List[str] = []
+            rt_signatures: List[Optional[str]] = []
+            rt_returns: List[Optional[str]] = []
+            rt_descriptions: List[Optional[str]] = []
+
+            for r_p in payload.routines:
+                rt_names.append(r_p.name)
+                rt_types.append(r_p.routine_type or "FUNCTION")
+                rt_languages.append(r_p.language or "sql")
+                rt_signatures.append(r_p.arguments_signature)
+                rt_returns.append(r_p.return_type)
+                rt_descriptions.append(r_p.source_description)
+
+            if rt_names:
+                rt_upsert_stmt = text("""
+                    INSERT INTO catalog_routines (
+                        id, schema_id, name, routine_type, language, arguments_signature,
+                        return_type, source_description, updated_at
+                    )
+                    SELECT
+                        gen_random_uuid(), :schema_id, v.name, v.routine_type, v.language,
+                        v.arguments_signature, v.return_type, v.source_description, clock_timestamp()
+                    FROM UNNEST(
+                        CAST(:names AS varchar[]),
+                        CAST(:routine_types AS varchar[]),
+                        CAST(:languages AS varchar[]),
+                        CAST(:arguments_signatures AS text[]),
+                        CAST(:return_types AS varchar[]),
+                        CAST(:source_descriptions AS text[])
+                    ) AS v(name, routine_type, language, arguments_signature, return_type, source_description)
+                    ON CONFLICT (schema_id, name, routine_type) DO UPDATE SET
+                        language = EXCLUDED.language,
+                        arguments_signature = EXCLUDED.arguments_signature,
+                        return_type = EXCLUDED.return_type,
+                        source_description = EXCLUDED.source_description,
+                        updated_at = clock_timestamp();
+                """)
+                await session.execute(
+                    rt_upsert_stmt,
+                    {
+                        "schema_id": schema_id,
+                        "names": rt_names,
+                        "routine_types": rt_types,
+                        "languages": rt_languages,
+                        "arguments_signatures": rt_signatures,
+                        "return_types": rt_returns,
+                        "source_descriptions": rt_descriptions,
+                    },
+                )
+
         # 5. Soft-delete missing columns for scanned tables (Set-based vectorized sweep)
         scanned_table_ids = list(table_id_map.values())
         if scanned_table_ids:

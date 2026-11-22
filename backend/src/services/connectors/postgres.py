@@ -50,6 +50,28 @@ class PostgresConnector(BaseMetadataConnector):
               AND n.nspname NOT LIKE 'pg_toast%'
             ORDER BY n.nspname;
         """,
+        "DB_USERS": """
+            SELECT 
+                r.oid::text AS oid,
+                r.rolname AS username,
+                r.rolcanlogin AS can_login,
+                r.rolsuper AS is_superuser,
+                r.rolcreatedb AS can_create_db,
+                r.rolcreaterole AS can_create_role,
+                r.rolconnlimit AS connection_limit,
+                r.rolvaliduntil::text AS valid_until,
+                COALESCE(
+                    (SELECT array_agg(parent.rolname ORDER BY parent.rolname)
+                     FROM pg_catalog.pg_auth_members am
+                     JOIN pg_catalog.pg_roles parent ON parent.oid = am.roleid
+                     WHERE am.member = r.oid),
+                    ARRAY[]::name[]
+                ) AS member_of_roles,
+                (SELECT COUNT(*)::int FROM pg_catalog.pg_stat_activity sa WHERE sa.usename = r.rolname) AS active_sessions
+            FROM pg_catalog.pg_roles r
+            WHERE r.rolname NOT LIKE 'pg_%'
+            ORDER BY r.rolcanlogin DESC, r.rolname ASC;
+        """,
         "TABLES": """
             SELECT 
                 c.relname AS table_name,
@@ -546,6 +568,117 @@ class PostgresConnector(BaseMetadataConnector):
                     "server_version": server_ver,
                     "message": f"Successfully discovered {len(databases)} databases.",
                 }
+        finally:
+            if should_dispose:
+                await engine.dispose()
+
+    async def extract_database_users(self) -> List[Dict[str, Any]]:
+        """
+        Extracts live database users/roles and their attributes, privileges,
+        role memberships, and active sessions from pg_catalog.
+        Runs inside NullPool, READ ONLY session, and 5-second timeout ceiling.
+        """
+        return await asyncio.wait_for(self._run_extract_database_users(), timeout=5.0)
+
+    async def _run_extract_database_users(self) -> List[Dict[str, Any]]:
+        engine = self._engine or self._create_engine()
+        should_dispose = self._engine is None
+        try:
+            async with engine.connect() as conn:
+                for stmt in self.get_session_setup_statements():
+                    await conn.execute(text(stmt))
+
+                result = await conn.execute(text(self.QUERIES["DB_USERS"]))
+                rows = result.mappings().all()
+                users: List[Dict[str, Any]] = []
+                for row in rows:
+                    member_roles = list(row["member_of_roles"]) if row["member_of_roles"] is not None else []
+                    users.append({
+                        "oid": str(row["oid"]),
+                        "username": str(row["username"]),
+                        "can_login": bool(row["can_login"]),
+                        "is_superuser": bool(row["is_superuser"]),
+                        "can_create_db": bool(row["can_create_db"]),
+                        "can_create_role": bool(row["can_create_role"]),
+                        "connection_limit": int(row["connection_limit"]) if row["connection_limit"] is not None else -1,
+                        "valid_until": str(row["valid_until"]) if row["valid_until"] is not None else None,
+                        "member_of_roles": member_roles,
+                        "active_sessions": int(row["active_sessions"] or 0),
+                    })
+                return users
+        finally:
+            if should_dispose:
+                await engine.dispose()
+
+    async def update_database_user(
+        self,
+        username: str,
+        can_login: Optional[bool] = None,
+        connection_limit: Optional[int] = None,
+        valid_until: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """
+        Executes ALTER ROLE statement on target database to update role configuration.
+        Uses safe identifier quoting to prevent SQL injection.
+        Catches InsufficientPrivilegeError / 42501 and returns a clear Persian error message.
+        """
+        if not username or not username.strip():
+            return {"success": False, "message": "نام کاربری نامعتبر است."}
+
+        clean_user = username.strip()
+        if "\x00" in clean_user:
+            return {"success": False, "message": "نام کاربری حاوی نویسه‌های غیرمجاز است."}
+        escaped_user = clean_user.replace('"', '""')
+        quoted_username = f'"{escaped_user}"'
+
+        clauses: List[str] = []
+        if can_login is not None:
+            clauses.append("LOGIN" if can_login else "NOLOGIN")
+        if connection_limit is not None:
+            clauses.append(f"CONNECTION LIMIT {int(connection_limit)}")
+        if valid_until is not None:
+            vu = valid_until.strip()
+            if not vu or vu.lower() in ("infinity", "none", "null"):
+                clauses.append("VALID UNTIL 'infinity'")
+            else:
+                safe_vu = vu.replace("'", "''")
+                clauses.append(f"VALID UNTIL '{safe_vu}'")
+
+        if not clauses:
+            return {"success": True, "message": "هیچ تغییری برای اعمال ارسال نشده است."}
+
+        sql_stmt = f"ALTER ROLE {quoted_username} WITH {' '.join(clauses)};"
+
+        engine = self._engine or self._create_engine()
+        should_dispose = self._engine is None
+        try:
+            async with engine.connect() as conn:
+                await conn.execute(text(f"SET statement_timeout = {self.STATEMENT_TIMEOUT_MS};"))
+                await conn.execute(text(sql_stmt))
+                await conn.commit()
+                return {
+                    "success": True,
+                    "message": f"تنظیمات کاربر «{clean_user}» با موفقیت به‌روزرسانی شد.",
+                }
+        except Exception as exc:
+            pgcode = getattr(exc, "pgcode", None) or getattr(getattr(exc, "orig", None), "sqlstate", None) or getattr(exc, "sqlstate", None)
+            err_str = str(exc).lower()
+            if (
+                pgcode == "42501"
+                or "insufficientprivilege" in type(exc).__name__.lower()
+                or "permission denied" in err_str
+                or "must be superuser" in err_str
+                or "createrole" in err_str
+            ):
+                return {
+                    "success": False,
+                    "message": "کاربر اتصال دیتابیس فاقد مجوز کافی (CREATEROLE یا SUPERUSER) برای تغییر این نقش در پایگاه داده است.",
+                    "insufficient_privilege": True,
+                }
+            return {
+                "success": False,
+                "message": f"خطا در به‌روزرسانی کاربر دیتابیس: {str(exc)}",
+            }
         finally:
             if should_dispose:
                 await engine.dispose()

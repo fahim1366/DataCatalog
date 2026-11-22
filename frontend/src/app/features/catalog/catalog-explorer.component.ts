@@ -139,10 +139,32 @@ export class CatalogExplorerComponent implements OnInit {
   // Table Detail Inspector Drawer
   selectedTable = signal<TableDetail | null>(null);
   selectedTableId = signal<string | null>(null);
-  activeInspectorTab = signal<'columns' | 'metadata' | 'history' | 'statistics'>('columns');
+  activeInspectorTab = signal<'columns' | 'metadata' | 'indexes' | 'history' | 'statistics'>('columns');
   isInspectorLoading = signal<boolean>(false);
   tableHistory = signal<ChangeLogItem[]>([]);
   showDriftResolution = signal<boolean>(false);
+
+  // Table Inspector Indexes (filtered specifically for selectedTable().id)
+  readonly tableSpecificIndexes = signal<CatalogObjectItem[] | null>(null);
+
+  readonly tableIndexes = computed<CatalogObjectItem[]>(() => {
+    const tbl = this.selectedTable();
+    if (!tbl) return [];
+
+    const specific = this.tableSpecificIndexes();
+    if (specific !== null) {
+      return specific;
+    }
+
+    const allIndexes = this.catalogObjects()?.indexes || [];
+    return allIndexes.filter((idx) => {
+      const idxTableId = idx.details?.['table_id'];
+      if (idxTableId) {
+        return idxTableId === tbl.id;
+      }
+      return idx.table_name === tbl.name;
+    });
+  });
 
   openDriftResolution(): void {
     this.showDriftResolution.set(true);
@@ -198,7 +220,48 @@ export class CatalogExplorerComponent implements OnInit {
   hasSelectedTables = computed(() => this.selectedTableIds().size > 0);
   selectedCount = computed(() => this.selectedTableIds().size);
 
-  // 4-Card Scope KPI Strip
+  // 4-Card Scope KPI Strip (Card 1 dynamically reflects active object tab)
+  readonly activeScopeKpi = computed(() => {
+    const tab = this.activeObjectTab();
+    const objs = this.catalogObjects();
+    switch (tab) {
+      case 'views':
+        return {
+          label: 'تعداد کل نماها',
+          count: objs?.views?.length ?? this.objectCounts().views,
+          icon: '👁️',
+        };
+      case 'indexes':
+        return {
+          label: 'تعداد کل ایندکس‌ها',
+          count: objs?.indexes?.length ?? this.objectCounts().indexes,
+          icon: '⚡',
+        };
+      case 'procedures':
+        return {
+          label: 'تعداد کل روال‌های ذخیره',
+          count: objs?.procedures?.length ?? this.objectCounts().procedures,
+          icon: '⚙️',
+        };
+      case 'functions':
+        return {
+          label: 'تعداد کل توابع',
+          count: objs?.functions?.length ?? this.objectCounts().functions,
+          icon: 'ƒ',
+        };
+      case 'tables':
+      default:
+        return {
+          label: 'تعداد کل جداول',
+          count: this.store.searchHits().length || this.objectCounts().tables,
+          icon: '📊',
+        };
+    }
+  });
+
+  readonly kpiDynamicLabel = computed(() => this.activeScopeKpi().label);
+  readonly kpiDynamicCount = computed(() => this.activeScopeKpi().count);
+  readonly kpiDynamicIcon = computed(() => this.activeScopeKpi().icon);
   readonly kpiTotalTables = computed(() => this.store.searchHits().length);
 
   readonly kpiDocumentedPct = computed(() => {
@@ -499,11 +562,18 @@ export class CatalogExplorerComponent implements OnInit {
     this.isEditingOwner.set(false);
     this.selectedTableId.set(tableId);
     this.isInspectorLoading.set(true);
+    this.tableSpecificIndexes.set(null);
     try {
-      const detail = await this.store.getTableDetails(tableId);
+      const [detail, history, objRes] = await Promise.all([
+        this.store.getTableDetails(tableId),
+        this.store.getTableHistory(tableId),
+        this.store.getCatalogObjects({ table_id: tableId }).catch(() => null),
+      ]);
       this.selectedTable.set(detail);
-      const history = await this.store.getTableHistory(tableId);
       this.tableHistory.set(history);
+      if (objRes && Array.isArray(objRes.indexes)) {
+        this.tableSpecificIndexes.set(objRes.indexes);
+      }
     } catch {
       this.showToast('عدم دسترسی یا خطا در بارگذاری شناسنامه جدول', 'error');
       this.selectedTable.set(null);
@@ -516,6 +586,7 @@ export class CatalogExplorerComponent implements OnInit {
     this.isEditingOwner.set(false);
     this.selectedTable.set(null);
     this.selectedTableId.set(null);
+    this.tableSpecificIndexes.set(null);
   }
 
   // AI Suggestion Approvals

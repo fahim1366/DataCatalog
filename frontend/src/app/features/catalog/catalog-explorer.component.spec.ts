@@ -260,4 +260,126 @@ describe('CatalogExplorerComponent (Phase 2 UI/UX Overhaul)', () => {
     expect(component.isEditingOwner()).toBe(false);
     expect(component.toastMessage()).toContain('مالک جدول با موفقیت ذخیره');
   });
+
+  it('should dynamically update first KPI card label, icon, and count based on active object tab', () => {
+    component.catalogObjects.set({
+      counts: { tables: 3, views: 5, indexes: 8, procedures: 2, functions: 4 },
+      tables: [],
+      views: [
+        { id: 'v1', name: 'v_users', object_type: 'VIEW' } as any,
+        { id: 'v2', name: 'v_orders', object_type: 'VIEW' } as any,
+      ],
+      indexes: [
+        { id: 'idx1', name: 'idx_users_id', object_type: 'INDEX' } as any,
+        { id: 'idx2', name: 'idx_orders_id', object_type: 'INDEX' } as any,
+        { id: 'idx3', name: 'idx_logs_id', object_type: 'INDEX' } as any,
+      ],
+      procedures: [
+        { id: 'sp1', name: 'sp_sync', object_type: 'PROCEDURE' } as any,
+      ],
+      functions: [
+        { id: 'fn1', name: 'fn_calc', object_type: 'FUNCTION' } as any,
+        { id: 'fn2', name: 'fn_tax', object_type: 'FUNCTION' } as any,
+      ],
+    });
+
+    // Default: tables
+    component.setActiveObjectTab('tables');
+    expect(component.kpiDynamicLabel()).toBe('تعداد کل جداول');
+    expect(component.kpiDynamicIcon()).toBe('📊');
+    expect(component.kpiDynamicCount()).toBe(3); // from searchHits
+
+    // Views
+    component.setActiveObjectTab('views');
+    expect(component.kpiDynamicLabel()).toBe('تعداد کل نماها');
+    expect(component.kpiDynamicIcon()).toBe('👁️');
+    expect(component.kpiDynamicCount()).toBe(2);
+
+    // Indexes
+    component.setActiveObjectTab('indexes');
+    expect(component.kpiDynamicLabel()).toBe('تعداد کل ایندکس‌ها');
+    expect(component.kpiDynamicIcon()).toBe('⚡');
+    expect(component.kpiDynamicCount()).toBe(3);
+
+    // Procedures
+    component.setActiveObjectTab('procedures');
+    expect(component.kpiDynamicLabel()).toBe('تعداد کل روال‌های ذخیره');
+    expect(component.kpiDynamicIcon()).toBe('⚙️');
+    expect(component.kpiDynamicCount()).toBe(1);
+
+    // Functions
+    component.setActiveObjectTab('functions');
+    expect(component.kpiDynamicLabel()).toBe('تعداد کل توابع');
+    expect(component.kpiDynamicIcon()).toBe('ƒ');
+    expect(component.kpiDynamicCount()).toBe(2);
+  });
+
+  it('should filter and display indexes specifically belonging to selectedTable().id in inspector', () => {
+    component.selectedTable.set({
+      id: 'tbl-target',
+      name: 'customers',
+      columns: [],
+      tags: [],
+    } as any);
+
+    component.catalogObjects.set({
+      counts: { tables: 1, views: 0, indexes: 3, procedures: 0, functions: 0 },
+      tables: [],
+      views: [],
+      indexes: [
+        {
+          id: 'idx-1',
+          name: 'idx_customers_email',
+          table_name: 'customers',
+          details: {
+            table_id: 'tbl-target',
+            index_type: 'BTREE',
+            is_unique: true,
+            is_primary: false,
+            columns_list: ['email'],
+          },
+        } as any,
+        {
+          id: 'idx-2',
+          name: 'pk_customers',
+          table_name: 'customers',
+          details: {
+            table_id: 'tbl-target',
+            index_type: 'BTREE',
+            is_unique: true,
+            is_primary: true,
+            columns_list: ['id'],
+          },
+        } as any,
+        {
+          id: 'idx-3',
+          name: 'idx_orders_customer_id',
+          table_name: 'orders',
+          details: {
+            table_id: 'tbl-other',
+            index_type: 'GIN',
+            is_unique: false,
+            is_primary: false,
+            columns_list: ['customer_id'],
+          },
+        } as any,
+      ],
+      procedures: [],
+      functions: [],
+    });
+
+    component.activeInspectorTab.set('indexes');
+    expect(component.activeInspectorTab()).toBe('indexes');
+
+    const indexes = component.tableIndexes();
+    expect(indexes.length).toBe(2);
+    expect(indexes[0].name).toBe('idx_customers_email');
+    expect(indexes[0].details?.['index_type']).toBe('BTREE');
+    expect(indexes[0].details?.['is_unique']).toBe(true);
+    expect(indexes[0].details?.['is_primary']).toBe(false);
+    expect(indexes[0].details?.['columns_list']).toEqual(['email']);
+
+    expect(indexes[1].name).toBe('pk_customers');
+    expect(indexes[1].details?.['is_primary']).toBe(true);
+  });
 });

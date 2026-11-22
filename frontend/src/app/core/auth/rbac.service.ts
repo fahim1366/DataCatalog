@@ -12,6 +12,7 @@ export enum PermissionAction {
   MANAGE_SCHEDULES = 'MANAGE_SCHEDULES',
   VIEW_AUDIT_LOGS = 'VIEW_AUDIT_LOGS',
   EXPORT_REPORTS = 'EXPORT_REPORTS',
+  MANAGE_DB_USERS = 'MANAGE_DB_USERS',
 }
 
 export const ALL_PERMISSION_ACTIONS: PermissionAction[] = [
@@ -25,6 +26,7 @@ export const ALL_PERMISSION_ACTIONS: PermissionAction[] = [
   PermissionAction.MANAGE_SCHEDULES,
   PermissionAction.VIEW_AUDIT_LOGS,
   PermissionAction.EXPORT_REPORTS,
+  PermissionAction.MANAGE_DB_USERS,
 ];
 
 export interface PermissionDefinition {
@@ -45,6 +47,12 @@ export const SYSTEM_PERMISSIONS: PermissionDefinition[] = [
     action: PermissionAction.MANAGE_CONNECTIONS,
     name: 'مدیریت پایگاه‌های داده',
     description: 'افزودن و ویرایش پایگاه‌های داده و اتصالات',
+    module: 'اتصالات',
+  },
+  {
+    action: PermissionAction.MANAGE_DB_USERS,
+    name: 'پایش و مدیریت کاربران پایگاه‌های داده',
+    description: 'مشاهده لیست کاربران تعریف‌شده روی پایگاه‌های داده متصل، نقش‌ها و غیرفعال/فعال‌سازی آنها',
     module: 'اتصالات',
   },
   {

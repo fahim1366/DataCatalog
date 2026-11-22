@@ -8,6 +8,7 @@ import {
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
+import { RouterModule } from '@angular/router';
 import { ConnectionService } from './services/connection.service';
 import { ConnectionDialogComponent } from './connection-dialog.component';
 import { ConnectionDiagnosticDialogComponent } from './connection-diagnostic-dialog.component';
@@ -36,6 +37,7 @@ export type SortDirection = 'asc' | 'desc';
   imports: [
     CommonModule,
     FormsModule,
+    RouterModule,
     ConnectionDialogComponent,
     ConnectionDiagnosticDialogComponent,
     HasPermissionDirective,

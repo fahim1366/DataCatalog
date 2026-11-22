@@ -10,6 +10,7 @@ import { authGuard } from './core/guards/auth.guard';
 import { permissionGuard } from './core/guards/permission.guard';
 import { UserManagementComponent } from './features/access-control/users/user-management.component';
 import { RoleManagementComponent } from './features/access-control/roles/role-management.component';
+import { DbUserMonitorComponent } from './features/access-control/db-users/db-user-monitor.component';
 import { ScheduleManagementComponent } from './features/schedules/schedule-management.component';
 import { SyncMonitorComponent } from './features/sync-monitor/sync-monitor.component';
 
@@ -86,6 +87,12 @@ export const routes: Routes = [
     component: RoleManagementComponent,
     canActivate: [authGuard, permissionGuard('MANAGE_ROLES')],
     title: 'مدیریت نقش‌ها و مجوزها (Role Management)',
+  },
+  {
+    path: 'admin/db-users',
+    component: DbUserMonitorComponent,
+    canActivate: [authGuard, permissionGuard('MANAGE_DB_USERS')],
+    title: 'پایش و مدیریت کاربران پایگاه‌های داده (Database Users)',
   },
   {
     path: 'admin/iam',

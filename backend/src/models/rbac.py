@@ -36,6 +36,7 @@ class PermissionAction(str, enum.Enum):
     MANAGE_SCHEDULES = "MANAGE_SCHEDULES"
     VIEW_AUDIT_LOGS = "VIEW_AUDIT_LOGS"
     EXPORT_REPORTS = "EXPORT_REPORTS"
+    MANAGE_DB_USERS = "MANAGE_DB_USERS"
 
 
 class PermissionEffect(str, enum.Enum):

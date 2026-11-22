@@ -9,6 +9,7 @@ import {
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { RouterModule } from '@angular/router';
+import { HasPermissionDirective } from '../../../core/directives/has-permission.directive';
 import { RoleManagementService } from '../services/role-management.service';
 import {
   PermissionDefinition,
@@ -30,7 +31,7 @@ export interface FlatPermissionItem {
 @Component({
   selector: 'app-role-management',
   standalone: true,
-  imports: [CommonModule, FormsModule, RouterModule],
+  imports: [CommonModule, FormsModule, RouterModule, HasPermissionDirective],
   templateUrl: './role-management.component.html',
   styleUrls: ['./role-management.component.css'],
   changeDetection: ChangeDetectionStrategy.OnPush,

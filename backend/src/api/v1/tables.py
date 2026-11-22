@@ -354,6 +354,7 @@ async def get_catalog_objects(
                     "is_primary": idx_obj.is_primary,
                     "columns_list": idx_obj.columns_list or [],
                     "definition": idx_obj.definition,
+                    "table_id": str(idx_obj.table_id),
                 },
                 created_at=idx_obj.created_at,
             )

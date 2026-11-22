@@ -213,6 +213,16 @@
               <span class="nav-icon">🛡️</span>
               <span class="nav-text">مدیریت نقش‌ها</span>
             </a>
+            <a
+              class="nav-item"
+              routerLink="/admin/db-users"
+              routerLinkActive="active"
+              id="nav-db-users"
+              *hasPermission="'MANAGE_DB_USERS'"
+            >
+              <span class="nav-icon">🗄️</span>
+              <span class="nav-text">پایش کاربران دیتابیس</span>
+            </a>
           </div>
 
           <div class="nav-divider"></div>

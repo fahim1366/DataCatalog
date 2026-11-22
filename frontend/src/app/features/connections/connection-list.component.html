@@ -384,6 +384,17 @@
                         }
                       </button>
 
+                      <a
+                        class="action-icon-btn action-users btn-db-users"
+                        *hasPermission="'MANAGE_DB_USERS'"
+                        [routerLink]="['/admin/db-users']"
+                        [queryParams]="{ connectionId: conn.id }"
+                        title="پایش کاربران دیتابیس"
+                        aria-label="پایش کاربران دیتابیس"
+                      >
+                        <i class="pi pi-users" style="color: #6366f1;"></i>
+                      </a>
+
                       <button
                         type="button"
                         class="action-icon-btn action-test btn-test-connection"

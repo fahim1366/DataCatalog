@@ -9,6 +9,7 @@ import {
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { RouterModule } from '@angular/router';
+import { HasPermissionDirective } from '../../../core/directives/has-permission.directive';
 import { UserManagementService } from '../services/user-management.service';
 import { RoleManagementService } from '../services/role-management.service';
 import {
@@ -43,7 +44,7 @@ export interface UserRowViewModel {
 @Component({
   selector: 'app-user-management',
   standalone: true,
-  imports: [CommonModule, FormsModule, RouterModule],
+  imports: [CommonModule, FormsModule, RouterModule, HasPermissionDirective],
   templateUrl: './user-management.component.html',
   styleUrls: ['./user-management.component.css'],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -135,10 +136,11 @@ export class UserManagementComponent implements OnInit {
   // Sub-tabs in bottom detail panel
   activeDetailTab = signal<'databases' | 'permissions'>('databases');
 
-  // Direct 8-Module Administrative Permissions
+  // Direct Administrative Permissions
   readonly directPermissionDefs = [
     { action: 'MANAGE_CATEGORIES', label: 'مدیریت موضوعات و دسته‌بندی‌ها', desc: 'تعریف، ویرایش و حذف ساختار درختی موضوعات' },
     { action: 'MANAGE_CONNECTIONS', label: 'مدیریت پایگاه‌های داده', desc: 'افزودن و ویرایش اطلاعات اتصال پایگاه‌های داده' },
+    { action: 'MANAGE_DB_USERS', label: 'پایش و مدیریت کاربران دیتابیس', desc: 'مشاهده کاربران دیتابیس‌های متصل و فعال/غیرفعال‌سازی دسترسی ورود آنها' },
     { action: 'MANAGE_USERS', label: 'مدیریت کاربران', desc: 'افزودن، ویرایش و غیرفعال‌سازی حساب‌های کاربری' },
     { action: 'MANAGE_ROLES', label: 'مدیریت نقش‌ها و مجوزها', desc: 'تعریف و ویرایش نقش‌های سازمانی و انتساب مجوزها' },
     { action: 'MANAGE_SCHEDULES', label: 'مدیریت زمان‌بندی کاتالوگ', desc: 'تنظیم الگوهای کرون و اجرای همگام‌سازی بلادرنگ' },

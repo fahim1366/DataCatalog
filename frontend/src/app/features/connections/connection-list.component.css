@@ -768,6 +768,8 @@
 }
 
 .action-test   { color: #d97706; border-color: #d97706; }
+.action-users  { color: #6366f1; border-color: #6366f1; }
+.action-users:hover { background-color: #eef2ff; }
 .action-edit   { color: #2563eb; border-color: #2563eb; }
 .action-delete { color: #dc2626; border-color: #dc2626; }
 

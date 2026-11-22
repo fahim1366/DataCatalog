@@ -407,10 +407,10 @@
       <!-- 4-Card Scope KPI Strip -->
       <div class="scope-kpi-grid">
         <div class="scope-kpi-card">
-          <span class="scope-kpi-icon">📊</span>
+          <span class="scope-kpi-icon">{{ kpiDynamicIcon() }}</span>
           <div class="scope-kpi-meta">
-            <span class="scope-kpi-label">تعداد کل جداول</span>
-            <span class="scope-kpi-value mono-font">{{ kpiTotalTables().toLocaleString('fa-IR') }}</span>
+            <span class="scope-kpi-label">{{ kpiDynamicLabel() }}</span>
+            <span class="scope-kpi-value mono-font">{{ kpiDynamicCount().toLocaleString('fa-IR') }}</span>
           </div>
         </div>
 
@@ -931,6 +931,13 @@
       </button>
       <button
         class="tab-btn"
+        [class.active]="activeInspectorTab() === 'indexes'"
+        (click)="activeInspectorTab.set('indexes')"
+      >
+        ایندکس‌ها (Indexes) ({{ tableIndexes().length }})
+      </button>
+      <button
+        class="tab-btn"
         [class.active]="activeInspectorTab() === 'history'"
         (click)="activeInspectorTab.set('history')"
       >
@@ -1181,6 +1188,60 @@
             <div class="meta-card">
               <h3>ویژگی‌های سفارشی (Custom Properties JSONB)</h3>
               <pre class="json-box json-diff">{{ selectedTable()!.custom_properties | json }}</pre>
+            </div>
+          </div>
+        }
+
+        <!-- TAB: TABLE INDEXES -->
+        @if (activeInspectorTab() === 'indexes') {
+          <div class="indexes-tab-content">
+            <div class="objects-table-wrapper">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>نام ایندکس (Index Name)</th>
+                    <th>نوع ایندکس</th>
+                    <th>ویژگی یکتا / کلید اصلی</th>
+                    <th>ستون‌های ایندکس (Indexed Columns)</th>
+                    <th>تعریف DDL (Index Definition)</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  @for (idx of tableIndexes(); track idx.id) {
+                    <tr>
+                      <td class="mono-font fw-bold">
+                        <span class="type-icon">⚡</span> {{ idx.name }}
+                      </td>
+                      <td>
+                        <span class="code-badge">{{ idx.details?.['index_type'] || 'BTREE' }}</span>
+                      </td>
+                      <td>
+                        @if (idx.details?.['is_primary']) {
+                          <span class="badge badge-danger">PRIMARY KEY</span>
+                        }
+                        @if (idx.details?.['is_unique']) {
+                          <span class="badge badge-internal">UNIQUE</span>
+                        }
+                        @if (!idx.details?.['is_primary'] && !idx.details?.['is_unique']) {
+                          <span class="text-muted">INDEX</span>
+                        }
+                      </td>
+                      <td class="mono-font">
+                        {{ idx.details?.['columns_list']?.join(', ') || '-' }}
+                      </td>
+                      <td class="mono-font text-muted definition-cell" [title]="idx.details?.['definition'] || ''">
+                        <code>{{ idx.details?.['definition'] || '-' }}</code>
+                      </td>
+                    </tr>
+                  } @empty {
+                    <tr>
+                      <td colspan="5" class="text-center empty-hint py-4">
+                        هیچ ایندکسی برای جدول «{{ selectedTable()!.name }}» ثبت نشده است.
+                      </td>
+                    </tr>
+                  }
+                </tbody>
+              </table>
             </div>
           </div>
         }

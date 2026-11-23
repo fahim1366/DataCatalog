@@ -1,0 +1,247 @@
+import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { provideHttpClient } from '@angular/common/http';
+import { provideHttpClientTesting } from '@angular/common/http/testing';
+import { provideRouter } from '@angular/router';
+import { of } from 'rxjs';
+import { vi } from 'vitest';
+import { DbUserMonitorComponent } from './db-user-monitor.component';
+import { ConnectionService } from '../../connections/services/connection.service';
+import { DbUserService } from '../services/db-user.service';
+import { DatabaseConnection } from '../../connections/models/connection.models';
+import { CategoryTreeNode } from '../../catalog/models/catalog.models';
+import { DatabaseUserItem } from '../models/db-user.models';
+import { RbacService } from '../../../core/auth/rbac.service';
+
+describe('DbUserMonitorComponent (Hierarchical Category Tree & Clarified User Filters)', () => {
+  let fixture: ComponentFixture<DbUserMonitorComponent>;
+  let component: DbUserMonitorComponent;
+  let connectionService: ConnectionService;
+  let dbUserService: DbUserService;
+
+  const mockConnections: DatabaseConnection[] = [
+    {
+      id: 'conn-1',
+      name: 'Sales PG Database',
+      engine_type: 'POSTGRESQL',
+      host: '192.168.1.10',
+      port: 5432,
+      database_name: 'sales_db',
+      owner: 'sales_admin',
+      is_active: true,
+      category_id: 'cat-1',
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    },
+    {
+      id: 'conn-2',
+      name: 'Finance MSSQL Database',
+      engine_type: 'MSSQL',
+      host: '192.168.1.20',
+      port: 1433,
+      database_name: 'finance_db',
+      owner: 'finance_admin',
+      is_active: true,
+      category_id: 'cat-sub-1',
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    },
+    {
+      id: 'conn-3',
+      name: 'Unassigned MySQL DB',
+      engine_type: 'MYSQL',
+      host: '192.168.1.30',
+      port: 3306,
+      database_name: 'legacy_mysql',
+      owner: 'infra_team',
+      is_active: false,
+      category_id: null,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    },
+  ];
+
+  const mockCategoryTree: CategoryTreeNode[] = [
+    {
+      id: 'cat-1',
+      name: 'Commercial Division',
+      description: 'Commercial operations & CRM',
+      databases: [{ id: 'conn-1', name: 'Sales PG Database', engine_type: 'POSTGRESQL' }],
+      tables: [],
+      children: [
+        {
+          id: 'cat-sub-1',
+          name: 'Accounting & Finance',
+          description: 'Accounting ledger databases',
+          databases: [{ id: 'conn-2', name: 'Finance MSSQL Database', engine_type: 'MSSQL' }],
+          tables: [],
+          children: [],
+        },
+      ],
+    },
+  ];
+
+  const mockUsers: DatabaseUserItem[] = [
+    {
+      oid: '1001',
+      username: 'app_sales_writer',
+      can_login: true,
+      is_superuser: false,
+      can_create_db: false,
+      can_create_role: false,
+      member_of_roles: ['writer_role'],
+      connection_limit: 50,
+      valid_until: 'infinity',
+      active_sessions: 3,
+    },
+    {
+      oid: '1002',
+      username: 'readonly_analyst',
+      can_login: true,
+      is_superuser: false,
+      can_create_db: false,
+      can_create_role: false,
+      member_of_roles: ['reader_role'],
+      connection_limit: 10,
+      valid_until: '2027-01-01',
+      active_sessions: 1,
+    },
+    {
+      oid: '1003',
+      username: 'etl_role_group',
+      can_login: false,
+      is_superuser: false,
+      can_create_db: false,
+      can_create_role: false,
+      member_of_roles: [],
+      connection_limit: -1,
+      valid_until: null,
+      active_sessions: 0,
+    },
+  ];
+
+  beforeEach(async () => {
+    await TestBed.configureTestingModule({
+      imports: [DbUserMonitorComponent],
+      providers: [
+        provideHttpClient(),
+        provideHttpClientTesting(),
+        provideRouter([]),
+        {
+          provide: RbacService,
+          useValue: {
+            hasPermission: () => true,
+            currentUser: () => ({ is_superadmin: true }),
+          },
+        },
+      ],
+    }).compileComponents();
+
+    connectionService = TestBed.inject(ConnectionService);
+    dbUserService = TestBed.inject(DbUserService);
+
+    vi.spyOn(connectionService, 'getCategoryTree').mockReturnValue(of(mockCategoryTree));
+    vi.spyOn(connectionService, 'getConnections').mockReturnValue(of(mockConnections));
+    vi.spyOn(dbUserService, 'getDatabaseUsers').mockReturnValue(of(mockUsers));
+
+    fixture = TestBed.createComponent(DbUserMonitorComponent);
+    component = fixture.componentInstance;
+    fixture.detectChanges();
+  });
+
+  it('should initialize, load categories and connections, and build hierarchical tree', () => {
+    expect(component.categories().length).toBe(1);
+    expect(component.connections().length).toBe(3);
+
+    const tree = component.displayTree();
+    expect(tree.length).toBe(1);
+    expect(tree[0].name).toBe('Commercial Division');
+    expect(tree[0].connections.length).toBe(1);
+    expect(tree[0].children.length).toBe(1);
+    expect(tree[0].children[0].name).toBe('Accounting & Finance');
+    expect(tree[0].children[0].connections.length).toBe(1);
+
+    // Auto-selected first PG database
+    expect(component.selectedConnection()?.id).toBe('conn-1');
+  });
+
+  it('should create an uncategorized branch for databases without category assignment', () => {
+    const uncat = component.uncategorizedNode();
+    expect(uncat).not.toBeNull();
+    expect(uncat?.id).toBe('uncategorized');
+    expect(uncat?.name).toBe('پایگاه‌های داده دسته‌بندی‌نشده');
+    expect(uncat?.connections.length).toBe(1);
+    expect(uncat?.connections[0].id).toBe('conn-3');
+  });
+
+  it('should filter tree by Connection Name and auto-expand matching category', () => {
+    component.filterConnectionName.set('Finance');
+    expect(component.hasActiveTreeFilters()).toBe(true);
+
+    const tree = component.displayTree();
+    expect(tree.length).toBe(1);
+    // Root has child that matches
+    expect(tree[0].children.length).toBe(1);
+    expect(tree[0].children[0].connections.length).toBe(1);
+    expect(tree[0].children[0].connections[0].name).toBe('Finance MSSQL Database');
+
+    // Auto-expanded
+    expect(component.isCategoryExpanded(tree[0])).toBe(true);
+    expect(component.isCategoryExpanded(tree[0].children[0])).toBe(true);
+
+    // Uncategorized does not match 'Finance'
+    expect(component.uncategorizedNode()).toBeNull();
+  });
+
+  it('should filter tree by Host and Engine Type', () => {
+    component.filterHost.set('192.168.1.30');
+    component.filterEngineType.set('MYSQL');
+
+    const tree = component.displayTree();
+    expect(tree.length).toBe(0); // Categorized ones don't match
+
+    const uncat = component.uncategorizedNode();
+    expect(uncat).not.toBeNull();
+    expect(uncat?.connections.length).toBe(1);
+    expect(uncat?.connections[0].engine_type).toBe('MYSQL');
+  });
+
+  it('should clear tree filters when clearTreeFilters is invoked', () => {
+    component.filterConnectionName.set('Test');
+    component.filterDatabaseName.set('db');
+    component.filterHost.set('1.2.3.4');
+    component.filterOwner.set('owner');
+    component.filterEngineType.set('POSTGRESQL');
+    expect(component.hasActiveTreeFilters()).toBe(true);
+
+    component.clearTreeFilters();
+    expect(component.hasActiveTreeFilters()).toBe(false);
+    expect(component.filterConnectionName()).toBe('');
+    expect(component.filterHost()).toBe('');
+  });
+
+  it('should filter users table correctly with clarified ALL, LOGIN, and ROLES pills without duplication', () => {
+    expect(component.users().length).toBe(3);
+
+    // ALL
+    component.userTypeFilter.set('ALL');
+    expect(component.filteredUsers().length).toBe(3);
+
+    // LOGIN
+    component.userTypeFilter.set('LOGIN');
+    expect(component.filteredUsers().length).toBe(2);
+    expect(component.filteredUsers().every((u) => u.can_login)).toBe(true);
+
+    // ROLES (Nologin)
+    component.userTypeFilter.set('ROLES');
+    expect(component.filteredUsers().length).toBe(1);
+    expect(component.filteredUsers()[0].username).toBe('etl_role_group');
+    expect(component.filteredUsers()[0].can_login).toBe(false);
+
+    // Stats
+    const stats = component.userStats();
+    expect(stats.total).toBe(3);
+    expect(stats.loginUsers).toBe(2);
+    expect(stats.roles).toBe(1);
+    expect(stats.activeSessions).toBe(4);
+  });
+});

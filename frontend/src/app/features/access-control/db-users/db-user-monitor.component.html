@@ -52,55 +52,122 @@
 
   <!-- Workspace: Right Sidebar (Connections) + Main (Users Table) -->
   <div class="monitor-workspace">
-    <!-- Right Sidebar: Database Connections Selector -->
+    <!-- Right Sidebar: Hierarchical Category & Database Tree -->
     <aside class="connections-sidebar">
       <div class="sidebar-header">
         <div class="sidebar-title-row">
-          <i class="pi pi-server sidebar-icon"></i>
-          <h2 class="sidebar-title">پایگاه‌های داده متصل</h2>
+          <i class="pi pi-sitemap sidebar-icon"></i>
+          <h2 class="sidebar-title">درختواره پایگاه‌های داده</h2>
+          <span class="db-counter-badge" title="تعداد پایگاه‌های داده منطبق">
+            {{ totalFilteredDatabasesCount() }}
+          </span>
         </div>
-        <div class="sidebar-search-box">
-          <i class="pi pi-search search-icon"></i>
-          <input
-            type="text"
-            class="sidebar-search-input"
-            placeholder="جستجوی پایگاه داده..."
-            [ngModel]="connectionSearchQuery()"
-            (ngModelChange)="connectionSearchQuery.set($event)"
-          />
+
+        <!-- Multi-criteria filter panel -->
+        <div class="tree-filter-panel">
+          <div class="filter-row">
+            <div class="filter-input-group">
+              <i class="pi pi-link input-icon"></i>
+              <input
+                type="text"
+                class="sidebar-filter-input"
+                placeholder="نام اتصال..."
+                [ngModel]="filterConnectionName()"
+                (ngModelChange)="filterConnectionName.set($event)"
+              />
+            </div>
+            <div class="filter-input-group">
+              <i class="pi pi-database input-icon"></i>
+              <input
+                type="text"
+                class="sidebar-filter-input td-mono"
+                placeholder="نام دیتابیس..."
+                [ngModel]="filterDatabaseName()"
+                (ngModelChange)="filterDatabaseName.set($event)"
+              />
+            </div>
+          </div>
+
+          <div class="filter-row">
+            <div class="filter-input-group">
+              <i class="pi pi-globe input-icon"></i>
+              <input
+                type="text"
+                class="sidebar-filter-input td-mono td-ltr"
+                placeholder="IP / هاست..."
+                [ngModel]="filterHost()"
+                (ngModelChange)="filterHost.set($event)"
+              />
+            </div>
+            <div class="filter-input-group">
+              <i class="pi pi-user input-icon"></i>
+              <input
+                type="text"
+                class="sidebar-filter-input"
+                placeholder="مالک..."
+                [ngModel]="filterOwner()"
+                (ngModelChange)="filterOwner.set($event)"
+              />
+            </div>
+          </div>
+
+          <div class="filter-row engine-row">
+            <select
+              class="sidebar-filter-select"
+              [ngModel]="filterEngineType()"
+              (ngModelChange)="filterEngineType.set($event)"
+            >
+              <option value="">همه موتورها (Engines)</option>
+              <option value="POSTGRESQL">PostgreSQL</option>
+              <option value="MSSQL">MSSQL</option>
+              <option value="ORACLE">Oracle</option>
+              <option value="MYSQL">MySQL</option>
+              <option value="CLICKHOUSE">ClickHouse</option>
+              <option value="MONGODB">MongoDB</option>
+            </select>
+
+            @if (hasActiveTreeFilters()) {
+              <button
+                type="button"
+                class="btn-clear-tree-filters"
+                (click)="clearTreeFilters()"
+                title="پاکسازی تمامی فیلترها"
+              >
+                <i class="pi pi-filter-slash"></i>
+                <span>پاکسازی</span>
+              </button>
+            }
+          </div>
         </div>
       </div>
 
-      <div class="connections-list">
+      <!-- Hierarchical Category & Database Tree Scroll Area -->
+      <div class="tree-scroll-container">
         @if (isLoadingConnections()) {
           <div class="loading-state">
             <i class="pi pi-spin pi-spinner"></i>
-            <span>در حال دریافت پایگاه‌های داده...</span>
+            <span>در حال بارگذاری درختواره دسته‌بندی‌ها...</span>
           </div>
-        } @else if (filteredConnections().length === 0) {
+        } @else if (displayTree().length === 0 && !uncategorizedNode()) {
           <div class="empty-state-card">
             <i class="pi pi-info-circle"></i>
-            <span>هیچ پایگاه داده‌ای یافت نشد.</span>
+            <span>هیچ پایگاه داده‌ای با شرایط جستجو یافت نشد.</span>
+            @if (hasActiveTreeFilters()) {
+              <button type="button" class="btn btn-sm btn-secondary mt-2" (click)="clearTreeFilters()">
+                پاکسازی فیلترها
+              </button>
+            }
           </div>
         } @else {
-          @for (conn of filteredConnections(); track conn.id) {
-            <button
-              type="button"
-              class="connection-card-btn"
-              [class.active]="selectedConnection()?.id === conn.id"
-              (click)="selectConnection(conn)"
-            >
-              <div class="card-top-row">
-                <span class="engine-badge" [attr.data-engine]="conn.engine_type">
-                  {{ conn.engine_type }}
-                </span>
-                <span class="status-indicator-dot" [class.online]="conn.is_active" title="وضعیت فعال"></span>
-              </div>
-              <div class="card-name">{{ conn.name }}</div>
-              <div class="card-endpoint td-mono td-ltr">{{ conn.host }}:{{ conn.port }}</div>
-              <div class="card-db-name td-mono">{{ conn.database_name }}</div>
-            </button>
-          }
+          <div class="category-tree">
+            @for (rootNode of displayTree(); track rootNode.id) {
+              <ng-container *ngTemplateOutlet="categoryNodeTpl; context: { node: rootNode, depth: 0 }"></ng-container>
+            }
+
+            @if (uncategorizedNode(); as uncat) {
+              <ng-container *ngTemplateOutlet="categoryNodeTpl; context: { node: uncat, depth: 0, isUncategorized: true }"></ng-container>
+            }
+          </div>
         }
       </div>
     </aside>
@@ -159,7 +226,7 @@
                 [class.active]="userTypeFilter() === 'LOGIN'"
                 (click)="userTypeFilter.set('LOGIN')"
               >
-                کاربران دارای مجوز ورود ({{ userStats().loginUsers }})
+                کاربران دارای مجوز ورود (Login) ({{ userStats().loginUsers }})
               </button>
               <button
                 type="button"
@@ -167,15 +234,7 @@
                 [class.active]="userTypeFilter() === 'ROLES'"
                 (click)="userTypeFilter.set('ROLES')"
               >
-                نقش‌ها ({{ userStats().roles }})
-              </button>
-              <button
-                type="button"
-                class="filter-pill"
-                [class.active]="userTypeFilter() === 'DISABLED'"
-                (click)="userTypeFilter.set('DISABLED')"
-              >
-                کاربران غیرفعال
+                نقش‌های بدون ورود (Nologin Roles) ({{ userStats().roles }})
               </button>
             </div>
 
@@ -480,4 +539,64 @@
       </div>
     </div>
   }
+
+  <!-- Recursive RTL Category -> Subcategories -> Databases Tree Node Template -->
+  <ng-template #categoryNodeTpl let-node="node" let-depth="depth" let-isUncat="isUncategorized">
+    <div class="tree-category-item" [style.padding-right.px]="depth * 14">
+      <!-- Category Header Row -->
+      <div
+        class="category-header-row"
+        [class.expanded]="isCategoryExpanded(node)"
+        [class.uncategorized-header]="isUncat"
+        (click)="toggleCategory(node, $event)"
+      >
+        <i
+          class="pi expand-chevron"
+          [ngClass]="isCategoryExpanded(node) ? 'pi-chevron-down' : 'pi-chevron-left'"
+        ></i>
+        <i
+          class="pi category-icon"
+          [ngClass]="isUncat ? 'pi-inbox text-warning' : (isCategoryExpanded(node) ? 'pi-folder-open text-primary' : 'pi-folder text-primary')"
+        ></i>
+        <span class="category-name" [title]="node.description || node.name">{{ node.name }}</span>
+        <span class="category-count-badge">{{ node.connections.length }}</span>
+      </div>
+
+      <!-- Category Content: Subcategories & Databases -->
+      @if (isCategoryExpanded(node)) {
+        <div class="category-children-container">
+          <!-- Subcategories Recursion -->
+          @for (child of node.children; track child.id) {
+            <ng-container *ngTemplateOutlet="categoryNodeTpl; context: { node: child, depth: depth + 1 }"></ng-container>
+          }
+
+          <!-- Databases assigned to this category -->
+          @for (conn of node.connections; track conn.id) {
+            <button
+              type="button"
+              class="connection-card-btn"
+              [class.active]="selectedConnection()?.id === conn.id"
+              (click)="selectConnection(conn)"
+            >
+              <div class="card-top-row">
+                <span class="engine-badge" [attr.data-engine]="conn.engine_type">
+                  {{ conn.engine_type }}
+                </span>
+                <span class="status-indicator-dot" [class.online]="conn.is_active" title="وضعیت فعال"></span>
+              </div>
+              <div class="card-name">{{ conn.name }}</div>
+              <div class="card-endpoint td-mono td-ltr">{{ conn.host }}:{{ conn.port }}</div>
+              <div class="card-db-name td-mono">{{ conn.database_name }}</div>
+              @if (conn.owner) {
+                <div class="card-owner">
+                  <i class="pi pi-user me-1"></i>
+                  <span>{{ conn.owner }}</span>
+                </div>
+              }
+            </button>
+          }
+        </div>
+      }
+    </div>
+  </ng-template>
 </div>

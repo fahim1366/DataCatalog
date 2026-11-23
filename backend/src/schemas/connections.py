@@ -115,7 +115,7 @@ class ConnectionTestResponse(BaseModel):
 
 class DiscoverDatabasesRequest(BaseModel):
     engine_type: DatabaseEngine
-    host: str = Field(..., min_length=1, max_length=255)
+    host: str = Field(..., max_length=255)
     port: int = Field(..., ge=1, le=65535)
     credentials: Dict[str, Any] = Field(..., description="Credentials containing username and password")
     custom_params: Dict[str, Any] = Field(default_factory=dict)
@@ -131,7 +131,7 @@ class DiscoverDatabasesResponse(BaseModel):
 
 class TestUnsavedConnectionRequest(BaseModel):
     engine_type: DatabaseEngine
-    host: str = Field(..., min_length=1, max_length=255)
+    host: str = Field(..., max_length=255)
     port: int = Field(..., ge=1, le=65535)
     database_name: str = Field(..., min_length=1, max_length=255)
     credentials: Dict[str, Any] = Field(..., description="Credentials containing username and password")

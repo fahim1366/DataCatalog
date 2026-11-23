@@ -62,14 +62,14 @@
                 class="db-filter-input"
                 [ngModel]="dbSearchFilter()"
                 (ngModelChange)="dbSearchFilter.set($event)"
-                placeholder="🔍 نام پایگاه / اتصال..."
+                placeholder="نام پایگاه / اتصال..."
               />
               <input
                 type="text"
                 class="db-filter-input mono-font"
                 [ngModel]="dbHostFilter()"
                 (ngModelChange)="dbHostFilter.set($event)"
-                placeholder="🌐 هاست / IP..."
+                placeholder="هاست / IP..."
               />
             </div>
             <div class="db-filter-row">
@@ -91,7 +91,7 @@
                 class="db-filter-input"
                 [ngModel]="dbOwnerFilter()"
                 (ngModelChange)="dbOwnerFilter.set($event)"
-                placeholder="👤 مالک..."
+                placeholder="مالک..."
               />
               @if (dbSearchFilter() || dbHostFilter() || dbEngineFilter() || dbOwnerFilter()) {
                 <button
@@ -110,7 +110,7 @@
             @for (conn of filteredPhysicalTree(); track conn.id) {
               <div class="tree-group">
                 <div class="tree-node node-db" (click)="filterByDatabase(conn.name)">
-                  <span class="node-icon">🗄️</span>
+                  <span class="node-icon"><i class="pi pi-database"></i></span>
                   <div class="node-db-meta">
                     <span class="node-label mono-font">{{ conn.name }}</span>
                     @if (conn.host || conn.owner) {
@@ -139,7 +139,7 @@
                 <div class="tree-subnodes">
                   @for (schema of conn.schemas; track schema.id) {
                     <div class="tree-node node-schema" (click)="filterBySchema(schema.name)">
-                      <span class="node-icon">📁</span>
+                      <span class="node-icon"><i class="pi pi-folder"></i></span>
                       <span class="node-label mono-font">{{ schema.name }}</span>
                     </div>
                   }
@@ -170,7 +170,7 @@
     @for (cat of nodes; track cat.id) {
       <div class="tree-group" [style.padding-right.px]="depth * 8">
         <div class="tree-node node-cat" (click)="filterByCategory(cat.name)">
-          <span class="node-icon">🏷️</span>
+          <span class="node-icon"><i class="pi pi-tag"></i></span>
           <span class="node-label">{{ cat.name }}</span>
           @if (cat.assigned_tables_count || (cat.tables && cat.tables.length)) {
             <span class="node-count-badge">{{ cat.assigned_tables_count || cat.tables?.length || 0 }} جدول</span>
@@ -182,7 +182,7 @@
           <div class="tree-subnodes">
             @for (db of cat.databases; track db.id) {
               <div class="tree-node node-db-assigned" (click)="filterByDatabase(db.name)">
-                <span class="node-icon">🗄️</span>
+                <span class="node-icon"><i class="pi pi-database"></i></span>
                 <span class="node-label mono-font">{{ db.name }}</span>
                 @if (db.engine_type) {
                   <span class="node-engine-badge">{{ db.engine_type }}</span>
@@ -197,7 +197,7 @@
           <div class="tree-subnodes">
             @for (tbl of cat.tables; track tbl.id) {
               <div class="tree-node node-table-assigned" (click)="filterByTable(tbl.name)">
-                <span class="node-icon">📊</span>
+                <span class="node-icon"><i class="pi pi-table"></i></span>
                 <span class="node-label mono-font">{{ tbl.name }}</span>
               </div>
             }
@@ -311,7 +311,7 @@
             [class.active]="missingDescriptionsOnly()"
             (click)="toggleMissingDescriptionsOnly()"
           >
-            <span>⚠️ فقط موارد فاقد توضیحات (Missing Only)</span>
+            <span><i class="pi pi-exclamation-triangle me-1"></i> فقط موارد فاقد توضیحات (Missing Only)</span>
           </button>
         </div>
       </div>
@@ -319,7 +319,7 @@
       <!-- Persistent Description Policy Selector -->
       <div class="policy-selector-strip">
         <div class="policy-label-group">
-          <span class="policy-icon">📋</span>
+          <span class="policy-icon"><i class="pi pi-file"></i></span>
           <span class="policy-label">سیاست نمایش توضیحات:</span>
         </div>
         <div class="policy-segmented-control">
@@ -365,7 +365,7 @@
               class="btn btn-primary btn-sm"
               (click)="openBulkTagModal()"
             >
-              🏷️ تخصیص گروهی تگ (Bulk Tagging)
+              <i class="pi pi-tags me-1"></i> تخصیص گروهی تگ (Bulk Tagging)
             </button>
             <button class="btn btn-secondary btn-sm" (click)="clearSelection()">
               انصراف از انتخاب
@@ -407,7 +407,7 @@
       <!-- 4-Card Scope KPI Strip -->
       <div class="scope-kpi-grid">
         <div class="scope-kpi-card">
-          <span class="scope-kpi-icon">{{ kpiDynamicIcon() }}</span>
+          <span class="scope-kpi-icon"><i [class]="kpiDynamicIcon()"></i></span>
           <div class="scope-kpi-meta">
             <span class="scope-kpi-label">{{ kpiDynamicLabel() }}</span>
             <span class="scope-kpi-value mono-font">{{ kpiDynamicCount().toLocaleString('fa-IR') }}</span>
@@ -415,7 +415,7 @@
         </div>
 
         <div class="scope-kpi-card">
-          <span class="scope-kpi-icon">📝</span>
+          <span class="scope-kpi-icon"><i class="pi pi-pencil"></i></span>
           <div class="scope-kpi-meta">
             <span class="scope-kpi-label">درصد مستندسازی‌شده</span>
             <span
@@ -429,7 +429,7 @@
         </div>
 
         <div class="scope-kpi-card">
-          <span class="scope-kpi-icon">🔒</span>
+          <span class="scope-kpi-icon"><i class="pi pi-lock"></i></span>
           <div class="scope-kpi-meta">
             <span class="scope-kpi-label">تعداد ستون‌های حساس (PII / Confidential)</span>
             <span class="scope-kpi-value mono-font" [class.sensitive]="kpiSensitiveColumnsCount() > 0">
@@ -439,7 +439,7 @@
         </div>
 
         <div class="scope-kpi-card">
-          <span class="scope-kpi-icon">⚠️</span>
+          <span class="scope-kpi-icon"><i class="pi pi-exclamation-triangle"></i></span>
           <div class="scope-kpi-meta">
             <span class="scope-kpi-label">تعداد موارد دارای تعارض شرح</span>
             <span class="scope-kpi-value mono-font" [class.drift]="kpiDriftCount() > 0">
@@ -460,7 +460,7 @@
           (click)="setActiveObjectTab('tables')"
           role="tab"
         >
-          <span class="tab-icon">📊</span>
+          <span class="tab-icon"><i class="pi pi-table"></i></span>
           <span class="tab-label">جداول (Tables)</span>
           <span class="tab-count-badge">{{ objectCounts().tables }}</span>
         </button>
@@ -472,7 +472,7 @@
           (click)="setActiveObjectTab('views')"
           role="tab"
         >
-          <span class="tab-icon">👁️</span>
+          <span class="tab-icon"><i class="pi pi-eye"></i></span>
           <span class="tab-label">نماها (Views)</span>
           <span class="tab-count-badge">{{ objectCounts().views }}</span>
         </button>
@@ -484,7 +484,7 @@
           (click)="setActiveObjectTab('indexes')"
           role="tab"
         >
-          <span class="tab-icon">⚡</span>
+          <span class="tab-icon"><i class="pi pi-bolt"></i></span>
           <span class="tab-label">ایندکس‌ها (Indexes)</span>
           <span class="tab-count-badge">{{ objectCounts().indexes }}</span>
         </button>
@@ -496,7 +496,7 @@
           (click)="setActiveObjectTab('procedures')"
           role="tab"
         >
-          <span class="tab-icon">⚙️</span>
+          <span class="tab-icon"><i class="pi pi-cog"></i></span>
           <span class="tab-label">روال‌های ذخیره (Stored Procedures)</span>
           <span class="tab-count-badge">{{ objectCounts().procedures }}</span>
         </button>
@@ -508,7 +508,7 @@
           (click)="setActiveObjectTab('functions')"
           role="tab"
         >
-          <span class="tab-icon">ƒ</span>
+          <span class="tab-icon"><i class="pi pi-code"></i></span>
           <span class="tab-label">توابع (Functions)</span>
           <span class="tab-count-badge">{{ objectCounts().functions }}</span>
         </button>
@@ -525,11 +525,11 @@
           </div>
         } @else if (store.searchHits().length === 0) {
           <div class="empty-state" dir="rtl">
-            <div class="empty-icon">🔍</div>
+            <div class="empty-icon"><i class="pi pi-search"></i></div>
             <h3>موردی در کاتالوگ متادیتا یافت نشد</h3>
             <p>هیچ جدولی با شرایط فیلتر یا کلیدواژه جستجوی فعلی تطابق ندارد یا سطح دسترسی شما برای مشاهده آن محدود است.</p>
             <div class="completeness-hint-box">
-              <span class="hint-icon">💡</span>
+              <span class="hint-icon"><i class="pi pi-lightbulb"></i></span>
               <div class="hint-content">
                 <strong>راهنمای حاکمیت داده و تکمیل متادیتا:</strong><br />
                 شاخص تکمیل متادیتا (Metadata Completeness) بر پایه ثبت همزمان
@@ -572,7 +572,7 @@
 
               <div class="col-name" (click)="inspectTable(hit.id)">
                 <div class="table-title mono-font">
-                  <span class="type-icon">📊</span>
+                  <span class="type-icon"><i class="pi pi-table"></i></span>
                   <strong>{{ hit.name }}</strong>
                   @if (hit.description_drift_detected) {
                     <span class="drift-badge" title="تعارض شرح">تعارض شرح</span>
@@ -643,7 +643,7 @@
 
               <div class="col-action">
                 <button class="btn btn-secondary btn-sm" (click)="inspectTable(hit.id)">
-                  شناسنامه جدول 🔍
+                  <i class="pi pi-search me-1"></i> شناسنامه جدول
                 </button>
               </div>
             </div>
@@ -667,7 +667,7 @@
               @for (view of catalogObjects()?.views || []; track view.id) {
                 <tr>
                   <td class="mono-font fw-bold">
-                    <span class="type-icon">👁️</span> {{ view.name }}
+                    <span class="type-icon"><i class="pi pi-eye"></i></span> {{ view.name }}
                   </td>
                   <td class="mono-font text-muted">
                     {{ view.database_name }}.{{ view.schema_name }}
@@ -699,7 +699,7 @@
                   </td>
                   <td>
                     <button class="btn btn-secondary btn-sm" (click)="inspectTable(view.id)">
-                      شناسنامه نما 🔍
+                      <i class="pi pi-search me-1"></i> شناسنامه نما
                     </button>
                   </td>
                 </tr>
@@ -729,7 +729,7 @@
               @for (idx of catalogObjects()?.indexes || []; track idx.id) {
                 <tr>
                   <td class="mono-font fw-bold">
-                    <span class="type-icon">⚡</span> {{ idx.name }}
+                    <span class="type-icon"><i class="pi pi-bolt"></i></span> {{ idx.name }}
                   </td>
                   <td class="mono-font text-muted">
                     {{ idx.table_name || idx.details?.['table_name'] }} ({{ idx.schema_name }})
@@ -781,7 +781,7 @@
               @for (proc of catalogObjects()?.procedures || []; track proc.id) {
                 <tr>
                   <td class="mono-font fw-bold">
-                    <span class="type-icon">⚙️</span> {{ proc.name }}
+                    <span class="type-icon"><i class="pi pi-cog"></i></span> {{ proc.name }}
                   </td>
                   <td class="mono-font text-muted">
                     {{ proc.database_name }}.{{ proc.schema_name }}
@@ -841,7 +841,7 @@
               @for (fn of catalogObjects()?.functions || []; track fn.id) {
                 <tr>
                   <td class="mono-font fw-bold">
-                    <span class="type-icon">ƒ</span> {{ fn.name }}
+                    <span class="type-icon"><i class="pi pi-code"></i></span> {{ fn.name }}
                   </td>
                   <td class="mono-font text-muted">
                     {{ fn.database_name }}.{{ fn.schema_name }}
@@ -1220,7 +1220,7 @@
                   @for (idx of tableIndexes(); track idx.id) {
                     <tr>
                       <td class="mono-font fw-bold">
-                        <span class="type-icon">⚡</span> {{ idx.name }}
+                        <span class="type-icon"><i class="pi pi-bolt"></i></span> {{ idx.name }}
                       </td>
                       <td>
                         <span class="code-badge">{{ idx.details?.['index_type'] || 'BTREE' }}</span>

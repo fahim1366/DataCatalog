@@ -137,7 +137,7 @@
 /* --- Split Workspace --- */
 .monitor-workspace {
   display: grid;
-  grid-template-columns: 320px 1fr;
+  grid-template-columns: 340px 1fr;
   gap: 20px;
   align-items: start;
 }
@@ -153,7 +153,7 @@
   flex-direction: column;
 }
 .sidebar-header {
-  padding: 14px 16px;
+  padding: 12px 14px;
   border-bottom: 1px solid #f1f5f9;
   background-color: #f8fafc;
 }
@@ -172,39 +172,172 @@
   font-weight: 700;
   color: #1e293b;
   margin: 0;
+  flex: 1;
 }
-.sidebar-search-box {
+.db-counter-badge {
+  font-size: 11px;
+  font-weight: 700;
+  background-color: #e0e7ff;
+  color: #4338ca;
+  padding: 2px 7px;
+  border-radius: 12px;
+}
+
+/* --- Multi-Criteria Tree Filtering --- */
+.tree-filter-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.filter-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+.filter-row.engine-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.filter-input-group {
   position: relative;
+  display: flex;
+  align-items: center;
 }
-.sidebar-search-input {
+.input-icon {
+  position: absolute;
+  right: 8px;
+  font-size: 11px;
+  color: #94a3b8;
+  pointer-events: none;
+}
+.sidebar-filter-input {
   width: 100%;
-  padding: 7px 32px 7px 10px;
-  font-size: 12px;
+  padding: 6px 26px 6px 6px;
+  font-size: 11px;
   border: 1px solid #cbd5e1;
   border-radius: 6px;
   outline: none;
   background-color: #ffffff;
   box-sizing: border-box;
+  transition: border-color 0.15s ease;
 }
-.sidebar-search-input:focus {
+.sidebar-filter-input:focus {
   border-color: #6366f1;
-  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.15);
+  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.12);
 }
-.sidebar-search-box .search-icon {
-  position: absolute;
-  right: 10px;
-  top: 50%;
-  transform: translateY(-50%);
-  font-size: 12px;
-  color: #94a3b8;
+.sidebar-filter-select {
+  flex: 1;
+  padding: 6px 8px;
+  font-size: 11px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  outline: none;
+  background-color: #ffffff;
+  color: #334155;
+  cursor: pointer;
+  box-sizing: border-box;
 }
-.connections-list {
-  max-height: calc(100vh - 240px);
+.sidebar-filter-select:focus {
+  border-color: #6366f1;
+  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.12);
+}
+.btn-clear-tree-filters {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #dc2626;
+  background-color: #fef2f2;
+  border: 1px solid #fecaca;
+  border-radius: 6px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.15s ease;
+}
+.btn-clear-tree-filters:hover {
+  background-color: #fee2e2;
+}
+
+/* --- Tree Scroll Area & Categories Hierarchy --- */
+.tree-scroll-container {
+  max-height: calc(100vh - 270px);
   overflow-y: auto;
   padding: 8px;
   display: flex;
   flex-direction: column;
   gap: 6px;
+}
+.category-tree {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.tree-category-item {
+  display: flex;
+  flex-direction: column;
+}
+.category-header-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+  user-select: none;
+  font-size: 12px;
+  font-weight: 600;
+  color: #334155;
+  background-color: transparent;
+  transition: background-color 0.15s ease;
+}
+.category-header-row:hover {
+  background-color: #f1f5f9;
+}
+.category-header-row.expanded {
+  background-color: #f8fafc;
+}
+.category-header-row.uncategorized-header {
+  color: #92400e;
+}
+.expand-chevron {
+  font-size: 10px;
+  color: #94a3b8;
+  width: 14px;
+  text-align: center;
+}
+.category-icon {
+  font-size: 13px;
+}
+.category-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.category-count-badge {
+  font-size: 10px;
+  font-weight: 600;
+  background-color: #e2e8f0;
+  color: #475569;
+  padding: 1px 6px;
+  border-radius: 10px;
+}
+.category-children-container {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 3px;
+  margin-bottom: 4px;
+}
+.card-owner {
+  font-size: 10px;
+  color: #64748b;
+  margin-top: 2px;
+  display: flex;
+  align-items: center;
 }
 .connection-card-btn {
   display: flex;

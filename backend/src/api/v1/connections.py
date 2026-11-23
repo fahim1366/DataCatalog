@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import asyncio
 from datetime import datetime, timezone
+import ipaddress
 import logging
+import socket
 import uuid
 from typing import List, Optional
 
@@ -177,6 +179,60 @@ def format_connection_error_persian(raw_error: str, context: str = "discovery") 
     )
 
 
+def _validate_target_host(host: str) -> None:
+    """
+    SSRF Protection: Validates connection target host before executing discovery or live tests.
+    Rejects link-local / cloud metadata IP ranges (169.254.0.0/16, 0.0.0.0/8) and empty/whitespace hostnames
+    with HTTP 400 Bad Request and a clear Persian error message.
+    """
+    if not host or not str(host).strip():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="آدرس سرور وارد شده مجاز نیست.",
+        )
+
+    clean_host = str(host).strip()
+    if clean_host.startswith("[") and clean_host.endswith("]"):
+        clean_host = clean_host[1:-1]
+
+    blocked_networks = [
+        ipaddress.ip_network("169.254.0.0/16"),
+        ipaddress.ip_network("0.0.0.0/8"),
+    ]
+
+    # 1. Direct IP literal check
+    try:
+        ip = ipaddress.ip_address(clean_host)
+        if ip.is_link_local or any(ip in net for net in blocked_networks):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="آدرس سرور وارد شده مجاز نیست.",
+            )
+        return
+    except ValueError:
+        pass
+
+    # 2. Hostname DNS resolution check
+    try:
+        addr_infos = socket.getaddrinfo(clean_host, None)
+        for _, _, _, _, sockaddr in addr_infos:
+            ip_str = sockaddr[0]
+            try:
+                resolved_ip = ipaddress.ip_address(ip_str)
+                if resolved_ip.is_link_local or any(resolved_ip in net for net in blocked_networks):
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail="آدرس سرور وارد شده مجاز نیست.",
+                    )
+            except ValueError:
+                pass
+    except HTTPException:
+        raise
+    except Exception:
+        # Non-resolving hostnames will be handled by the connector dialect with standard connection errors
+        pass
+
+
 async def require_manage_schedules(
     user_ctx: UserContext = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session),
@@ -293,6 +349,8 @@ async def discover_databases(
     Connects transiently (NullPool, READ ONLY, 5s timeout) to the maintenance DB
     and queries pg_database (for PostgreSQL) returning list of active non-template databases.
     """
+    _validate_target_host(payload.host)
+
     config = {
         "host": payload.host,
         "port": payload.port,
@@ -341,6 +399,8 @@ async def test_unsaved_connection(
     Executes a transient 5-point dialect connectivity test bounded by a strict 5.0s timeout
     on unsaved connection credentials before persisting the connection profile.
     """
+    _validate_target_host(payload.host)
+
     config = {
         "host": payload.host,
         "port": payload.port,

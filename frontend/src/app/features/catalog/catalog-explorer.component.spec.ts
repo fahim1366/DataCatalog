@@ -286,31 +286,31 @@ describe('CatalogExplorerComponent (Phase 2 UI/UX Overhaul)', () => {
     // Default: tables
     component.setActiveObjectTab('tables');
     expect(component.kpiDynamicLabel()).toBe('تعداد کل جداول');
-    expect(component.kpiDynamicIcon()).toBe('📊');
+    expect(component.kpiDynamicIcon()).toBe('pi pi-table');
     expect(component.kpiDynamicCount()).toBe(3); // from searchHits
 
     // Views
     component.setActiveObjectTab('views');
     expect(component.kpiDynamicLabel()).toBe('تعداد کل نماها');
-    expect(component.kpiDynamicIcon()).toBe('👁️');
+    expect(component.kpiDynamicIcon()).toBe('pi pi-eye');
     expect(component.kpiDynamicCount()).toBe(2);
 
     // Indexes
     component.setActiveObjectTab('indexes');
     expect(component.kpiDynamicLabel()).toBe('تعداد کل ایندکس‌ها');
-    expect(component.kpiDynamicIcon()).toBe('⚡');
+    expect(component.kpiDynamicIcon()).toBe('pi pi-bolt');
     expect(component.kpiDynamicCount()).toBe(3);
 
     // Procedures
     component.setActiveObjectTab('procedures');
     expect(component.kpiDynamicLabel()).toBe('تعداد کل روال‌های ذخیره');
-    expect(component.kpiDynamicIcon()).toBe('⚙️');
+    expect(component.kpiDynamicIcon()).toBe('pi pi-cog');
     expect(component.kpiDynamicCount()).toBe(1);
 
     // Functions
     component.setActiveObjectTab('functions');
     expect(component.kpiDynamicLabel()).toBe('تعداد کل توابع');
-    expect(component.kpiDynamicIcon()).toBe('ƒ');
+    expect(component.kpiDynamicIcon()).toBe('pi pi-code');
     expect(component.kpiDynamicCount()).toBe(2);
   });
 

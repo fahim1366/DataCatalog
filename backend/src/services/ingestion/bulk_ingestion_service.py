@@ -1,4 +1,4 @@
-from __future__ import annotations
+ from __future__ import annotations
 
 import json
 import logging
@@ -432,10 +432,11 @@ class BulkIngestionService:
             )
             columns_upserted_count = len(col_upsert_res.scalars().all())
 
-        # 4b. Upsert Indexes
+        # 4b. Upsert & Refresh Indexes (clean up dropped indexes on scanned tables)
+        scanned_table_ids = list(table_id_map.values())
+        idx_table_ids: List[uuid.UUID] = []
+        idx_names: List[str] = []
         if payload.indexes:
-            idx_table_ids: List[uuid.UUID] = []
-            idx_names: List[str] = []
             idx_uniques: List[bool] = []
             idx_primaries: List[bool] = []
             idx_types: List[str] = []
@@ -494,10 +495,43 @@ class BulkIngestionService:
                     },
                 )
 
-        # 4c. Upsert Routines
+        # Stale/dropped index cleanup for scanned tables
+        if scanned_table_ids and payload.indexes is not None:
+            if idx_table_ids:
+                clean_idx_stmt = text("""
+                    WITH scanned_idx AS (
+                        SELECT UNNEST(CAST(:tbl_ids AS uuid[])) AS table_id,
+                               UNNEST(CAST(:names AS varchar[])) AS idx_name
+                    )
+                    DELETE FROM catalog_indexes ci
+                    WHERE ci.table_id = ANY(CAST(:distinct_tbl_ids AS uuid[]))
+                      AND NOT EXISTS (
+                          SELECT 1 FROM scanned_idx si
+                          WHERE si.table_id = ci.table_id AND si.idx_name = ci.name
+                      );
+                """)
+                await session.execute(
+                    clean_idx_stmt,
+                    {
+                        "tbl_ids": idx_table_ids,
+                        "names": idx_names,
+                        "distinct_tbl_ids": scanned_table_ids,
+                    },
+                )
+            elif len(payload.indexes) == 0 and len(payload.tables) > 0:
+                clean_idx_stmt = text("""
+                    DELETE FROM catalog_indexes
+                    WHERE table_id = ANY(CAST(:distinct_tbl_ids AS uuid[]));
+                """)
+                await session.execute(
+                    clean_idx_stmt,
+                    {"distinct_tbl_ids": scanned_table_ids},
+                )
+
+        # 4c. Upsert & Refresh Routines
+        rt_names: List[str] = []
+        rt_types: List[str] = []
         if payload.routines:
-            rt_names: List[str] = []
-            rt_types: List[str] = []
             rt_languages: List[str] = []
             rt_signatures: List[Optional[str]] = []
             rt_returns: List[Optional[str]] = []
@@ -548,8 +582,40 @@ class BulkIngestionService:
                     },
                 )
 
+        # Stale/dropped routine cleanup for schema (skipping failed schemas)
+        if payload.routines is not None and not (effective_failed_schemas and schema_name in effective_failed_schemas):
+            if rt_names:
+                clean_rt_stmt = text("""
+                    WITH scanned_rt AS (
+                        SELECT UNNEST(CAST(:names AS varchar[])) AS rt_name,
+                               UNNEST(CAST(:routine_types AS varchar[])) AS rt_type
+                    )
+                    DELETE FROM catalog_routines cr
+                    WHERE cr.schema_id = :schema_id
+                      AND NOT EXISTS (
+                          SELECT 1 FROM scanned_rt sr
+                          WHERE sr.rt_name = cr.name AND sr.rt_type = cr.routine_type
+                      );
+                """)
+                await session.execute(
+                    clean_rt_stmt,
+                    {
+                        "schema_id": schema_id,
+                        "names": rt_names,
+                        "routine_types": rt_types,
+                    },
+                )
+            elif len(payload.routines) == 0 and len(payload.tables) > 0:
+                clean_rt_stmt = text("""
+                    DELETE FROM catalog_routines
+                    WHERE schema_id = :schema_id;
+                """)
+                await session.execute(
+                    clean_rt_stmt,
+                    {"schema_id": schema_id},
+                )
+
         # 5. Soft-delete missing columns for scanned tables (Set-based vectorized sweep)
-        scanned_table_ids = list(table_id_map.values())
         if scanned_table_ids:
             if col_ids:
                 soft_del_col_stmt = text("""

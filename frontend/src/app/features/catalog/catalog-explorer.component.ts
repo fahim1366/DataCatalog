@@ -229,32 +229,32 @@ export class CatalogExplorerComponent implements OnInit {
         return {
           label: 'تعداد کل نماها',
           count: objs?.views?.length ?? this.objectCounts().views,
-          icon: '👁️',
+          icon: 'pi pi-eye',
         };
       case 'indexes':
         return {
           label: 'تعداد کل ایندکس‌ها',
           count: objs?.indexes?.length ?? this.objectCounts().indexes,
-          icon: '⚡',
+          icon: 'pi pi-bolt',
         };
       case 'procedures':
         return {
           label: 'تعداد کل روال‌های ذخیره',
           count: objs?.procedures?.length ?? this.objectCounts().procedures,
-          icon: '⚙️',
+          icon: 'pi pi-cog',
         };
       case 'functions':
         return {
           label: 'تعداد کل توابع',
           count: objs?.functions?.length ?? this.objectCounts().functions,
-          icon: 'ƒ',
+          icon: 'pi pi-code',
         };
       case 'tables':
       default:
         return {
           label: 'تعداد کل جداول',
           count: this.store.searchHits().length || this.objectCounts().tables,
-          icon: '📊',
+          icon: 'pi pi-table',
         };
     }
   });

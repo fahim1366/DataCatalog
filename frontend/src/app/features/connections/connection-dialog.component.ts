@@ -3,6 +3,7 @@ import {
   Component,
   DestroyRef,
   EventEmitter,
+  HostListener,
   Input,
   OnInit,
   Output,
@@ -20,7 +21,7 @@ import {
   ValidatorFn,
   Validators,
 } from '@angular/forms';
-import { debounceTime, distinctUntilChanged, merge } from 'rxjs';
+import { debounceTime, distinctUntilChanged, map, merge } from 'rxjs';
 import {
   ConnectionCreateRequest,
   ConnectionTestResult,
@@ -73,12 +74,10 @@ export interface FlattenedCategoryNode {
           </button>
         </header>
 
-        
-
         <form [formGroup]="form" (ngSubmit)="onSubmit()" class="connection-form">
-          <!-- Database Title -->
+          <!-- Row 1 (Full Width): Database Title / Name -->
           <div class="form-row">
-            <div class="form-group col-span-2">
+            <div class="form-group col-span-full">
               <label for="name">عنوان پایگاه‌داده (Database Title / Name) <span class="required">*</span></label>
               <input
                 id="name"
@@ -93,19 +92,22 @@ export interface FlattenedCategoryNode {
             </div>
           </div>
 
-          <!-- Hierarchical Topic Tree Selector (Only Leaves Selectable) -->
+          <!-- Row 2 (Full Width - Clean Card): Topic / Category Tree -->
           <div class="form-row">
-            <div class="form-group col-span-2 topic-section">
+            <div class="form-group col-span-full topic-section">
               <div class="topic-section-header">
-                <label class="topic-label">
-                  انتخاب دیتابیس
-                 
-                </label>
+                <div class="topic-header-title">
+                  <label class="topic-label">
+                    <i class="pi pi-sitemap topic-title-icon"></i>
+                    <span>دسته‌بندی موضوعی در کاتالوگ (Topic / Category)</span>
+                  </label>
+                  <span class="optional-badge">اختیاری</span>
+                </div>
 
                 @if (selectedCategoryName()) {
                   <div class="selected-topic-chip">
-                    <i class="pi pi-file chip-leaf-icon"></i>
-                    <span class="chip-text">موضوع انتخاب‌شده: <strong>{{ selectedCategoryName() }}</strong></span>
+                    <i class="pi pi-tag chip-leaf-icon"></i>
+                    <span class="chip-text">موضوع: <strong>{{ selectedCategoryName() }}</strong></span>
                     <button
                       type="button"
                       class="btn-clear-topic"
@@ -126,7 +128,7 @@ export interface FlattenedCategoryNode {
                     <input
                       type="text"
                       class="topic-search-input"
-                      placeholder="جستجو "
+                      placeholder="جستجوی شاخه موضوعی..."
                       [value]="categorySearchTerm()"
                       (input)="onSearchInput($event)"
                     />
@@ -134,7 +136,7 @@ export interface FlattenedCategoryNode {
                   @if (isLoadingCategories()) {
                     <span class="loading-hint">
                       <i class="pi pi-spin pi-spinner"></i>
-                      <span>در حال بارگذاری درخت موضوعات...</span>
+                      <span>در حال بارگذاری موضوعات...</span>
                     </span>
                   }
                 </div>
@@ -173,7 +175,6 @@ export interface FlattenedCategoryNode {
                           [ngClass]="expandedNodeIds().has(item.node.id) ? 'pi-folder-open' : 'pi-folder'"
                         ></i>
                         <span class="node-name parent-name">{{ item.node.name }}</span>
-                        <!-- <span class="node-type-badge parent-badge">شاخه والد (غیرقابل انتخاب)</span> -->
                       } @else {
                         <!-- Leaf Node (Selectable) -->
                         <span class="leaf-radio-circle" [class.checked]="form.controls.category_id.value === item.node.id"></span>
@@ -194,10 +195,10 @@ export interface FlattenedCategoryNode {
             </div>
           </div>
 
-          <!-- Engine Type, Host, Port -->
-          <div class="form-row grid-3">
+          <!-- Row 3 (3 Columns: 1.2fr 1.8fr 0.8fr): Engine Type, Host / IP, Port -->
+          <div class="form-row row-engine-host-port">
             <div class="form-group">
-              <label for="engine_type">  نوع دیتابیس  <span class="required">*</span></label>
+              <label for="engine_type">نوع دیتابیس (Engine Type) <span class="required">*</span></label>
               <select
                 id="engine_type"
                 class="form-control"
@@ -210,12 +211,13 @@ export interface FlattenedCategoryNode {
               </select>
             </div>
 
-            <div class="form-group col-span-2">
-              <label for="host">آدرس سرور(Host / Address) <span class="required">*</span></label>
+            <div class="form-group">
+              <label for="host">آدرس سرور (Host / IP) <span class="required">*</span></label>
               <input
                 id="host"
                 type="text"
-                class="form-control font-mono"
+                class="form-control font-mono ltr-input"
+                dir="ltr"
                 formControlName="host"
                 placeholder="hostname or IP"
               />
@@ -223,85 +225,34 @@ export interface FlattenedCategoryNode {
                 <div class="field-error">آدرس هاست الزامی است (Host is required).</div>
               }
             </div>
-          </div>
 
-          <!-- Port, Database Name, Default Schema -->
-          <div class="form-row grid-3">
             <div class="form-group">
-              <label for="port">پورت اتصال (Port) <span class="required">*</span></label>
+              <label for="port">پورت (Port) <span class="required">*</span></label>
               <input
                 id="port"
                 type="number"
-                class="form-control font-mono"
+                class="form-control font-mono ltr-input"
+                dir="ltr"
                 formControlName="port"
               />
               @if (form.controls.port.touched && form.controls.port.invalid) {
                 <div class="field-error">پورت معتبر (۱ تا ۶۵۵۳۵) الزامی است.</div>
               }
             </div>
-
-            <div class="form-group">
-              <div class="field-label-row">
-                <label for="database_name">نام دیتابیس (Database Name) <span class="required">*</span></label>
-                <button
-                  type="button"
-                  class="btn-inline-discover"
-                  (click)="discoverDatabases()"
-                  [disabled]="isDiscoveringDatabases()"
-                  title="شناسایی خودکار پایگاه‌های داده بر اساس مشخصات هاست و دسترسی (Auto-Discover)"
-                >
-                  <i class="pi" [ngClass]="isDiscoveringDatabases() ? 'pi-spin pi-spinner' : 'pi-sync'"></i>
-                  <span>{{ isDiscoveringDatabases() ? 'در حال شناسایی...' : 'شناسایی دیتابیس‌ها' }}</span>
-                </button>
-              </div>
-              <div class="combobox-wrapper">
-                <input
-                  id="database_name"
-                  type="text"
-                  list="discoveredDatabasesList"
-                  class="form-control font-mono"
-                  formControlName="database_name"
-                  placeholder="Target database/catalog یا انتخاب از لیست کشف‌شده"
-                  autocomplete="off"
-                />
-                <datalist id="discoveredDatabasesList">
-                  @for (db of discoveredDatabases(); track db) {
-                    <option [value]="db">{{ db }}</option>
-                  }
-                </datalist>
-                @if (discoveredDatabases().length > 0) {
-                  <span class="discovered-count-badge" title="تعداد دیتابیس‌های کشف‌شده">
-                    {{ discoveredDatabases().length }} دیتابیس یافت شد
-                  </span>
-                }
-              </div>
-              @if (form.controls.database_name.touched && form.controls.database_name.invalid) {
-                <div class="field-error">نام پایگاه‌داده الزامی است.</div>
-              }
-            </div>
-
-            <div class="form-group">
-              <label for="default_schema">اسکیمای پیش‌فرض (Default Schema)</label>
-              <input
-                id="default_schema"
-                type="text"
-                class="form-control font-mono"
-                formControlName="default_schema"
-                placeholder="مثال: public یا dbo"
-              />
-            </div>
           </div>
 
-          <!-- Username & Password -->
-          <div class="form-row grid-2">
+          <!-- Row 4 (2 Equal Columns: 1fr 1fr): Username & Password -->
+          <div class="form-row row-credentials">
             <div class="form-group">
               <label for="username">نام کاربری اتصال (Username) <span class="required">*</span></label>
               <input
                 id="username"
                 type="text"
-                class="form-control font-mono"
+                class="form-control font-mono ltr-input"
+                dir="ltr"
                 formControlName="username"
                 autocomplete="off"
+                placeholder="username"
               />
               @if (form.controls.username.touched && form.controls.username.invalid) {
                 <div class="field-error">نام کاربری الزامی است.</div>
@@ -316,7 +267,8 @@ export interface FlattenedCategoryNode {
               <input
                 id="password"
                 type="password"
-                class="form-control font-mono"
+                class="form-control font-mono ltr-input"
+                dir="ltr"
                 formControlName="password"
                 autocomplete="new-password"
                 [placeholder]="connectionToEdit ? 'در صورت عدم تغییر، خالی بگذارید' : 'رمز عبور امن دیتابیس'"
@@ -327,10 +279,114 @@ export interface FlattenedCategoryNode {
             </div>
           </div>
 
-          <!-- Owner -->
-          <div class="form-row">
-            <div class="form-group col-span-2">
-              <label for="owner">مالک / تیم فنی مسئول (Owner / Team)</label>
+          <!-- Row 5 (2 Columns: 1.5fr 1fr): Target Database Combobox & Default Schema -->
+          <div class="form-row row-db-schema">
+            <div class="form-group">
+              <div class="field-label-row">
+                <label for="database_name">نام دیتابیس (Database Name) <span class="required">*</span></label>
+              </div>
+
+              <div class="combobox-container" dir="ltr">
+                <div class="combobox-input-group">
+                  <input
+                    id="database_name"
+                    type="text"
+                    class="form-control font-mono ltr-input combobox-input"
+                    dir="ltr"
+                    formControlName="database_name"
+                    placeholder="target_db_name"
+                    autocomplete="off"
+                    (focus)="onComboboxFocus()"
+                  />
+
+                  @if (discoveredDatabases().length > 0) {
+                    <button
+                      type="button"
+                      class="btn-combobox-toggle"
+                      (click)="toggleDropdown()"
+                      [attr.aria-expanded]="isDropdownOpen()"
+                      title="نمایش یا بستن لیست دیتابیس‌های کشف‌شده"
+                    >
+                      <i class="pi" [ngClass]="isDropdownOpen() ? 'pi-chevron-up' : 'pi-chevron-down'"></i>
+                    </button>
+                  }
+
+                  <button
+                    type="button"
+                    class="btn-discover"
+                    (click)="discoverDatabases()"
+                    [disabled]="isDiscoveringDatabases() || !canDiscoverDatabases()"
+                    title="شناسایی خودکار پایگاه‌های داده بر اساس مشخصات هاست و دسترسی (Auto-Discover)"
+                  >
+                    <i class="pi" [ngClass]="isDiscoveringDatabases() ? 'pi-spin pi-spinner' : 'pi-sync'"></i>
+                    <span>{{ isDiscoveringDatabases() ? 'در حال شناسایی...' : 'شناسایی' }}</span>
+                  </button>
+                </div>
+
+                <!-- Custom Floating Combobox Dropdown -->
+                @if (isDropdownOpen() && discoveredDatabases().length > 0) {
+                  <div class="combobox-dropdown" (mousedown)="$event.preventDefault()">
+                    <div class="dropdown-header">پایگاه‌های داده شناسایی‌شده:</div>
+                    <div class="dropdown-list">
+                      @for (db of discoveredDatabases(); track db) {
+                        <button
+                          type="button"
+                          class="dropdown-item"
+                          [class.active]="form.controls.database_name.value === db"
+                          (click)="selectDiscoveredDatabase(db)"
+                        >
+                          <i class="pi pi-database item-icon"></i>
+                          <span class="item-name font-mono">{{ db }}</span>
+                          @if (form.controls.database_name.value === db) {
+                            <i class="pi pi-check selected-check"></i>
+                          }
+                        </button>
+                      }
+                    </div>
+                  </div>
+                }
+              </div>
+
+              <!-- Auto-Discovery Status Feedback -->
+              @if (discoveryStatus() === 'success') {
+                <div class="discovery-status success animate-fade">
+                  <i class="pi pi-check-circle"></i>
+                  <span>{{ discoveryMessage() }}</span>
+                </div>
+              } @else if (discoveryStatus() === 'error') {
+                <div class="discovery-status error animate-fade">
+                  <i class="pi pi-exclamation-circle"></i>
+                  <span>{{ discoveryMessage() }}</span>
+                </div>
+              } @else if (discoveryStatus() === 'loading') {
+                <div class="discovery-status loading animate-fade">
+                  <i class="pi pi-spin pi-spinner"></i>
+                  <span>در حال شناسایی پایگاه‌های داده...</span>
+                </div>
+              }
+
+              @if (form.controls.database_name.touched && form.controls.database_name.invalid) {
+                <div class="field-error">نام پایگاه‌داده الزامی است.</div>
+              }
+            </div>
+
+            <div class="form-group">
+              <label for="default_schema">اسکیمای پیش‌فرض (Default Schema)</label>
+              <input
+                id="default_schema"
+                type="text"
+                class="form-control font-mono ltr-input"
+                dir="ltr"
+                formControlName="default_schema"
+                placeholder="public"
+              />
+            </div>
+          </div>
+
+          <!-- Row 6 (2 Columns: 1fr 1.3fr): Owner & Cron Schedule -->
+          <div class="form-row row-owner-cron">
+            <div class="form-group">
+              <label for="owner">مالک / تیم مسئول (Owner)</label>
               <input
                 id="owner"
                 type="text"
@@ -339,20 +395,18 @@ export interface FlattenedCategoryNode {
                 placeholder="مثال: data-platform یا bi-team"
               />
             </div>
-          </div>
 
-          <!-- Cron Expression Sync Schedule -->
-          <div class="form-row">
-            <div class="form-group col-span-2">
-              <label for="cron_expression">برنامه زمان‌بندی همگام‌سازی (Sync Schedule - 5-part Cron)</label>
+            <div class="form-group">
+              <label for="cron_expression">زمان‌بندی همگام‌سازی (Cron Schedule)</label>
               <input
                 id="cron_expression"
                 type="text"
-                class="form-control font-mono"
+                class="form-control font-mono ltr-input"
+                dir="ltr"
                 formControlName="cron_expression"
-                placeholder="مثال: 0 2 * * * (هر شب ساعت ۲ بامداد)"
+                placeholder="0 2 * * * (هر شب ساعت ۲ بامداد)"
               />
-              <span class="cron-hint">الگوی استاندارد کرون: &lt;دقیقه&gt; &lt;ساعت&gt; &lt;روز ماه&gt; &lt;ماه&gt; &lt;روز هفته&gt;</span>
+              <span class="cron-hint">الگوی استاندارد کرون ۵ بخشی: &lt;دقیقه&gt; &lt;ساعت&gt; &lt;روز&gt; &lt;ماه&gt; &lt;روز هفته&gt;</span>
 
               @if (form.controls.cron_expression.errors?.['invalidCron']) {
                 <div class="cron-error-feedback">
@@ -363,7 +417,7 @@ export interface FlattenedCategoryNode {
                 <div class="cron-valid-feedback">
                   <div class="cron-valid-line">
                     <i class="pi pi-check-circle"></i>
-                    <span>الگوی معتبر زمان‌بندی (Valid 5-part cron schedule)</span>
+                    <span>الگوی معتبر زمان‌بندی (Valid 5-part cron)</span>
                   </div>
                   <div class="cron-human-summary">{{ getCronHumanSummary(form.controls.cron_expression.value) }}</div>
                 </div>
@@ -371,9 +425,9 @@ export interface FlattenedCategoryNode {
             </div>
           </div>
 
-          <!-- Collapsible/Optional JSONB Custom Params -->
+          <!-- Row 7 (Full Width - Collapsible): Custom Params JSONB -->
           <div class="form-row">
-            <div class="form-group col-span-2 custom-params-container">
+            <div class="form-group col-span-full custom-params-container">
               <button
                 type="button"
                 class="btn-toggle-custom-params"
@@ -396,7 +450,7 @@ export interface FlattenedCategoryNode {
                   </label>
                   <textarea
                     id="custom_params_json"
-                    class="form-control font-mono custom-params-textarea"
+                    class="form-control font-mono custom-params-textarea ltr-input"
                     formControlName="custom_params_json"
                     rows="4"
                     dir="ltr"
@@ -442,45 +496,50 @@ export interface FlattenedCategoryNode {
             </div>
           }
 
+          <!-- Footer Button Hierarchy: Right=Cancel, Left=Actions (Outline Teal + Solid Primary) -->
           <footer class="modal-footer">
             <button
               type="button"
-              class="btn-secondary"
+              class="btn-cancel"
               (click)="cancel.emit()"
             >
-              انصراف (Cancel)
+              انصراف
             </button>
-            <button
-              type="button"
-              class="btn-test-conn btn-with-icon"
-              (click)="testUnsavedConnection()"
-              [disabled]="isTestingConnection() || !canTestConnection()"
-              title="تست اتصال زنده قبل از ثبت در سامانه (Pre-Save Diagnostic Test)"
-            >
-              @if (isTestingConnection()) {
-                <i class="pi pi-spin pi-spinner"></i>
-                <span>در حال تست اتصال...</span>
-              } @else {
-                <i class="pi pi-bolt"></i>
-                <span>تست اتصال (Test Connection)</span>
-              }
-            </button>
-            <button
-              type="submit"
-              class="btn-primary btn-with-icon"
-              [disabled]="form.invalid || isSubmitting()"
-            >
-              @if (isSubmitting()) {
-                <i class="pi pi-spin pi-spinner"></i>
-                <span>در حال ذخیره و اتصال...</span>
-              } @else if (connectionToEdit) {
-                <i class="pi pi-check"></i>
-                <span>ذخیره تغییرات پایگاه‌داده (Update Database)</span>
-              } @else {
-                <i class="pi pi-check"></i>
-                <span>ثبت پایگاه‌داده (Register Database)</span>
-              }
-            </button>
+
+            <div class="footer-actions">
+              <button
+                type="button"
+                class="btn-test-conn btn-with-icon"
+                (click)="testUnsavedConnection()"
+                [disabled]="isTestingConnection() || !canTestConnection()"
+                title="تست اتصال زنده قبل از ثبت در سامانه (Pre-Save Diagnostic Test)"
+              >
+                @if (isTestingConnection()) {
+                  <i class="pi pi-spin pi-spinner"></i>
+                  <span>در حال تست اتصال...</span>
+                } @else {
+                  <i class="pi pi-bolt"></i>
+                  <span>تست اتصال (Test Connection)</span>
+                }
+              </button>
+
+              <button
+                type="submit"
+                class="btn-primary btn-with-icon"
+                [disabled]="form.invalid || isSubmitting()"
+              >
+                @if (isSubmitting()) {
+                  <i class="pi pi-spin pi-spinner"></i>
+                  <span>در حال ذخیره و اتصال...</span>
+                } @else if (connectionToEdit) {
+                  <i class="pi pi-check"></i>
+                  <span>ذخیره تغییرات پایگاه‌داده (Update Database)</span>
+                } @else {
+                  <i class="pi pi-check"></i>
+                  <span>ثبت پایگاه‌داده</span>
+                }
+              </button>
+            </div>
           </footer>
         </form>
       </div>
@@ -496,16 +555,16 @@ export interface FlattenedCategoryNode {
       align-items: center;
       justify-content: center;
       z-index: 1000;
-      padding: 1rem;
+      padding: 1.25rem;
       direction: rtl;
       font-family: var(--font-family-sans, 'Vazirmatn', sans-serif);
     }
     .modal-card {
       background: #ffffff;
-      border-radius: 10px;
-      box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
+      border-radius: 12px;
+      box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
       width: 100%;
-      max-width: 720px;
+      max-width: 780px;
       max-height: 90vh;
       overflow-y: auto;
       display: flex;
@@ -515,13 +574,14 @@ export interface FlattenedCategoryNode {
       display: flex;
       justify-content: space-between;
       align-items: center;
-      padding: 1.25rem 1.5rem;
+      padding: 1.25rem 1.75rem;
       border-bottom: 1px solid #e2e8f0;
+      background: #ffffff;
     }
     .modal-header h2 {
       display: flex;
       align-items: center;
-      gap: 0.5rem;
+      gap: 0.6rem;
       margin: 0;
       font-size: 1.15rem;
       font-weight: 700;
@@ -529,23 +589,7 @@ export interface FlattenedCategoryNode {
     }
     .modal-header h2 .pi {
       color: #2563eb;
-      font-size: 1.05rem;
-    }
-    .dialog-info-banner {
-      display: flex;
-      align-items: flex-start;
-      gap: 0.5rem;
-      background-color: #eff6ff;
-      border: 1px solid #bfdbfe;
-      color: #1e40af;
-      padding: 10px 16px;
-      font-size: 0.85rem;
-      font-weight: 500;
-      line-height: 1.5;
-    }
-    .dialog-info-banner .pi {
-      margin-top: 0.2rem;
-      flex-shrink: 0;
+      font-size: 1.1rem;
     }
     .btn-close {
       background: none;
@@ -554,69 +598,245 @@ export interface FlattenedCategoryNode {
       font-size: 0.8rem;
       cursor: pointer;
       color: #64748b;
-      width: 30px;
-      height: 30px;
+      width: 32px;
+      height: 32px;
       display: flex;
       align-items: center;
       justify-content: center;
+      transition: all 0.15s ease;
     }
     .btn-close:hover {
       background: #f1f5f9;
       color: #0f172a;
+      border-color: #94a3b8;
     }
     .connection-form {
-      padding: 1.5rem;
+      padding: 1.5rem 1.75rem;
       display: flex;
       flex-direction: column;
       gap: 1.25rem;
     }
     .form-row {
       display: grid;
-      grid-template-columns: repeat(2, 1fr);
-      gap: 1rem;
+      gap: 1.15rem;
     }
-    .form-row.grid-3 {
-      grid-template-columns: 1fr 1fr 1fr;
+    .col-span-full {
+      grid-column: 1 / -1;
     }
-    .form-row.grid-2 {
+    .row-engine-host-port {
+      grid-template-columns: 1.2fr 1.8fr 0.8fr;
+    }
+    .row-credentials {
       grid-template-columns: 1fr 1fr;
     }
-    .col-span-2 {
-      grid-column: span 2;
+    .row-db-schema {
+      grid-template-columns: 1.5fr 1fr;
+    }
+    .row-owner-cron {
+      grid-template-columns: 1fr 1.3fr;
     }
     .form-group {
       display: flex;
       flex-direction: column;
-      gap: 0.35rem;
+      gap: 0.4rem;
     }
     .form-group label {
       font-size: 0.82rem;
       font-weight: 600;
       color: #334155;
     }
+    .field-label-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
     .required {
       color: #ef4444;
+      margin-right: 2px;
     }
     .form-control {
-      padding: 0.5rem 0.75rem;
+      padding: 0.55rem 0.85rem;
       border: 1px solid #cbd5e1;
       border-radius: 6px;
       font-size: 0.85rem;
       color: #0f172a;
       background: #ffffff;
       outline: none;
-      transition: border-color 0.15s;
+      transition: border-color 0.15s, box-shadow 0.15s;
+      width: 100%;
+      box-sizing: border-box;
     }
     .form-control:focus {
       border-color: #2563eb;
-      box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.1);
+      box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.12);
     }
     .font-mono {
       font-family: var(--font-family-mono, monospace);
     }
+    .ltr-input {
+      direction: ltr;
+      text-align: left;
+    }
     .field-error {
       color: #ef4444;
       font-size: 0.75rem;
+      margin-top: 0.15rem;
+    }
+
+    /* Combobox Component Styles */
+    .combobox-container {
+      position: relative;
+      width: 100%;
+    }
+    .combobox-input-group {
+      display: flex;
+      align-items: stretch;
+      width: 100%;
+      position: relative;
+    }
+    .combobox-input {
+      flex: 1 1 auto;
+      min-width: 0;
+      border-top-right-radius: 0;
+      border-bottom-right-radius: 0;
+      z-index: 0;
+    }
+    .combobox-input:focus {
+      z-index: 2;
+    }
+    .btn-combobox-toggle {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: #f8fafc;
+      border: 1px solid #cbd5e1;
+      border-left: none;
+      border-right: none;
+      color: #64748b;
+      padding: 0 0.55rem;
+      cursor: pointer;
+      font-size: 0.75rem;
+      transition: background-color 0.15s ease, color 0.15s ease;
+      flex-shrink: 0;
+      z-index: 1;
+    }
+    .btn-combobox-toggle:hover {
+      background: #f1f5f9;
+      color: #0f172a;
+    }
+    .btn-discover {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.35rem;
+      background: #eff6ff;
+      border: 1px solid #bfdbfe;
+      border-left: none;
+      border-top-right-radius: 6px;
+      border-bottom-right-radius: 6px;
+      border-top-left-radius: 0;
+      border-bottom-left-radius: 0;
+      color: #1d4ed8;
+      font-size: 0.8rem;
+      font-weight: 600;
+      padding: 0.5rem 0.85rem;
+      white-space: nowrap;
+      flex-shrink: 0;
+      cursor: pointer;
+      font-family: inherit;
+      transition: all 0.15s ease;
+      z-index: 1;
+    }
+    .btn-discover:hover:not(:disabled) {
+      background: #dbeafe;
+      border-color: #93c5fd;
+      color: #1e40af;
+    }
+    .btn-discover:disabled {
+      opacity: 0.55;
+      cursor: not-allowed;
+      background: #f8fafc;
+      color: #94a3b8;
+      border-color: #e2e8f0;
+    }
+    .combobox-dropdown {
+      position: absolute;
+      top: calc(100% + 4px);
+      left: 0;
+      right: 0;
+      background: #ffffff;
+      border: 1px solid #cbd5e1;
+      border-radius: 6px;
+      box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -4px rgba(0, 0, 0, 0.1);
+      z-index: 50;
+      max-height: 200px;
+      overflow-y: auto;
+      direction: ltr;
+    }
+    .dropdown-header {
+      padding: 6px 12px;
+      font-size: 0.72rem;
+      font-weight: 600;
+      color: #64748b;
+      background: #f8fafc;
+      border-bottom: 1px solid #e2e8f0;
+      text-align: right;
+      direction: rtl;
+    }
+    .dropdown-list {
+      display: flex;
+      flex-direction: column;
+    }
+    .dropdown-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      width: 100%;
+      padding: 8px 12px;
+      background: none;
+      border: none;
+      text-align: left;
+      cursor: pointer;
+      font-size: 0.82rem;
+      color: #1e293b;
+      transition: background-color 0.15s;
+    }
+    .dropdown-item:hover {
+      background: #f0fdf4;
+      color: #166534;
+    }
+    .dropdown-item.active {
+      background: #eff6ff;
+      color: #1d4ed8;
+      font-weight: 600;
+    }
+    .dropdown-item .item-icon {
+      font-size: 0.8rem;
+      color: #3b82f6;
+    }
+    .dropdown-item .item-name {
+      flex: 1;
+    }
+    .dropdown-item .selected-check {
+      color: #2563eb;
+      font-size: 0.75rem;
+    }
+    .discovery-status {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 0.75rem;
+      font-weight: 500;
+      margin-top: 4px;
+    }
+    .discovery-status.success {
+      color: #059669;
+    }
+    .discovery-status.error {
+      color: #dc2626;
+    }
+    .discovery-status.loading {
+      color: #2563eb;
     }
 
     /* Topic Section & Tree Picker */
@@ -624,35 +844,33 @@ export interface FlattenedCategoryNode {
       background: #f8fafc;
       border: 1px solid #e2e8f0;
       border-radius: 8px;
-      padding: 1rem;
+      padding: 0.85rem 1rem;
     }
     .topic-section-header {
       display: flex;
       justify-content: space-between;
       align-items: center;
-      margin-bottom: 0.75rem;
+      margin-bottom: 0.65rem;
       flex-wrap: wrap;
+      gap: 0.5rem;
+    }
+    .topic-header-title {
+      display: flex;
+      align-items: center;
       gap: 0.5rem;
     }
     .topic-label {
       display: flex;
       align-items: center;
-      gap: 0.5rem;
+      gap: 0.45rem;
       font-size: 0.85rem;
       font-weight: 700;
       color: #1e293b;
+      margin: 0;
     }
-    .leaf-rule-badge {
-      display: inline-flex;
-      align-items: center;
-      gap: 0.3rem;
-      font-size: 0.75rem;
-      font-weight: 500;
-      background: #fef3c7;
-      color: #92400e;
-      padding: 2px 8px;
-      border-radius: 9999px;
-      border: 1px solid #fde68a;
+    .topic-title-icon {
+      color: #2563eb;
+      font-size: 0.9rem;
     }
     .selected-topic-chip {
       display: inline-flex;
@@ -689,7 +907,7 @@ export interface FlattenedCategoryNode {
       overflow: hidden;
     }
     .topic-search-bar {
-      padding: 0.5rem 0.75rem;
+      padding: 0.45rem 0.75rem;
       border-bottom: 1px solid #e2e8f0;
       background: #f1f5f9;
       display: flex;
@@ -731,7 +949,7 @@ export interface FlattenedCategoryNode {
       white-space: nowrap;
     }
     .topic-tree-viewport {
-      max-height: 180px;
+      max-height: 160px;
       overflow-y: auto;
       padding: 0.35rem 0;
     }
@@ -814,21 +1032,6 @@ export interface FlattenedCategoryNode {
     .leaf-name {
       color: #0f172a;
     }
-    .node-type-badge {
-      font-size: 0.7rem;
-      padding: 1px 6px;
-      border-radius: 4px;
-    }
-    .parent-badge {
-      background: #f1f5f9;
-      color: #64748b;
-      border: 1px solid #e2e8f0;
-    }
-    .leaf-badge {
-      background: #f0fdf4;
-      color: #166534;
-      border: 1px solid #bbf7d0;
-    }
     .selected-pill {
       display: inline-flex;
       align-items: center;
@@ -842,6 +1045,7 @@ export interface FlattenedCategoryNode {
       padding: 2px 6px;
     }
 
+    /* Cron Hint & Validation */
     .cron-hint {
       color: #64748b;
       font-size: 0.75rem;
@@ -872,53 +1076,8 @@ export interface FlattenedCategoryNode {
       font-weight: 600;
       margin-top: 0.15rem;
     }
-    .alert-error {
-      display: flex;
-      align-items: center;
-      gap: 0.5rem;
-      padding: 0.75rem 1rem;
-      background: #fef2f2;
-      border: 1px solid #fecaca;
-      border-radius: 6px;
-      color: #991b1b;
-      font-size: 0.85rem;
-    }
-    .modal-footer {
-      display: flex;
-      justify-content: flex-end;
-      gap: 0.75rem;
-      padding-top: 1rem;
-      border-top: 1px solid #e2e8f0;
-    }
-    .btn-with-icon {
-      display: inline-flex;
-      align-items: center;
-      gap: 0.4rem;
-    }
-    .btn-secondary {
-      padding: 0.5rem 1rem;
-      background: #f1f5f9;
-      color: #475569;
-      border: 1px solid #cbd5e1;
-      border-radius: 6px;
-      cursor: pointer;
-      font-weight: 500;
-      font-family: inherit;
-    }
-    .btn-primary {
-      padding: 0.5rem 1.25rem;
-      background: #2563eb;
-      color: #ffffff;
-      border: none;
-      border-radius: 6px;
-      cursor: pointer;
-      font-weight: 500;
-      font-family: inherit;
-    }
-    .btn-primary:disabled {
-      opacity: 0.5;
-      cursor: not-allowed;
-    }
+
+    /* Custom Params Section */
     .custom-params-container {
       border: 1px solid #e2e8f0;
       border-radius: 8px;
@@ -997,65 +1156,8 @@ export interface FlattenedCategoryNode {
       font-size: 0.75rem;
       color: #64748b;
     }
-    .field-label-row {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      margin-bottom: 4px;
-    }
-    .btn-inline-discover {
-      display: inline-flex;
-      align-items: center;
-      gap: 5px;
-      background: #eff6ff;
-      border: 1px solid #bfdbfe;
-      color: #1d4ed8;
-      font-size: 0.75rem;
-      font-weight: 600;
-      padding: 2px 8px;
-      border-radius: 4px;
-      cursor: pointer;
-      font-family: inherit;
-      transition: all 0.15s ease;
-    }
-    .btn-inline-discover:hover:not(:disabled) {
-      background: #dbeafe;
-      border-color: #93c5fd;
-    }
-    .btn-inline-discover:disabled {
-      opacity: 0.6;
-      cursor: not-allowed;
-    }
-    .combobox-wrapper {
-      position: relative;
-      display: flex;
-      flex-direction: column;
-    }
-    .discovered-count-badge {
-      display: inline-block;
-      margin-top: 4px;
-      font-size: 0.72rem;
-      color: #059669;
-      font-weight: 600;
-    }
-    .btn-test-conn {
-      padding: 0.5rem 1rem;
-      background: #0f766e;
-      color: #ffffff;
-      border: none;
-      border-radius: 6px;
-      cursor: pointer;
-      font-weight: 500;
-      font-family: inherit;
-      transition: background-color 0.15s ease;
-    }
-    .btn-test-conn:hover:not(:disabled) {
-      background: #0d9488;
-    }
-    .btn-test-conn:disabled {
-      opacity: 0.5;
-      cursor: not-allowed;
-    }
+
+    /* Test Result & Errors */
     .test-result-banner {
       padding: 10px 14px;
       border-radius: 6px;
@@ -1093,6 +1195,95 @@ export interface FlattenedCategoryNode {
       border-radius: 4px;
       margin-right: auto;
     }
+    .alert-error {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.75rem 1rem;
+      background: #fef2f2;
+      border: 1px solid #fecaca;
+      border-radius: 6px;
+      color: #991b1b;
+      font-size: 0.85rem;
+    }
+
+    /* Footer Button Hierarchy: Right=Cancel, Left=Actions */
+    .modal-footer {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding-top: 1.25rem;
+      border-top: 1px solid #e2e8f0;
+      margin-top: 0.5rem;
+    }
+    .btn-with-icon {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.45rem;
+    }
+    .btn-cancel {
+      padding: 0.55rem 1.25rem;
+      background: transparent;
+      color: #64748b;
+      border: 1px solid #cbd5e1;
+      border-radius: 6px;
+      cursor: pointer;
+      font-weight: 500;
+      font-size: 0.85rem;
+      font-family: inherit;
+      transition: all 0.15s ease;
+    }
+    .btn-cancel:hover {
+      background: #f1f5f9;
+      color: #1e293b;
+      border-color: #94a3b8;
+    }
+    .footer-actions {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+    }
+    .btn-test-conn {
+      padding: 0.55rem 1.15rem;
+      background: #f0fdfa;
+      color: #0f766e;
+      border: 1.5px solid #0d9488;
+      border-radius: 6px;
+      cursor: pointer;
+      font-weight: 600;
+      font-size: 0.85rem;
+      font-family: inherit;
+      transition: all 0.15s ease;
+    }
+    .btn-test-conn:hover:not(:disabled) {
+      background: #ccfbf1;
+      color: #0f766e;
+    }
+    .btn-test-conn:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+      border-color: #99f6e4;
+    }
+    .btn-primary {
+      padding: 0.55rem 1.35rem;
+      background: #2563eb;
+      color: #ffffff;
+      border: 1px solid #2563eb;
+      border-radius: 6px;
+      cursor: pointer;
+      font-weight: 600;
+      font-size: 0.85rem;
+      font-family: inherit;
+      transition: all 0.15s ease;
+    }
+    .btn-primary:hover:not(:disabled) {
+      background: #1d4ed8;
+      border-color: #1d4ed8;
+    }
+    .btn-primary:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
   `],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
@@ -1107,8 +1298,14 @@ export class ConnectionDialogComponent implements OnInit {
   @Output() readonly save = new EventEmitter<ConnectionCreateRequest>();
   @Output() readonly cancel = new EventEmitter<void>();
 
+  // Database Combobox & Discovery Signals
   readonly discoveredDatabases = signal<string[]>([]);
   readonly isDiscoveringDatabases = signal<boolean>(false);
+  readonly discoveryStatus = signal<'idle' | 'loading' | 'success' | 'error'>('idle');
+  readonly discoveryMessage = signal<string | null>(null);
+  readonly isDropdownOpen = signal<boolean>(false);
+
+  // Test Connection Signals
   readonly isTestingConnection = signal<boolean>(false);
   readonly testResult = signal<ConnectionTestResult | null>(null);
 
@@ -1198,7 +1395,6 @@ export class ConnectionDialogComponent implements OnInit {
         const isLeaf = !node.children || node.children.length === 0;
         const currentPath = parentPath ? `${parentPath} > ${node.name}` : node.name;
 
-        // If searching, show matching leaves or parents that contain matching children
         if (term) {
           const matchesSelf = node.name.toLowerCase().includes(term);
           const hasMatchingChild = this.hasMatchingDescendant(node, term);
@@ -1234,6 +1430,10 @@ export class ConnectionDialogComponent implements OnInit {
     )
       .pipe(
         debounceTime(600),
+        map(() => {
+          const val = this.form.getRawValue();
+          return `${val.engine_type}|${val.host}|${val.port}|${val.username}|${val.password}`;
+        }),
         distinctUntilChanged(),
         takeUntilDestroyed(this.destroyRef)
       )
@@ -1401,10 +1601,18 @@ export class ConnectionDialogComponent implements OnInit {
     return 'برنامه همگام‌سازی زمان‌بندی شده (Custom Scheduled Sync)';
   }
 
+  toPersianNumber(num: number): string {
+    const farsiDigits = ['۰', '۱', '۲', '۳', '۴', '۵', '۶', '۷', '۸', '۹'];
+    return num.toString().replace(/\d/g, (d) => farsiDigits[parseInt(d, 10)]);
+  }
+
   canDiscoverDatabases(): boolean {
     const val = this.form.getRawValue();
-    const hasCreds = Boolean(val.username && (val.password || this.connectionToEdit));
-    return Boolean(val.host && val.port && hasCreds);
+    const hasHost = Boolean(val.host && val.host.trim().length > 0);
+    const validPort = typeof val.port === 'number' && val.port > 0 && val.port <= 65535;
+    const hasUsername = Boolean(val.username && val.username.trim().length > 0);
+    const hasPassword = Boolean(this.connectionToEdit || (val.password && val.password.trim().length > 0));
+    return hasHost && validPort && hasUsername && hasPassword;
   }
 
   discoverDatabases(): void {
@@ -1423,6 +1631,9 @@ export class ConnectionDialogComponent implements OnInit {
     }
 
     this.isDiscoveringDatabases.set(true);
+    this.discoveryStatus.set('loading');
+    this.discoveryMessage.set(null);
+
     this.connectionService
       .discoverDatabases({
         engine_type: val.engine_type,
@@ -1439,15 +1650,57 @@ export class ConnectionDialogComponent implements OnInit {
           this.isDiscoveringDatabases.set(false);
           if (res.success && res.databases) {
             this.discoveredDatabases.set(res.databases);
-            if (!this.form.controls.database_name.value && res.databases.length > 0) {
-              this.form.controls.database_name.setValue(res.databases[0]);
+            this.discoveryStatus.set('success');
+            const countStr = this.toPersianNumber(res.databases.length);
+            this.discoveryMessage.set(`✓ ${countStr} پایگاه‌داده شناسایی شد`);
+            if (res.databases.length > 0) {
+              this.isDropdownOpen.set(true);
+              if (!this.form.controls.database_name.value) {
+                this.form.controls.database_name.setValue(res.databases[0]);
+              }
             }
+          } else {
+            this.discoveryStatus.set('error');
+            this.discoveryMessage.set(res.message || 'خطا در شناسایی پایگاه‌های داده.');
           }
         },
-        error: () => {
+        error: (err) => {
           this.isDiscoveringDatabases.set(false);
+          this.discoveryStatus.set('error');
+          const msg =
+            err.error?.detail ||
+            err.error?.message ||
+            err.message ||
+            'خطا در برقراری ارتباط با پایگاه‌داده جهت شناسایی.';
+          this.discoveryMessage.set(msg);
         },
       });
+  }
+
+  selectDiscoveredDatabase(db: string): void {
+    this.form.controls.database_name.setValue(db);
+    this.form.controls.database_name.markAsDirty();
+    this.isDropdownOpen.set(false);
+  }
+
+  onComboboxFocus(): void {
+    if (this.discoveredDatabases().length > 0) {
+      this.isDropdownOpen.set(true);
+    }
+  }
+
+  toggleDropdown(): void {
+    if (this.discoveredDatabases().length > 0) {
+      this.isDropdownOpen.update((v) => !v);
+    }
+  }
+
+  @HostListener('document:click', ['$event'])
+  onDocumentClick(event: MouseEvent): void {
+    const target = event.target as HTMLElement;
+    if (!target.closest('.combobox-container')) {
+      this.isDropdownOpen.set(false);
+    }
   }
 
   canTestConnection(): boolean {

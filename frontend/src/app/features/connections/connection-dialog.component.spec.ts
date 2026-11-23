@@ -2,7 +2,7 @@ import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { By } from '@angular/platform-browser';
 import { provideHttpClient } from '@angular/common/http';
 import { provideHttpClientTesting } from '@angular/common/http/testing';
-import { of } from 'rxjs';
+import { of, throwError } from 'rxjs';
 import { ConnectionDialogComponent } from './connection-dialog.component';
 import { ConnectionService } from './services/connection.service';
 import { CategoryTreeNode } from '../catalog/models/catalog.models';
@@ -232,7 +232,12 @@ describe('ConnectionDialogComponent', () => {
     expect(component.isCustomParamsOpen()).toBe(true);
   });
 
-  it('should discover databases and populate combobox when discoverDatabases is called', () => {
+  it('should format Persian numbers correctly for discovery badge', () => {
+    expect(component.toPersianNumber(3)).toBe('۳');
+    expect(component.toPersianNumber(10)).toBe('۱۰');
+  });
+
+  it('should discover databases, populate combobox, show success badge, and open dropdown', () => {
     vi.spyOn(connectionService, 'discoverDatabases').mockReturnValue(
       of({
         success: true,
@@ -251,9 +256,131 @@ describe('ConnectionDialogComponent', () => {
     });
 
     component.discoverDatabases();
+    fixture.detectChanges();
 
     expect(component.discoveredDatabases()).toEqual(['postgres', 'analytics_dw', 'orders_db']);
+    expect(component.discoveryStatus()).toBe('success');
+    expect(component.discoveryMessage()).toBe('✓ ۳ پایگاه‌داده شناسایی شد');
+    expect(component.isDropdownOpen()).toBe(true);
     expect(component.form.controls.database_name.value).toBe('postgres');
+  });
+
+  it('should allow selecting a discovered database from the dropdown into form.controls.database_name', () => {
+    vi.spyOn(connectionService, 'discoverDatabases').mockReturnValue(
+      of({
+        success: true,
+        databases: ['postgres', 'analytics_dw', 'orders_db'],
+        latency_ms: 15,
+        message: 'Discovered 3 databases',
+      })
+    );
+
+    component.form.patchValue({
+      host: 'pg.internal.com',
+      port: 5432,
+      username: 'db_admin',
+      password: 'secret_password',
+      database_name: '',
+    });
+
+    component.discoverDatabases();
+    fixture.detectChanges();
+
+    expect(component.isDropdownOpen()).toBe(true);
+
+    // Select 'orders_db' from discovered options
+    component.selectDiscoveredDatabase('orders_db');
+    fixture.detectChanges();
+
+    expect(component.form.controls.database_name.value).toBe('orders_db');
+    expect(component.isDropdownOpen()).toBe(false);
+  });
+
+  it('should auto-trigger discoverDatabases when host, port, username, and password are valid', () => {
+    vi.useFakeTimers();
+    const discoverSpy = vi.spyOn(connectionService, 'discoverDatabases').mockReturnValue(
+      of({
+        success: true,
+        databases: ['postgres', 'analytics_dw'],
+        latency_ms: 10,
+        message: 'Discovered',
+      })
+    );
+
+    component.form.patchValue({
+      host: 'pg.internal.com',
+      port: 5432,
+      username: 'db_admin',
+      password: 'secret_password',
+    });
+
+    // Advance by debounce time 600ms
+    vi.advanceTimersByTime(650);
+
+    expect(discoverSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        engine_type: 'POSTGRESQL',
+        host: 'pg.internal.com',
+        port: 5432,
+        credentials: {
+          username: 'db_admin',
+          password: 'secret_password',
+        },
+      })
+    );
+    expect(component.discoveredDatabases()).toEqual(['postgres', 'analytics_dw']);
+    expect(component.isDropdownOpen()).toBe(true);
+
+    vi.useRealTimers();
+  });
+
+  it('should display error message when discoverDatabases fails', () => {
+    vi.spyOn(connectionService, 'discoverDatabases').mockReturnValue(
+      of({
+        success: false,
+        databases: [],
+        latency_ms: 0,
+        message: 'Authentication failed for user db_admin',
+      })
+    );
+
+    component.form.patchValue({
+      host: 'pg.internal.com',
+      port: 5432,
+      username: 'db_admin',
+      password: 'wrong_password',
+    });
+
+    component.discoverDatabases();
+    fixture.detectChanges();
+
+    expect(component.discoveryStatus()).toBe('error');
+    expect(component.discoveryMessage()).toBe('Authentication failed for user db_admin');
+    expect(component.discoveredDatabases().length).toBe(0);
+  });
+
+  it('should display error message when discoverDatabases encounters an HTTP error', () => {
+    vi.spyOn(connectionService, 'discoverDatabases').mockReturnValue(
+      throwError(() => ({ error: { detail: 'Network error or host unreachable' } }))
+    );
+
+    component.form.patchValue({
+      host: 'pg.unreachable.com',
+      port: 5432,
+      username: 'db_admin',
+      password: 'secret_password',
+    });
+
+    component.discoverDatabases();
+    fixture.detectChanges();
+
+    expect(component.discoveryStatus()).toBe('error');
+    expect(component.discoveryMessage()).toBe('Network error or host unreachable');
+  });
+
+  it('should allow manual typing into database_name without forcing selection', () => {
+    component.form.controls.database_name.setValue('manual_custom_db');
+    expect(component.form.controls.database_name.value).toBe('manual_custom_db');
   });
 
   it('should run live diagnostic pre-save test and display inline result banner', () => {

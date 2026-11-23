@@ -334,7 +334,7 @@ describe('ConnectionDialogComponent', () => {
     vi.useRealTimers();
   });
 
-  it('should display error message when discoverDatabases fails', () => {
+  it('should display Persian error message with hint when discoverDatabases fails due to auth failure', () => {
     vi.spyOn(connectionService, 'discoverDatabases').mockReturnValue(
       of({
         success: false,
@@ -355,11 +355,13 @@ describe('ConnectionDialogComponent', () => {
     fixture.detectChanges();
 
     expect(component.discoveryStatus()).toBe('error');
-    expect(component.discoveryMessage()).toBe('Authentication failed for user db_admin');
+    expect(component.discoveryMessage()).toBe(
+      'خطا در احراز هویت: نام کاربری یا رمز عبور نامعتبر است. لطفاً مشخصات کاربری را بررسی کرده یا از دکمه «تست اتصال» در پایین فرم استفاده کنید.'
+    );
     expect(component.discoveredDatabases().length).toBe(0);
   });
 
-  it('should display error message when discoverDatabases encounters an HTTP error', () => {
+  it('should display Persian error message with hint when discoverDatabases encounters a network error', () => {
     vi.spyOn(connectionService, 'discoverDatabases').mockReturnValue(
       throwError(() => ({ error: { detail: 'Network error or host unreachable' } }))
     );
@@ -375,7 +377,9 @@ describe('ConnectionDialogComponent', () => {
     fixture.detectChanges();
 
     expect(component.discoveryStatus()).toBe('error');
-    expect(component.discoveryMessage()).toBe('Network error or host unreachable');
+    expect(component.discoveryMessage()).toBe(
+      'آدرس سرور (هاست) یافت نشد یا شبکه در دسترس نیست. لطفاً آدرس سرور و اتصال شبکه را بررسی نموده یا از دکمه «تست اتصال» استفاده کنید.'
+    );
   });
 
   it('should allow manual typing into database_name without forcing selection', () => {
@@ -383,7 +387,7 @@ describe('ConnectionDialogComponent', () => {
     expect(component.form.controls.database_name.value).toBe('manual_custom_db');
   });
 
-  it('should run live diagnostic pre-save test and display inline result banner', () => {
+  it('should run live diagnostic pre-save test, translate success message to Persian in banner, and display inline result banner', () => {
     vi.spyOn(connectionService, 'testUnsavedConnection').mockReturnValue(
       of({
         success: true,
@@ -403,9 +407,73 @@ describe('ConnectionDialogComponent', () => {
     });
 
     component.testUnsavedConnection();
+    fixture.detectChanges();
 
     expect(component.testResult()).toBeTruthy();
     expect(component.testResult()?.success).toBe(true);
     expect(component.testResult()?.latency_ms).toBe(24);
+    expect(component.testResult()?.message).toBe('اتصال به پایگاه‌داده با موفقیت برقرار شد.');
+
+    const bannerHeader = fixture.debugElement.query(By.css('.test-result-header strong'));
+    expect(bannerHeader.nativeElement.textContent).toContain('اتصال به پایگاه‌داده با موفقیت برقرار شد.');
+  });
+
+  it('should display Persian error message with hint when test connection fails', () => {
+    vi.spyOn(connectionService, 'testUnsavedConnection').mockReturnValue(
+      of({
+        success: false,
+        latency_ms: 0,
+        dialect: 'POSTGRESQL',
+        message: 'password authentication failed for user "db_admin"',
+        tested_at: new Date().toISOString(),
+      })
+    );
+
+    component.form.patchValue({
+      host: 'pg.internal.com',
+      port: 5432,
+      username: 'db_admin',
+      password: 'wrong_password',
+      database_name: 'analytics_dw',
+    });
+
+    component.testUnsavedConnection();
+    fixture.detectChanges();
+
+    expect(component.testResult()).toBeTruthy();
+    expect(component.testResult()?.success).toBe(false);
+    expect(component.testResult()?.message).toContain('خطا در احراز هویت');
+    expect(component.testResult()?.message).toContain('تست اتصال');
+  });
+
+  it('should render clean Persian labels and RTL credentials row order', () => {
+    fixture.detectChanges();
+    const compiled = fixture.nativeElement as HTMLElement;
+
+    // RTL credentials order: username on the right (1st column), password on the left (2nd column)
+    const credsRow = compiled.querySelector('.row-credentials');
+    expect(credsRow).toBeTruthy();
+    const credFormGroups = credsRow!.querySelectorAll('.form-group');
+    expect(credFormGroups.length).toBe(2);
+
+    const firstLabel = credFormGroups[0].querySelector('label')?.textContent?.trim();
+    const secondLabel = credFormGroups[1].querySelector('label')?.textContent?.trim();
+    expect(firstLabel).toContain('نام کاربری اتصال');
+    expect(firstLabel).not.toContain('(Username)');
+    expect(secondLabel).toContain('رمز عبور');
+    expect(secondLabel).not.toContain('(Password)');
+
+    // Concise and clean Persian labels
+    const textContent = compiled.textContent || '';
+    expect(textContent).toContain('دسته‌بندی موضوعی در کاتالوگ');
+    expect(textContent).not.toContain('دسته‌بندی موضوعی در کاتالوگ (Topic / Category)');
+    expect(textContent).toContain('نام دیتابیس');
+    expect(textContent).not.toContain('نام دیتابیس (Database Name)');
+    expect(textContent).toContain('اسکیمای پیش‌فرض');
+    expect(textContent).not.toContain('اسکیمای پیش‌فرض (Default Schema)');
+    expect(textContent).toContain('تست اتصال');
+    expect(textContent).not.toContain('تست اتصال (Test Connection)');
+    expect(textContent).toContain('ثبت پایگاه‌داده');
+    expect(textContent).not.toContain('ثبت پایگاه‌داده جدید (Register Database)');
   });
 });

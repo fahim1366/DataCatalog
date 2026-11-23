@@ -62,6 +62,121 @@ from backend.src.services.connectors.postgres import PostgresConnector
 logger = logging.getLogger(__name__)
 
 
+def format_connection_error_persian(raw_error: str, context: str = "discovery") -> str:
+    """
+    Translates raw database connection/discovery error messages into clear, actionable Persian.
+    Provides helpful hints to verify host/port/credentials or use «تست اتصال».
+    """
+    err_lower = (raw_error or "").lower()
+
+    # Network / Timeout
+    if any(k in err_lower for k in ["timeout", "timed out", "time out"]):
+        if context == "discovery":
+            return (
+                "مهلت زمانی شناسایی پایگاه‌های داده به پایان رسید: سرور در مدت ۵ ثانیه پاسخ نداد. "
+                "لطفاً آدرس سرور (هاست) و پورت را بررسی کرده یا از دکمه «تست اتصال» در پایین فرم استفاده کنید."
+            )
+        return (
+            "مهلت زمانی اتصال به پایان رسید: سرور در مدت ۵ ثانیه پاسخ نداد. "
+            "لطفاً آدرس سرور (هاست)، پورت و وضعیت ارتباط شبکه را بررسی نموده یا مجدداً از «تست اتصال» استفاده کنید."
+        )
+
+    # Authentication / Credentials
+    if any(
+        k in err_lower
+        for k in [
+            "password authentication failed",
+            "authentication failed",
+            "access denied",
+            "credential",
+            "auth_valid",
+            "invalid username or password",
+            "wrong_password",
+            "login failed",
+        ]
+    ):
+        if context == "discovery":
+            return (
+                "خطا در احراز هویت: نام کاربری یا رمز عبور نامعتبر است. "
+                "لطفاً مشخصات کاربری را بررسی کرده یا از دکمه «تست اتصال» در پایین فرم استفاده کنید."
+            )
+        return (
+            "خطا در احراز هویت: نام کاربری یا رمز عبور وارد شده نادرست است. "
+            "لطفاً نام کاربری و رمز عبور را بررسی کرده و مجدداً از دکمه «تست اتصال» استفاده نمایید."
+        )
+
+    # Refused Connection
+    if any(
+        k in err_lower
+        for k in [
+            "connection refused",
+            "refused",
+            "could not connect to server",
+            "10061",
+            "errno 111",
+            "errno 61",
+            "actively refused",
+        ]
+    ):
+        if context == "discovery":
+            return (
+                "ارتباط با سرور برقرار نشد: اتصال از سوی سرور مقصد رد شد (Connection Refused). "
+                "لطفاً بررسی کنید سرویس دیتابیس در پورت مشخص‌شده فعال باشد یا از «تست اتصال» استفاده کنید."
+            )
+        return (
+            "ارتباط با سرور برقرار نشد: اتصال از سوی سرور مقصد رد شد (Connection Refused). "
+            "لطفاً بررسی کنید سرویس دیتابیس روی هاست و پورت تعیین‌شده در حال اجرا باشد یا از «تست اتصال» استفاده نمایید."
+        )
+
+    # Host unreachable / DNS / Network
+    if any(
+        k in err_lower
+        for k in [
+            "getaddrinfo failed",
+            "name or service not known",
+            "no route to host",
+            "network is unreachable",
+            "network unreachable",
+            "host unreachable",
+            "network error",
+        ]
+    ):
+        if context == "discovery":
+            return (
+                "آدرس سرور (هاست) یافت نشد یا شبکه در دسترس نیست. "
+                "لطفاً آدرس سرور و اتصال شبکه را بررسی نموده یا از دکمه «تست اتصال» استفاده کنید."
+            )
+        return (
+            "آدرس سرور (هاست) یافت نشد یا ارتباط شبکه برقرار نیست. "
+            "لطفاً آدرس هاست و اتصال شبکه را بررسی کرده و مجدداً «تست اتصال» را امتحان کنید."
+        )
+
+    # Database does not exist
+    if any(k in err_lower for k in ["does not exist", "database not found"]):
+        return (
+            "پایگاه‌داده مشخص‌شده بر روی این سرور یافت نشد. "
+            "لطفاً نام دیتابیس را بررسی کرده و از دکمه «تست اتصال» در پایین فرم استفاده کنید."
+        )
+
+    # Unsupported Engine
+    if any(k in err_lower for k in ["not yet supported", "unsupported", "not supported"]):
+        return (
+            "شناسایی خودکار پایگاه‌داده برای این موتور در حال حاضر پشتیبانی نمی‌شود. "
+            "لطفاً نام دیتابیس را به صورت دستی وارد کرده و از «تست اتصال» استفاده نمایید."
+        )
+
+    # Fallback Persian
+    if context == "discovery":
+        return (
+            "خطا در شناسایی پایگاه‌های داده: امکان اتصال به سرور وجود ندارد. "
+            "لطفاً آدرس سرور، پورت و مشخصات کاربری را بررسی کرده یا از دکمه «تست اتصال» در پایین فرم استفاده نمایید."
+        )
+    return (
+        "خطا در برقراری اتصال به پایگاه‌داده. "
+        "لطفاً آدرس سرور، پورت و مشخصات کاربری را بررسی کرده و مجدداً از دکمه «تست اتصال» استفاده کنید."
+    )
+
+
 async def require_manage_schedules(
     user_ctx: UserContext = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session),
@@ -188,12 +303,17 @@ async def discover_databases(
 
     if payload.engine_type == DatabaseEngine.POSTGRESQL or str(payload.engine_type).upper() == "POSTGRESQL":
         result = await PostgresConnector.discover_databases_from_config(config)
+        if result.get("success"):
+            db_count = len(result.get("databases", []))
+            persian_msg = f"شناسایی پایگاه‌های داده با موفقیت انجام شد ({db_count} پایگاه‌داده یافت شد)."
+        else:
+            persian_msg = format_connection_error_persian(result.get("message", ""), context="discovery")
         return DiscoverDatabasesResponse(
             success=result["success"],
             databases=result["databases"],
             latency_ms=result["latency_ms"],
             server_version=result.get("server_version"),
-            message=result["message"],
+            message=persian_msg,
         )
     else:
         return DiscoverDatabasesResponse(
@@ -201,7 +321,10 @@ async def discover_databases(
             databases=[],
             latency_ms=0.0,
             server_version=None,
-            message=f"Database auto-discovery not yet supported for engine '{payload.engine_type}'.",
+            message=(
+                f"شناسایی خودکار پایگاه‌داده برای موتور «{payload.engine_type}» در حال حاضر پشتیبانی نمی‌شود. "
+                "لطفاً نام دیتابیس را به صورت دستی وارد کرده و از «تست اتصال» استفاده نمایید."
+            ),
         )
 
 
@@ -233,12 +356,17 @@ async def test_unsaved_connection(
         async with connector:
             test_res = await connector.test_connection()
 
+        if test_res.success:
+            msg = "اتصال به پایگاه‌داده با موفقیت برقرار شد."
+        else:
+            msg = format_connection_error_persian(test_res.message or "", context="test")
+
         return ConnectionDiagnosticTestResponse(
             success=test_res.success,
             latency_ms=test_res.latency_ms,
             dialect=test_res.dialect,
             server_version=test_res.server_version,
-            message=test_res.message,
+            message=msg,
             diagnostic_details=test_res.diagnostic_details,
             tested_at=test_res.tested_at,
         )
@@ -249,7 +377,7 @@ async def test_unsaved_connection(
             latency_ms=0.0,
             dialect=str(payload.engine_type.value if hasattr(payload.engine_type, "value") else payload.engine_type),
             server_version=None,
-            message=f"Connection test failed: {str(exc)}",
+            message=format_connection_error_persian(str(exc), context="test"),
             diagnostic_details={"error": str(exc)},
             tested_at=datetime.now(timezone.utc),
         )
@@ -485,12 +613,16 @@ async def test_connection_ping(
     else:
         tested_at_dt = datetime.now(timezone.utc)
 
+    msg = str(result.get("message", ""))
+    if not result.get("success") and msg:
+        msg = format_connection_error_persian(msg, context="test")
+
     return ConnectionDiagnosticTestResponse(
         success=bool(result.get("success")),
         latency_ms=float(result.get("latency_ms", 0.0)),
         dialect=str(result.get("dialect", "POSTGRESQL")),
         server_version=result.get("server_version"),
-        message=str(result.get("message", "")),
+        message=msg,
         diagnostic_details=result.get("diagnostic_details"),
         tested_at=tested_at_dt,
     )

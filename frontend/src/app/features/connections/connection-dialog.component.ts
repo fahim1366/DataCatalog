@@ -67,7 +67,7 @@ export interface FlattenedCategoryNode {
         <header class="modal-header">
           <h2 id="dialog-title">
             <i class="pi" [ngClass]="connectionToEdit ? 'pi-pencil' : 'pi-plus-circle'"></i>
-            <span>{{ connectionToEdit ? 'ویرایش پایگاه‌داده (Edit Database)' : 'ثبت پایگاه‌داده جدید (Register Database)' }}</span>
+            <span>{{ connectionToEdit ? 'ویرایش پایگاه‌داده' : 'ثبت پایگاه‌داده جدید' }}</span>
           </h2>
           <button type="button" class="btn-close" (click)="cancel.emit()" aria-label="بستن پنجره" title="بستن">
             <i class="pi pi-times"></i>
@@ -78,7 +78,7 @@ export interface FlattenedCategoryNode {
           <!-- Row 1 (Full Width): Database Title / Name -->
           <div class="form-row">
             <div class="form-group col-span-full">
-              <label for="name">عنوان پایگاه‌داده (Database Title / Name) <span class="required">*</span></label>
+              <label for="name">عنوان پایگاه‌داده <span class="required">*</span></label>
               <input
                 id="name"
                 type="text"
@@ -99,7 +99,7 @@ export interface FlattenedCategoryNode {
                 <div class="topic-header-title">
                   <label class="topic-label">
                     <i class="pi pi-sitemap topic-title-icon"></i>
-                    <span>دسته‌بندی موضوعی در کاتالوگ (Topic / Category)</span>
+                    <span>دسته‌بندی موضوعی در کاتالوگ</span>
                   </label>
                   <span class="optional-badge">اختیاری</span>
                 </div>
@@ -198,7 +198,7 @@ export interface FlattenedCategoryNode {
           <!-- Row 3 (3 Columns: 1.2fr 1.8fr 0.8fr): Engine Type, Host / IP, Port -->
           <div class="form-row row-engine-host-port">
             <div class="form-group">
-              <label for="engine_type">نوع دیتابیس (Engine Type) <span class="required">*</span></label>
+              <label for="engine_type">نوع دیتابیس <span class="required">*</span></label>
               <select
                 id="engine_type"
                 class="form-control"
@@ -212,7 +212,7 @@ export interface FlattenedCategoryNode {
             </div>
 
             <div class="form-group">
-              <label for="host">آدرس سرور (Host / IP) <span class="required">*</span></label>
+              <label for="host">آدرس سرور <span class="required">*</span></label>
               <input
                 id="host"
                 type="text"
@@ -222,12 +222,12 @@ export interface FlattenedCategoryNode {
                 placeholder="hostname or IP"
               />
               @if (form.controls.host.touched && form.controls.host.invalid) {
-                <div class="field-error">آدرس هاست الزامی است (Host is required).</div>
+                <div class="field-error">آدرس سرور الزامی است.</div>
               }
             </div>
 
             <div class="form-group">
-              <label for="port">پورت (Port) <span class="required">*</span></label>
+              <label for="port">پورت <span class="required">*</span></label>
               <input
                 id="port"
                 type="number"
@@ -241,10 +241,10 @@ export interface FlattenedCategoryNode {
             </div>
           </div>
 
-          <!-- Row 4 (2 Equal Columns: 1fr 1fr): Username & Password -->
+          <!-- Row 4 (2 Equal Columns: 1fr 1fr): Username (Right) & Password (Left) -->
           <div class="form-row row-credentials">
             <div class="form-group">
-              <label for="username">نام کاربری اتصال (Username) <span class="required">*</span></label>
+              <label for="username">نام کاربری اتصال <span class="required">*</span></label>
               <input
                 id="username"
                 type="text"
@@ -261,7 +261,7 @@ export interface FlattenedCategoryNode {
 
             <div class="form-group">
               <label for="password">
-                {{ connectionToEdit ? 'رمز عبور جدید (اختیاری در ویرایش)' : 'رمز عبور (Password)' }}
+                {{ connectionToEdit ? 'رمز عبور جدید (اختیاری در ویرایش)' : 'رمز عبور' }}
                 @if (!connectionToEdit) { <span class="required">*</span> }
               </label>
               <input
@@ -283,7 +283,7 @@ export interface FlattenedCategoryNode {
           <div class="form-row row-db-schema">
             <div class="form-group">
               <div class="field-label-row">
-                <label for="database_name">نام دیتابیس (Database Name) <span class="required">*</span></label>
+                <label for="database_name">نام دیتابیس <span class="required">*</span></label>
               </div>
 
               <div class="combobox-container" dir="ltr">
@@ -371,7 +371,7 @@ export interface FlattenedCategoryNode {
             </div>
 
             <div class="form-group">
-              <label for="default_schema">اسکیمای پیش‌فرض (Default Schema)</label>
+              <label for="default_schema">اسکیمای پیش‌فرض</label>
               <input
                 id="default_schema"
                 type="text"
@@ -386,7 +386,7 @@ export interface FlattenedCategoryNode {
           <!-- Row 6 (2 Columns: 1fr 1.3fr): Owner & Cron Schedule -->
           <div class="form-row row-owner-cron">
             <div class="form-group">
-              <label for="owner">مالک / تیم مسئول (Owner)</label>
+              <label for="owner">مالک / تیم مسئول</label>
               <input
                 id="owner"
                 type="text"
@@ -397,7 +397,7 @@ export interface FlattenedCategoryNode {
             </div>
 
             <div class="form-group">
-              <label for="cron_expression">زمان‌بندی همگام‌سازی (Cron Schedule)</label>
+              <label for="cron_expression">زمان‌بندی همگام‌سازی</label>
               <input
                 id="cron_expression"
                 type="text"
@@ -417,7 +417,7 @@ export interface FlattenedCategoryNode {
                 <div class="cron-valid-feedback">
                   <div class="cron-valid-line">
                     <i class="pi pi-check-circle"></i>
-                    <span>الگوی معتبر زمان‌بندی (Valid 5-part cron)</span>
+                    <span>الگوی معتبر زمان‌بندی</span>
                   </div>
                   <div class="cron-human-summary">{{ getCronHumanSummary(form.controls.cron_expression.value) }}</div>
                 </div>
@@ -437,7 +437,7 @@ export interface FlattenedCategoryNode {
                 <div class="toggle-title-group">
                   <i class="pi" [ngClass]="isCustomParamsOpen() ? 'pi-chevron-down' : 'pi-chevron-left'"></i>
                   <i class="pi pi-cog"></i>
-                  <span class="custom-params-title">تنظیمات اضافی اتصال (Custom Params JSONB)</span>
+                  <span class="custom-params-title">تنظیمات اضافی اتصال</span>
                   <span class="optional-badge">اختیاری</span>
                 </div>
                 <span class="toggle-hint-text">پارامترهای پیشرفته درایور مانند SSL، timeout و pool settings</span>
@@ -480,7 +480,7 @@ export interface FlattenedCategoryNode {
             >
               <div class="test-result-header">
                 <i class="pi" [ngClass]="testResult()!.success ? 'pi-check-circle' : 'pi-times-circle'"></i>
-                <strong>{{ testResult()!.success ? 'تست اتصال موفقیت‌آمیز بود (Connection Verified)' : 'خطا در برقراری اتصال (Connection Failed)' }}</strong>
+                <strong>{{ testResult()!.success ? 'اتصال به پایگاه‌داده با موفقیت برقرار شد.' : 'خطا در برقراری اتصال' }}</strong>
                 @if (testResult()!.latency_ms) {
                   <span class="latency-tag mono-font">{{ testResult()!.latency_ms }}ms</span>
                 }
@@ -512,14 +512,14 @@ export interface FlattenedCategoryNode {
                 class="btn-test-conn btn-with-icon"
                 (click)="testUnsavedConnection()"
                 [disabled]="isTestingConnection() || !canTestConnection()"
-                title="تست اتصال زنده قبل از ثبت در سامانه (Pre-Save Diagnostic Test)"
+                title="تست اتصال زنده قبل از ثبت در سامانه"
               >
                 @if (isTestingConnection()) {
                   <i class="pi pi-spin pi-spinner"></i>
                   <span>در حال تست اتصال...</span>
                 } @else {
                   <i class="pi pi-bolt"></i>
-                  <span>تست اتصال (Test Connection)</span>
+                  <span>تست اتصال</span>
                 }
               </button>
 
@@ -533,7 +533,7 @@ export interface FlattenedCategoryNode {
                   <span>در حال ذخیره و اتصال...</span>
                 } @else if (connectionToEdit) {
                   <i class="pi pi-check"></i>
-                  <span>ذخیره تغییرات پایگاه‌داده (Update Database)</span>
+                  <span>ذخیره تغییرات پایگاه‌داده</span>
                 } @else {
                   <i class="pi pi-check"></i>
                   <span>ثبت پایگاه‌داده</span>
@@ -627,6 +627,7 @@ export interface FlattenedCategoryNode {
       grid-template-columns: 1.2fr 1.8fr 0.8fr;
     }
     .row-credentials {
+      direction: rtl;
       grid-template-columns: 1fr 1fr;
     }
     .row-db-schema {
@@ -1585,20 +1586,109 @@ export class ConnectionDialogComponent implements OnInit {
   getCronHumanSummary(cron: string | null): string {
     if (!cron) return '';
     const trimmed = cron.trim();
-    if (trimmed === '0 2 * * *') return 'هر شب ساعت ۰۲:۰۰ بامداد (Daily at 02:00 AM)';
-    if (trimmed === '0 0 * * *') return 'هر روز ساعت ۱۲:۰۰ شب (Daily at midnight)';
-    if (trimmed === '0 4 * * *') return 'هر شب ساعت ۰۴:۰۰ بامداد (Daily at 04:00 AM)';
-    if (trimmed === '0 * * * *') return 'هر یک ساعت یک‌بار (Every hour)';
-    if (trimmed === '*/30 * * * *') return 'هر ۳۰ دقیقه یک‌بار (Every 30 minutes)';
-    if (trimmed === '*/15 * * * *') return 'هر ۱۵ دقیقه یک‌بار (Every 15 minutes)';
+    if (trimmed === '0 2 * * *') return 'هر شب ساعت ۰۲:۰۰ بامداد';
+    if (trimmed === '0 0 * * *') return 'هر روز ساعت ۱۲:۰۰ شب';
+    if (trimmed === '0 4 * * *') return 'هر شب ساعت ۰۴:۰۰ بامداد';
+    if (trimmed === '0 * * * *') return 'هر یک ساعت یک‌بار';
+    if (trimmed === '*/30 * * * *') return 'هر ۳۰ دقیقه یک‌بار';
+    if (trimmed === '*/15 * * * *') return 'هر ۱۵ دقیقه یک‌بار';
     const parts = trimmed.split(/\s+/);
     if (parts.length === 5) {
       const [m, h] = parts;
       if (!isNaN(Number(m)) && !isNaN(Number(h))) {
-        return `هر روز ساعت ${h.padStart(2, '0')}:${m.padStart(2, '0')} (Daily at ${h}:${m})`;
+        return `هر روز ساعت ${h.padStart(2, '0')}:${m.padStart(2, '0')}`;
       }
     }
-    return 'برنامه همگام‌سازی زمان‌بندی شده (Custom Scheduled Sync)';
+    return 'برنامه همگام‌سازی زمان‌بندی شده';
+  }
+
+  translateErrorMessage(error: string | null | undefined, context: 'discovery' | 'test'): string {
+    if (!error || !error.trim()) {
+      return context === 'discovery'
+        ? 'خطا در شناسایی پایگاه‌های داده: امکان اتصال به سرور وجود ندارد. لطفاً آدرس سرور، پورت و مشخصات کاربری را بررسی کرده یا از دکمه «تست اتصال» در پایین فرم استفاده نمایید.'
+        : 'خطا در برقراری اتصال به پایگاه‌داده. لطفاً آدرس سرور، پورت و مشخصات کاربری را بررسی کرده و مجدداً از دکمه «تست اتصال» استفاده کنید.';
+    }
+
+    const err = error.trim().toLowerCase();
+
+    // Timeout
+    if (err.includes('timeout') || err.includes('timed out') || err.includes('time out')) {
+      return context === 'discovery'
+        ? 'مهلت زمانی شناسایی پایگاه‌های داده به پایان رسید: سرور در مدت ۵ ثانیه پاسخ نداد. لطفاً آدرس سرور (هاست) و پورت را بررسی کرده یا از دکمه «تست اتصال» در پایین فرم استفاده کنید.'
+        : 'مهلت زمانی اتصال به پایان رسید: سرور در مدت ۵ ثانیه پاسخ نداد. لطفاً آدرس سرور (هاست)، پورت و وضعیت ارتباط شبکه را بررسی نموده یا مجدداً از «تست اتصال» استفاده کنید.';
+    }
+
+    // Credentials / Authentication
+    if (
+      err.includes('password authentication failed') ||
+      err.includes('authentication failed') ||
+      err.includes('access denied') ||
+      err.includes('credential') ||
+      err.includes('auth_valid') ||
+      err.includes('invalid username or password') ||
+      err.includes('wrong_password') ||
+      err.includes('login failed')
+    ) {
+      return context === 'discovery'
+        ? 'خطا در احراز هویت: نام کاربری یا رمز عبور نامعتبر است. لطفاً مشخصات کاربری را بررسی کرده یا از دکمه «تست اتصال» در پایین فرم استفاده کنید.'
+        : 'خطا در احراز هویت: نام کاربری یا رمز عبور وارد شده نادرست است. لطفاً نام کاربری و رمز عبور را بررسی کرده و مجدداً از دکمه «تست اتصال» استفاده نمایید.';
+    }
+
+    // Connection refused
+    if (
+      err.includes('connection refused') ||
+      err.includes('refused') ||
+      err.includes('could not connect to server') ||
+      err.includes('10061') ||
+      err.includes('errno 111') ||
+      err.includes('errno 61') ||
+      err.includes('actively refused')
+    ) {
+      return context === 'discovery'
+        ? 'ارتباط با سرور برقرار نشد: اتصال از سوی سرور مقصد رد شد (Connection Refused). لطفاً بررسی کنید سرویس دیتابیس در پورت مشخص‌شده فعال باشد یا از «تست اتصال» استفاده کنید.'
+        : 'ارتباط با سرور برقرار نشد: اتصال از سوی سرور مقصد رد شد (Connection Refused). لطفاً بررسی کنید سرویس دیتابیس روی هاست و پورت تعیین‌شده در حال اجرا باشد یا از «تست اتصال» استفاده نمایید.';
+    }
+
+    // Host unreachable / DNS / Network
+    if (
+      err.includes('getaddrinfo failed') ||
+      err.includes('name or service not known') ||
+      err.includes('no route to host') ||
+      err.includes('network is unreachable') ||
+      err.includes('network unreachable') ||
+      err.includes('host unreachable') ||
+      err.includes('network error')
+    ) {
+      return context === 'discovery'
+        ? 'آدرس سرور (هاست) یافت نشد یا شبکه در دسترس نیست. لطفاً آدرس سرور و اتصال شبکه را بررسی نموده یا از دکمه «تست اتصال» استفاده کنید.'
+        : 'آدرس سرور (هاست) یافت نشد یا ارتباط شبکه برقرار نیست. لطفاً آدرس هاست و اتصال شبکه را بررسی کرده و مجدداً «تست اتصال» را امتحان کنید.';
+    }
+
+    // Unsupported engine
+    if (err.includes('not yet supported') || err.includes('unsupported') || err.includes('not supported')) {
+      return 'شناسایی خودکار پایگاه‌داده برای این موتور در حال حاضر پشتیبانی نمی‌شود. لطفاً نام دیتابیس را به صورت دستی وارد کرده و از «تست اتصال» استفاده نمایید.';
+    }
+
+    // Database not found
+    if (err.includes('does not exist') || err.includes('database not found')) {
+      return 'پایگاه‌داده مشخص‌شده بر روی این سرور یافت نشد. لطفاً نام دیتابیس را بررسی کرده و از دکمه «تست اتصال» در پایین فرم استفاده کنید.';
+    }
+
+    // If already in Persian and has no English error prefixes
+    if (/[\u0600-\u06FF]/.test(error) && !error.includes('Connection failed') && !error.includes('Database discovery failed')) {
+      return error;
+    }
+
+    return context === 'discovery'
+      ? 'خطا در شناسایی پایگاه‌های داده: امکان اتصال به سرور وجود ندارد. لطفاً آدرس سرور، پورت و مشخصات کاربری را بررسی کرده یا از دکمه «تست اتصال» در پایین فرم استفاده نمایید.'
+      : 'خطا در برقراری اتصال به پایگاه‌داده. لطفاً آدرس سرور، پورت و مشخصات کاربری را بررسی کرده و مجدداً از دکمه «تست اتصال» استفاده کنید.';
+  }
+
+  translateTestMessage(msg: string | null | undefined, success: boolean): string {
+    if (success) {
+      return 'اتصال به پایگاه‌داده با موفقیت برقرار شد.';
+    }
+    return this.translateErrorMessage(msg, 'test');
   }
 
   toPersianNumber(num: number): string {
@@ -1661,18 +1751,18 @@ export class ConnectionDialogComponent implements OnInit {
             }
           } else {
             this.discoveryStatus.set('error');
-            this.discoveryMessage.set(res.message || 'خطا در شناسایی پایگاه‌های داده.');
+            this.discoveryMessage.set(this.translateErrorMessage(res.message, 'discovery'));
           }
         },
         error: (err) => {
           this.isDiscoveringDatabases.set(false);
           this.discoveryStatus.set('error');
-          const msg =
+          const rawMsg =
             err.error?.detail ||
             err.error?.message ||
             err.message ||
-            'خطا در برقراری ارتباط با پایگاه‌داده جهت شناسایی.';
-          this.discoveryMessage.set(msg);
+            '';
+          this.discoveryMessage.set(this.translateErrorMessage(rawMsg, 'discovery'));
         },
       });
   }
@@ -1745,15 +1835,20 @@ export class ConnectionDialogComponent implements OnInit {
       .subscribe({
         next: (res) => {
           this.isTestingConnection.set(false);
-          this.testResult.set(res);
+          const translatedMsg = this.translateTestMessage(res.message, res.success);
+          this.testResult.set({
+            ...res,
+            message: translatedMsg,
+          });
         },
         error: (err) => {
           this.isTestingConnection.set(false);
-          const msg =
+          const rawMsg =
             err.error?.detail ||
             err.error?.message ||
             err.message ||
-            'خطا در برقراری ارتباط با پایگاه‌داده';
+            '';
+          const msg = this.translateErrorMessage(rawMsg, 'test');
           this.testResult.set({
             success: false,
             latency_ms: 0,

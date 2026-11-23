@@ -80,6 +80,7 @@ class ConnectionService:
             port=connection.port,
             database_name=connection.database_name,
             default_schema=connection.default_schema,
+            collation=connection.collation,
             owner=connection.owner,
             is_active=connection.is_active,
             category_id=eff_cat_id,

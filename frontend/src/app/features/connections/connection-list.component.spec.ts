@@ -1,6 +1,7 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideHttpClient } from '@angular/common/http';
 import { provideHttpClientTesting } from '@angular/common/http/testing';
+import { provideRouter } from '@angular/router';
 import { By } from '@angular/platform-browser';
 import { of } from 'rxjs';
 import { ConnectionListComponent } from './connection-list.component';
@@ -53,6 +54,7 @@ const mockConnections: DatabaseConnection[] = [
     port: 5432,
     database_name: 'prod_warehouse',
     default_schema: 'public',
+    collation: 'en_US.utf8',
     owner: 'data-engineering',
     category_id: 'leaf-cat-1',
     category_name: 'پروانه‌های ساختمانی (Leaf 1)',
@@ -113,6 +115,7 @@ describe('ConnectionListComponent (T028: Angular Connection Management UI)', () 
       imports: [ConnectionListComponent, ConnectionDialogComponent],
       providers: [
         ConnectionService,
+        provideRouter([]),
         provideHttpClient(),
         provideHttpClientTesting(),
       ],
@@ -213,6 +216,12 @@ describe('ConnectionListComponent (T028: Angular Connection Management UI)', () 
     expect(scheduleBadges.length).toBeGreaterThanOrEqual(2);
     expect(text).toContain('SUCCESS');
     expect(text).toContain('FAILED');
+  });
+
+  it('should render collation badge when database collation is present', () => {
+    const collationBadge = fixture.debugElement.query(By.css('.collation-badge'));
+    expect(collationBadge).toBeTruthy();
+    expect(collationBadge.nativeElement.textContent.trim()).toBe('en_US.utf8');
   });
 
   it('should open diagnostic dialog when "Test Connection" bolt button is clicked', async () => {

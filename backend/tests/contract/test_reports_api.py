@@ -320,6 +320,8 @@ async def test_export_reports_formats(
             assert "classification" in json_data
             assert "tables" in json_data
             assert "columns" in json_data
+            if json_data["columns"]:
+                assert "collation" in json_data["columns"][0]
 
             # 2. CSV Export (must start with UTF-8 BOM)
             csv_resp = await client.get(
@@ -332,6 +334,7 @@ async def test_export_reports_formats(
             csv_text = csv_resp.content.decode("utf-8-sig")
             assert "خلاصه مدیریتی" in csv_text
             assert "فرهنگ داده جداول" in csv_text
+            assert "Collation" in csv_text
 
             # 3. XLSX Export (multi-sheet openpyxl workbook with RTL)
             xlsx_resp = await client.get(
@@ -421,6 +424,7 @@ async def test_export_reports_three_sheet_xlsx_workbook_structure_and_content(
                 "ترتیب فیلد",
                 "نام ستون",
                 "نوع داده",
+                "Collation",
                 "نوع کلید",
                 "پذیرش تهی (Nullable)",
                 "سطح محرمانگی",

@@ -63,6 +63,8 @@ def test_postgres_connector_queries_use_pg_catalog_and_zero_information_schema()
     assert "pg_catalog.pg_type" in columns_sql or "pg_type" in columns_sql
     assert "pg_catalog.pg_attrdef" in columns_sql or "pg_attrdef" in columns_sql
     assert "pg_catalog.pg_constraint" in columns_sql or "pg_constraint" in columns_sql
+    assert "pg_collation" in columns_sql or "pg_catalog.pg_collation" in columns_sql
+    assert "attcollation" in columns_sql
     assert "information_schema" not in columns_sql
     assert "attnum > 0" in columns_sql
     assert "attisdropped" in columns_sql

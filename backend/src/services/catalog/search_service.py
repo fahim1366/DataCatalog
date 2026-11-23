@@ -368,6 +368,7 @@ class SearchService:
                 CatalogTable,
                 DatabaseSchema.name.label("schema_name"),
                 DatabaseConnection.database_name.label("database_name"),
+                DatabaseConnection.collation.label("collation"),
             )
             .join(DatabaseSchema, DatabaseSchema.id == CatalogTable.schema_id)
             .join(DatabaseConnection, DatabaseConnection.id == DatabaseSchema.connection_id)
@@ -391,6 +392,7 @@ class SearchService:
         tbl: CatalogTable = row[0]
         schema_name: str = row[1]
         database_name: str = row[2]
+        database_collation: Optional[str] = row[3]
 
         # Fetch tags assigned to this table
         tag_stmt = (
@@ -444,6 +446,7 @@ class SearchService:
                 "ordinal_position": col.ordinal_position,
                 "data_type": col.data_type,
                 "raw_data_type": col.raw_data_type,
+                "collation": col.collation,
                 "is_nullable": col.is_nullable,
                 "is_primary_key": col.is_primary_key,
                 "is_foreign_key": col.is_foreign_key,
@@ -470,6 +473,7 @@ class SearchService:
             "schema_name": schema_name,
             "database_name": database_name,
             "name": tbl.name,
+            "collation": database_collation,
             "table_type": tbl.table_type.value,
             "row_count_estimate": tbl.row_count_estimate,
             "size_bytes": tbl.size_bytes,

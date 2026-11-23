@@ -52,6 +52,9 @@ class DatabaseConnection(Base):
     default_schema: Mapped[Optional[str]] = mapped_column(
         String(100), nullable=True
     )
+    collation: Mapped[Optional[str]] = mapped_column(
+        "collation", String(128), nullable=True, quote=True
+    )
     owner: Mapped[str] = mapped_column(String(255), nullable=False)
     kek_version: Mapped[int] = mapped_column(
         Integer, nullable=False, default=1, server_default=text("1")

@@ -416,3 +416,85 @@ async def test_soft_delete_missing_entities_with_failed_schemas_isolation(
     assert t3.status == LifecycleStatus.ACTIVE
     assert t4.status == LifecycleStatus.ACTIVE
 
+
+@pytest.mark.asyncio
+async def test_vectorized_bulk_upsert_collation_preservation(
+    test_db_session: AsyncSession, setup_unnest_connection: dict
+):
+    """
+    Verifies that column and database level collations are accurately extracted and persisted
+    during vectorized UNNEST bulk ingestion.
+    """
+    connection = setup_unnest_connection["connection"]
+    user = setup_unnest_connection["user"]
+    schema_name = f"collate_schema_{setup_unnest_connection['suffix']}"
+
+    table_payload = IngestTablePayload(
+        name="user_profiles",
+        table_type=TableType.TABLE,
+        columns=[
+            IngestColumnPayload(
+                name="id",
+                ordinal_position=1,
+                data_type="uuid",
+                raw_data_type="uuid",
+                collation=None,
+                is_primary_key=True,
+                is_nullable=False,
+            ),
+            IngestColumnPayload(
+                name="bio_fa",
+                ordinal_position=2,
+                data_type="text",
+                raw_data_type="text",
+                collation="fa_IR.utf8",
+                is_nullable=True,
+            ),
+            IngestColumnPayload(
+                name="display_name",
+                ordinal_position=3,
+                data_type="varchar(100)",
+                raw_data_type="varchar",
+                collation="en_US.utf8",
+                is_nullable=True,
+            ),
+        ],
+    )
+
+    req = BulkIngestionRequest(
+        connection_id=connection.id,
+        schema_name=schema_name,
+        database_collation="en_US.utf8",
+        tables=[table_payload],
+    )
+
+    resp = await bulk_ingestion_service.ingest_bulk_metadata(
+        session=test_db_session,
+        payload=req,
+        actor_id=user.id,
+        actor_username=user.username,
+    )
+    assert resp.success is True
+    assert resp.columns_upserted == 3
+
+    # Check DatabaseConnection.collation
+    await test_db_session.refresh(connection)
+    assert connection.collation == "en_US.utf8"
+
+    # Check CatalogColumn.collation
+    tbl_stmt = select(CatalogTable).where(
+        CatalogTable.schema_id == resp.schema_id, CatalogTable.name == "user_profiles"
+    )
+    tbl = (await test_db_session.execute(tbl_stmt)).scalar_one()
+
+    cols_stmt = select(CatalogColumn).where(CatalogColumn.table_id == tbl.id).order_by(CatalogColumn.ordinal_position)
+    cols = (await test_db_session.execute(cols_stmt)).scalars().all()
+    assert len(cols) == 3
+    assert cols[0].name == "id"
+    assert cols[0].collation is None
+    assert cols[1].name == "bio_fa"
+    assert cols[1].collation == "fa_IR.utf8"
+    assert cols[2].name == "display_name"
+    assert cols[2].collation == "en_US.utf8"
+
+

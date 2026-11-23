@@ -90,6 +90,7 @@ class ConnectionResponse(BaseModel):
     port: int
     database_name: str
     default_schema: Optional[str] = None
+    collation: Optional[str] = None
     owner: str
     is_active: bool
     category_id: Optional[uuid.UUID] = None

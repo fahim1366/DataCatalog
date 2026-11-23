@@ -165,6 +165,10 @@ class BulkIngestionService:
         if not connection:
             raise ValueError(f"Database connection {payload.connection_id} not found.")
 
+        if getattr(payload, "database_collation", None):
+            connection.collation = payload.database_collation
+            await session.flush()
+
         # 2. Get or create DatabaseSchema
         schema_stmt = select(DatabaseSchema).where(
             DatabaseSchema.connection_id == payload.connection_id,
@@ -332,6 +336,7 @@ class BulkIngestionService:
         col_ordinal_positions: List[int] = []
         col_data_types: List[str] = []
         col_raw_data_types: List[str] = []
+        col_collations: List[Optional[str]] = []
         col_is_nullables: List[bool] = []
         col_is_primary_keys: List[bool] = []
         col_is_foreign_keys: List[bool] = []
@@ -356,6 +361,7 @@ class BulkIngestionService:
                 col_ordinal_positions.append(col_payload.ordinal_position)
                 col_data_types.append(col_payload.data_type)
                 col_raw_data_types.append(col_payload.raw_data_type)
+                col_collations.append(col_payload.collation)
                 col_is_nullables.append(col_payload.is_nullable)
                 col_is_primary_keys.append(col_payload.is_primary_key)
                 col_is_foreign_keys.append(col_payload.is_foreign_key)
@@ -367,12 +373,12 @@ class BulkIngestionService:
             col_upsert_stmt = text("""
                 INSERT INTO catalog_columns (
                     id, table_id, name, ordinal_position, data_type, raw_data_type,
-                    is_nullable, is_primary_key, is_foreign_key, default_value,
+                    "collation", is_nullable, is_primary_key, is_foreign_key, default_value,
                     source_description, classification_level, status, updated_at
                 )
                 SELECT 
                     v.id, v.table_id, v.name, v.ordinal_position, v.data_type, v.raw_data_type,
-                    v.is_nullable, v.is_primary_key, v.is_foreign_key, v.default_value,
+                    v."collation", v.is_nullable, v.is_primary_key, v.is_foreign_key, v.default_value,
                     v.source_description, v.classification_level::classification_level_enum, 'ACTIVE'::lifecycle_status_enum,
                     clock_timestamp()
                 FROM UNNEST(
@@ -382,17 +388,19 @@ class BulkIngestionService:
                     CAST(:ordinal_positions AS int[]),
                     CAST(:data_types AS varchar[]),
                     CAST(:raw_data_types AS varchar[]),
+                    CAST(:collations AS varchar[]),
                     CAST(:is_nullables AS boolean[]),
                     CAST(:is_primary_keys AS boolean[]),
                     CAST(:is_foreign_keys AS boolean[]),
                     CAST(:default_values AS text[]),
                     CAST(:source_descriptions AS text[]),
                     CAST(:classification_levels AS varchar[])
-                ) AS v(id, table_id, name, ordinal_position, data_type, raw_data_type, is_nullable, is_primary_key, is_foreign_key, default_value, source_description, classification_level)
+                ) AS v(id, table_id, name, ordinal_position, data_type, raw_data_type, "collation", is_nullable, is_primary_key, is_foreign_key, default_value, source_description, classification_level)
                 ON CONFLICT (table_id, name) DO UPDATE SET
                     ordinal_position = EXCLUDED.ordinal_position,
                     data_type = EXCLUDED.data_type,
                     raw_data_type = EXCLUDED.raw_data_type,
+                    "collation" = EXCLUDED."collation",
                     is_nullable = EXCLUDED.is_nullable,
                     is_primary_key = EXCLUDED.is_primary_key,
                     is_foreign_key = EXCLUDED.is_foreign_key,
@@ -413,6 +421,7 @@ class BulkIngestionService:
                     "ordinal_positions": col_ordinal_positions,
                     "data_types": col_data_types,
                     "raw_data_types": col_raw_data_types,
+                    "collations": col_collations,
                     "is_nullables": col_is_nullables,
                     "is_primary_keys": col_is_primary_keys,
                     "is_foreign_keys": col_is_foreign_keys,

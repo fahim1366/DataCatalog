@@ -194,6 +194,7 @@ async def export_reports(
             CatalogColumn.ordinal_position,
             CatalogColumn.name.label("column_name"),
             CatalogColumn.data_type,
+            CatalogColumn.collation,
             CatalogColumn.is_primary_key,
             CatalogColumn.is_foreign_key,
             CatalogColumn.is_nullable,
@@ -377,6 +378,7 @@ async def export_reports(
             "ترتیب فیلد",
             "نام ستون",
             "نوع داده",
+            "Collation",
             "نوع کلید",
             "پذیرش تهی (Nullable)",
             "سطح محرمانگی",
@@ -402,13 +404,14 @@ async def export_reports(
             ws3.cell(row=r_idx, column=4, value=c.ordinal_position).alignment = align_center
             ws3.cell(row=r_idx, column=5, value=c.column_name).alignment = align_right
             ws3.cell(row=r_idx, column=6, value=c.data_type).alignment = align_center
-            ws3.cell(row=r_idx, column=7, value=key_type).alignment = align_center
-            ws3.cell(row=r_idx, column=8, value=nullable_str).alignment = align_center
-            ws3.cell(row=r_idx, column=9, value=clevel).alignment = align_center
-            ws3.cell(row=r_idx, column=10, value=c.source_description or "-").alignment = align_right
-            ws3.cell(row=r_idx, column=11, value=c.approved_description or "-").alignment = align_right
-            ws3.cell(row=r_idx, column=12, value=getattr(c, "description_source", "SOURCE_DB") or "SOURCE_DB").alignment = align_center
-            for c_idx in range(1, 13):
+            ws3.cell(row=r_idx, column=7, value=c.collation or "-").alignment = align_center
+            ws3.cell(row=r_idx, column=8, value=key_type).alignment = align_center
+            ws3.cell(row=r_idx, column=9, value=nullable_str).alignment = align_center
+            ws3.cell(row=r_idx, column=10, value=clevel).alignment = align_center
+            ws3.cell(row=r_idx, column=11, value=c.source_description or "-").alignment = align_right
+            ws3.cell(row=r_idx, column=12, value=c.approved_description or "-").alignment = align_right
+            ws3.cell(row=r_idx, column=13, value=getattr(c, "description_source", "SOURCE_DB") or "SOURCE_DB").alignment = align_center
+            for c_idx in range(1, 14):
                 cell_item = ws3.cell(row=r_idx, column=c_idx)
                 cell_item.font = cell_font
                 cell_item.border = thin_border
@@ -499,6 +502,7 @@ async def export_reports(
             "شماره ردیف",
             "نام ستون",
             "نوع داده",
+            "Collation",
             "نوع کلید",
             "پذیرش تهی (Nullable)",
             "سطح محرمانگی",
@@ -515,6 +519,7 @@ async def export_reports(
                 c.ordinal_position,
                 c.column_name,
                 c.data_type,
+                c.collation or "",
                 "PK" if c.is_primary_key else ("FK" if c.is_foreign_key else "-"),
                 "YES" if c.is_nullable else "NO",
                 clevel,
@@ -557,6 +562,7 @@ async def export_reports(
                 "ordinal_position": c.ordinal_position,
                 "column_name": c.column_name,
                 "data_type": c.data_type,
+                "collation": c.collation,
                 "is_primary_key": c.is_primary_key,
                 "is_foreign_key": c.is_foreign_key,
                 "is_nullable": c.is_nullable,

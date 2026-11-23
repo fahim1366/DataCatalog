@@ -53,6 +53,7 @@ class TableItem(BaseModel):
     schema_id: uuid.UUID
     name: str
     table_type: str
+    collation: Optional[str] = None
     row_count_estimate: int
     size_bytes: int
     source_description: Optional[str] = None
@@ -85,6 +86,7 @@ class ColumnItem(BaseModel):
     ordinal_position: int
     data_type: str
     raw_data_type: str
+    collation: Optional[str] = None
     is_nullable: bool
     is_primary_key: bool
     is_foreign_key: bool
@@ -111,6 +113,7 @@ class TableDetail(BaseModel):
     database_name: str
     name: str
     table_type: str
+    collation: Optional[str] = None
     row_count_estimate: int
     size_bytes: int
     source_description: Optional[str] = None

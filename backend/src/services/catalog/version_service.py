@@ -449,6 +449,7 @@ class VersionService:
                         "ordinal_position": col.ordinal_position,
                         "data_type": col.data_type,
                         "raw_data_type": col.raw_data_type,
+                        "collation": col.collation,
                         "is_nullable": col.is_nullable,
                         "is_primary_key": col.is_primary_key,
                         "is_foreign_key": col.is_foreign_key,

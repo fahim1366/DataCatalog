@@ -382,4 +382,76 @@ describe('CatalogExplorerComponent (Phase 2 UI/UX Overhaul)', () => {
     expect(indexes[1].name).toBe('pk_customers');
     expect(indexes[1].details?.['is_primary']).toBe(true);
   });
+
+  it('should render Collation column in columns table drawer and format text/non-text correctly', async () => {
+    component.selectedTable.set({
+      id: 'tbl-collate',
+      schema_id: 's1',
+      schema_name: 'public',
+      database_name: 'prod_db',
+      name: 'customers',
+      table_type: 'TABLE',
+      row_count_estimate: 100,
+      size_bytes: 4096,
+      status: 'ACTIVE',
+      columns: [
+        {
+          id: 'c1',
+          table_id: 'tbl-collate',
+          name: 'id',
+          ordinal_position: 1,
+          data_type: 'uuid',
+          raw_data_type: 'uuid',
+          collation: null,
+          is_nullable: false,
+          is_primary_key: true,
+          is_foreign_key: false,
+          classification_level: 'INTERNAL',
+          status: 'ACTIVE',
+        },
+        {
+          id: 'c2',
+          table_id: 'tbl-collate',
+          name: 'title_fa',
+          ordinal_position: 2,
+          data_type: 'varchar(255)',
+          raw_data_type: 'varchar',
+          collation: 'fa_IR.utf8',
+          is_nullable: true,
+          is_primary_key: false,
+          is_foreign_key: false,
+          classification_level: 'INTERNAL',
+          status: 'ACTIVE',
+        },
+        {
+          id: 'c3',
+          table_id: 'tbl-collate',
+          name: 'description',
+          ordinal_position: 3,
+          data_type: 'text',
+          raw_data_type: 'text',
+          collation: null,
+          is_nullable: true,
+          is_primary_key: false,
+          is_foreign_key: false,
+          classification_level: 'INTERNAL',
+          status: 'ACTIVE',
+        },
+      ],
+      tags: [],
+    } as any);
+
+    component.selectedTableId.set('tbl-collate');
+    component.activeInspectorTab.set('columns');
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    expect(component.isTextColumn({ data_type: 'varchar(100)' } as any)).toBe(true);
+    expect(component.isTextColumn({ data_type: 'int4' } as any)).toBe(false);
+
+    const compiled = fixture.nativeElement as HTMLElement;
+    expect(compiled.textContent).toContain('Collation');
+    expect(compiled.textContent).toContain('fa_IR.utf8');
+    expect(compiled.textContent).toContain('پیش‌فرض دیتابیس');
+  });
 });

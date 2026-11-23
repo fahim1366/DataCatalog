@@ -74,6 +74,7 @@ class ColumnMetadata:
     is_foreign_key: bool = False
     default_value: Optional[str] = None
     source_description: Optional[str] = None
+    collation: Optional[str] = None
 
 
 @dataclass
@@ -198,6 +199,10 @@ class BaseMetadataConnector(ABC):
     async def extract_schemas(self) -> List[SchemaMetadata]:
         """Lists accessible schemas excluding system/internal schemas."""
         pass
+
+    async def extract_database_collation(self) -> Optional[str]:
+        """Extracts default database collation if supported by the engine."""
+        return None
 
     @abstractmethod
     async def extract_schema_metadata(self, schema_name: str) -> SchemaExtractionResult:

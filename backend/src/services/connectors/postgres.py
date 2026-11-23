@@ -102,6 +102,7 @@ class PostgresConnector(BaseMetadataConnector):
                 a.attnum AS ordinal_position,
                 pg_catalog.format_type(a.atttypid, a.atttypmod) AS data_type,
                 t.typname AS raw_data_type,
+                CASE WHEN a.attcollation = 0 THEN NULL ELSE col.collname END AS collation,
                 NOT a.attnotnull AS is_nullable,
                 COALESCE(pk.is_pk, false) AS is_primary_key,
                 COALESCE(fk.is_fk, false) AS is_foreign_key,
@@ -111,6 +112,7 @@ class PostgresConnector(BaseMetadataConnector):
             JOIN pg_catalog.pg_class c ON c.oid = a.attrelid
             JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
             JOIN pg_catalog.pg_type t ON t.oid = a.atttypid
+            LEFT JOIN pg_catalog.pg_collation col ON col.oid = a.attcollation
             LEFT JOIN pg_catalog.pg_attrdef ad ON ad.adrelid = a.attrelid AND ad.adnum = a.attnum
             LEFT JOIN pg_catalog.pg_description d ON d.objoid = a.attrelid AND d.objsubid = a.attnum
             LEFT JOIN (
@@ -348,6 +350,26 @@ class PostgresConnector(BaseMetadataConnector):
             if should_dispose:
                 await engine.dispose()
 
+    async def extract_database_collation(self) -> Optional[str]:
+        """Extracts the connected database's default collation."""
+        engine = self._engine or self._create_engine()
+        should_dispose = self._engine is None
+        try:
+            async with engine.connect() as conn:
+                for stmt in self.get_session_setup_statements():
+                    await conn.execute(text(stmt))
+                result = await conn.execute(
+                    text("SELECT datcollate FROM pg_database WHERE datname = current_database()")
+                )
+                row = result.fetchone()
+                return str(row[0]) if row and row[0] else None
+        except Exception as exc:
+            logger.debug("Database collation extraction failed: %s", exc)
+            return None
+        finally:
+            if should_dispose:
+                await engine.dispose()
+
     async def extract_schemas(self) -> List[SchemaMetadata]:
         """Lists accessible schemas excluding internal system schemas."""
         engine = self._engine or self._create_engine()
@@ -418,6 +440,7 @@ class PostgresConnector(BaseMetadataConnector):
                         ordinal_position=int(row.ordinal_position),
                         data_type=row.data_type,
                         raw_data_type=row.raw_data_type,
+                        collation=row.collation,
                         is_nullable=bool(row.is_nullable),
                         is_primary_key=bool(row.is_primary_key),
                         is_foreign_key=bool(row.is_foreign_key),

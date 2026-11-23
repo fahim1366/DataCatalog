@@ -304,6 +304,9 @@
                     <td>
                       <div class="db-cell">
                         <span class="td-mono">{{ conn.database_name }}</span>
+                        @if (conn.collation) {
+                          <span class="collation-badge" title="Collation: {{ conn.collation }}">{{ conn.collation }}</span>
+                        }
                         @if (conn.default_schema) {
                           <span class="schema-hint">{{ conn.default_schema }}</span>
                         }
@@ -443,6 +446,13 @@
                             <div class="detail-block">
                               <span class="detail-label">اسکیمای پیش‌فرض</span>
                               <span class="detail-value td-mono">{{ conn.default_schema }}</span>
+                            </div>
+                          }
+
+                          @if (conn.collation) {
+                            <div class="detail-block">
+                              <span class="detail-label">Collation (ترتیب تطبیق)</span>
+                              <span class="detail-value td-mono">{{ conn.collation }}</span>
                             </div>
                           }
 

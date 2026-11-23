@@ -258,6 +258,9 @@ class CatalogColumn(Base):
     ordinal_position: Mapped[int] = mapped_column(Integer, nullable=False)
     data_type: Mapped[str] = mapped_column(String(100), nullable=False)
     raw_data_type: Mapped[str] = mapped_column(String(255), nullable=False)
+    collation: Mapped[Optional[str]] = mapped_column(
+        "collation", String(128), nullable=True, quote=True
+    )
     is_nullable: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=True, server_default=text("true")
     )

@@ -204,6 +204,13 @@ async def execute_metadata_sync(
         try:
             connector = default_connector_registry.create_connector(conn.engine_type, config)
             async with connector:
+                try:
+                    db_collation = await connector.extract_database_collation()
+                    if db_collation:
+                        conn.collation = db_collation
+                        await sess.flush()
+                except Exception as col_err:
+                    logger.debug("Collation extraction skipped: %s", col_err)
                 extractions = await connector.extract_all_schemas()
         except Exception as exc:
             now = datetime.now(timezone.utc)
@@ -257,6 +264,7 @@ async def execute_metadata_sync(
                         ordinal_position=c.ordinal_position,
                         data_type=c.data_type,
                         raw_data_type=c.raw_data_type,
+                        collation=c.collation,
                         is_nullable=c.is_nullable,
                         is_primary_key=c.is_primary_key,
                         is_foreign_key=c.is_foreign_key,
@@ -315,6 +323,7 @@ async def execute_metadata_sync(
                 connection_id=conn.id,
                 schema_name=ext.schema.name,
                 schema_description=ext.schema.description,
+                database_collation=conn.collation,
                 tables=table_payloads,
                 indexes=idx_payloads,
                 routines=routine_payloads,

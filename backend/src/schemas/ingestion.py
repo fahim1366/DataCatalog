@@ -12,6 +12,7 @@ class IngestColumnPayload(BaseModel):
     ordinal_position: int = Field(..., ge=1)
     data_type: str = Field(..., max_length=100)
     raw_data_type: str = Field(..., max_length=255)
+    collation: Optional[str] = Field(None, max_length=128)
     is_nullable: bool = True
     is_primary_key: bool = False
     is_foreign_key: bool = False
@@ -54,6 +55,7 @@ class BulkIngestionRequest(BaseModel):
     connection_id: uuid.UUID
     schema_name: str = Field(..., max_length=255)
     schema_description: Optional[str] = None
+    database_collation: Optional[str] = None
     tables: List[IngestTablePayload] = Field(default_factory=list)
     indexes: List[IngestIndexPayload] = Field(default_factory=list)
     routines: List[IngestRoutinePayload] = Field(default_factory=list)

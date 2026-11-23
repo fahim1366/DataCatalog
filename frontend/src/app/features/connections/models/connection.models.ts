@@ -24,6 +24,7 @@ export interface DatabaseConnection {
   port: number;
   database_name: string;
   default_schema?: string | null;
+  collation?: string | null;
   owner: string;
   is_active: boolean;
   category_id?: string | null;

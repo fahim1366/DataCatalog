@@ -69,6 +69,7 @@ export interface ColumnItem {
   ordinal_position: number;
   data_type: string;
   raw_data_type: string;
+  collation?: string | null;
   is_nullable: boolean;
   is_primary_key: boolean;
   is_foreign_key: boolean;
@@ -94,6 +95,7 @@ export interface TableDetail {
   database_name: string;
   name: string;
   table_type: string;
+  collation?: string | null;
   row_count_estimate: number;
   size_bytes: number;
   source_description?: string | null;
@@ -121,6 +123,7 @@ export interface PhysicalTableNode {
   id: string;
   name: string;
   table_type: string;
+  collation?: string | null;
   row_count_estimate: number;
   column_count: number;
 }
@@ -140,6 +143,7 @@ export interface PhysicalDatabaseNode {
   host?: string | null;
   port?: number | null;
   owner?: string | null;
+  collation?: string | null;
   is_active?: boolean;
   schemas: PhysicalSchemaNode[];
 }

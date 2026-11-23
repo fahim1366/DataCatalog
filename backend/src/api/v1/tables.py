@@ -66,6 +66,7 @@ class PhysicalDatabaseNode(BaseModel):
     host: Optional[str] = None
     port: Optional[int] = None
     owner: Optional[str] = None
+    collation: Optional[str] = None
     is_active: Optional[bool] = True
     schemas: List[PhysicalSchemaNode]
 
@@ -213,6 +214,7 @@ async def get_physical_tree(
                 host=conn.host,
                 port=conn.port,
                 owner=conn.owner,
+                collation=conn.collation,
                 is_active=conn.is_active,
                 schemas=schema_nodes,
             )

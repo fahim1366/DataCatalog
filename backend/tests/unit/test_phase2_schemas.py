@@ -226,3 +226,60 @@ def test_table_statistics_history_response_schema():
     assert resp.data_points[0].row_count_estimate == 1500000
     assert resp.data_points[0].size_bytes == 104857600
     assert resp.data_points[0].sync_job_id == sync_job_id
+
+
+def test_collation_in_schemas():
+    from backend.src.schemas.connections import ConnectionResponse
+    from backend.src.schemas.catalog import ColumnItem, TableDetail
+    from backend.src.models.connections import DatabaseEngine
+
+    conn_data = {
+        "id": uuid.uuid4(),
+        "name": "test_db_conn",
+        "engine_type": DatabaseEngine.POSTGRESQL,
+        "host": "localhost",
+        "port": 5432,
+        "database_name": "test_db",
+        "collation": "en_US.utf8",
+        "owner": "admin",
+        "is_active": True,
+        "created_at": datetime.now(timezone.utc),
+        "updated_at": datetime.now(timezone.utc),
+    }
+    conn_resp = ConnectionResponse.model_validate(conn_data)
+    assert conn_resp.collation == "en_US.utf8"
+
+    col_data = {
+        "id": uuid.uuid4(),
+        "table_id": uuid.uuid4(),
+        "name": "username",
+        "ordinal_position": 1,
+        "data_type": "varchar(50)",
+        "raw_data_type": "varchar",
+        "collation": "fa_IR.utf8",
+        "is_nullable": False,
+        "is_primary_key": False,
+        "is_foreign_key": False,
+        "classification_level": "INTERNAL",
+        "status": "ACTIVE",
+    }
+    col_item = ColumnItem.model_validate(col_data)
+    assert col_item.collation == "fa_IR.utf8"
+
+    tbl_data = {
+        "id": uuid.uuid4(),
+        "schema_id": uuid.uuid4(),
+        "schema_name": "public",
+        "database_name": "test_db",
+        "name": "users",
+        "table_type": "TABLE",
+        "collation": "en_US.utf8",
+        "row_count_estimate": 100,
+        "size_bytes": 1024,
+        "status": "ACTIVE",
+        "columns": [col_item],
+    }
+    tbl_detail = TableDetail.model_validate(tbl_data)
+    assert tbl_detail.collation == "en_US.utf8"
+    assert tbl_detail.columns[0].collation == "fa_IR.utf8"
+

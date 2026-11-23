@@ -977,6 +977,7 @@
                   <th>ردیف</th>
                   <th>نام فیلد</th>
                   <th>نوع داده</th>
+                  <th>Collation</th>
                   <th>ویژگی کلید</th>
                   <th>اجباری</th>
                   <th>سطح محرمانگی</th>
@@ -998,6 +999,15 @@
                       }
                     </td>
                     <td><span class="code-badge">{{ col.data_type }}</span></td>
+                    <td class="mono-font">
+                      @if (col.collation) {
+                        <span class="code-badge">{{ col.collation }}</span>
+                      } @else if (isTextColumn(col)) {
+                        <span class="text-muted">پیش‌فرض دیتابیس</span>
+                      } @else {
+                        <span class="text-muted">-</span>
+                      }
+                    </td>
                     <td>
                       @if (col.is_primary_key) { <span>کلید اصلی</span> }
                       @else if (col.is_foreign_key) { <span>کلید خارجی</span> }

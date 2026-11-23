@@ -681,6 +681,18 @@ export class CatalogExplorerComponent implements OnInit {
     }
   }
 
+  isTextColumn(col: ColumnItem): boolean {
+    if (!col || !col.data_type) return false;
+    const dt = col.data_type.toLowerCase();
+    return (
+      dt.includes('char') ||
+      dt.includes('text') ||
+      dt.includes('string') ||
+      dt.includes('clob') ||
+      dt.includes('varchar')
+    );
+  }
+
   // Column Classification Dropdown Update
   async onClassificationChange(col: ColumnItem, newLevel: string): Promise<void> {
     try {

@@ -201,6 +201,15 @@ describe('CatalogStore (T016: Signal Store for Metadata Discovery)', () => {
     expect(store.tables()[0].owner).toBe('new_owner@company.internal');
   });
 
+  it('should include sort_by and min_rows in search request URL when provided', async () => {
+    store.search('test', true, { sort_by: 'row_count_desc', min_rows: 10 });
+    const req = httpTesting.expectOne(
+      '/api/v1/search?q=test&limit=50&cursor=&sort_by=row_count_desc&min_rows=10'
+    );
+    expect(req.request.method).toBe('GET');
+    req.flush(responsePage1);
+  });
+
   it('should reset isLoading flag to false when search encounters an HTTP error', async () => {
     const p = store.search('error_query');
     expect(store.isLoading()).toBe(true);

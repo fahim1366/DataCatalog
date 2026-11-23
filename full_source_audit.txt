@@ -1431,7 +1431,9 @@ from __future__ import annotations
 
 import asyncio
 from datetime import datetime, timezone
+import ipaddress
 import logging
+import socket
 import uuid
 from typing import List, Optional
 
@@ -1606,6 +1608,60 @@ def format_connection_error_persian(raw_error: str, context: str = "discovery") 
     )
 
 
+def _validate_target_host(host: str) -> None:
+    """
+    SSRF Protection: Validates connection target host before executing discovery or live tests.
+    Rejects link-local / cloud metadata IP ranges (169.254.0.0/16, 0.0.0.0/8) and empty/whitespace hostnames
+    with HTTP 400 Bad Request and a clear Persian error message.
+    """
+    if not host or not str(host).strip():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="ط¢ط¯ط±ط³ ط³ط±ظˆط± ظˆط§ط±ط¯ ط´ط¯ظ‡ ظ…ط¬ط§ط² ظ†غŒط³طھ.",
+        )
+
+    clean_host = str(host).strip()
+    if clean_host.startswith("[") and clean_host.endswith("]"):
+        clean_host = clean_host[1:-1]
+
+    blocked_networks = [
+        ipaddress.ip_network("169.254.0.0/16"),
+        ipaddress.ip_network("0.0.0.0/8"),
+    ]
+
+    # 1. Direct IP literal check
+    try:
+        ip = ipaddress.ip_address(clean_host)
+        if ip.is_link_local or any(ip in net for net in blocked_networks):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="ط¢ط¯ط±ط³ ط³ط±ظˆط± ظˆط§ط±ط¯ ط´ط¯ظ‡ ظ…ط¬ط§ط² ظ†غŒط³طھ.",
+            )
+        return
+    except ValueError:
+        pass
+
+    # 2. Hostname DNS resolution check
+    try:
+        addr_infos = socket.getaddrinfo(clean_host, None)
+        for _, _, _, _, sockaddr in addr_infos:
+            ip_str = sockaddr[0]
+            try:
+                resolved_ip = ipaddress.ip_address(ip_str)
+                if resolved_ip.is_link_local or any(resolved_ip in net for net in blocked_networks):
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail="ط¢ط¯ط±ط³ ط³ط±ظˆط± ظˆط§ط±ط¯ ط´ط¯ظ‡ ظ…ط¬ط§ط² ظ†غŒط³طھ.",
+                    )
+            except ValueError:
+                pass
+    except HTTPException:
+        raise
+    except Exception:
+        # Non-resolving hostnames will be handled by the connector dialect with standard connection errors
+        pass
+
+
 async def require_manage_schedules(
     user_ctx: UserContext = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session),
@@ -1722,6 +1778,8 @@ async def discover_databases(
     Connects transiently (NullPool, READ ONLY, 5s timeout) to the maintenance DB
     and queries pg_database (for PostgreSQL) returning list of active non-template databases.
     """
+    _validate_target_host(payload.host)
+
     config = {
         "host": payload.host,
         "port": payload.port,
@@ -1770,6 +1828,8 @@ async def test_unsaved_connection(
     Executes a transient 5-point dialect connectivity test bounded by a strict 5.0s timeout
     on unsaved connection credentials before persisting the connection profile.
     """
+    _validate_target_host(payload.host)
+
     config = {
         "host": payload.host,
         "port": payload.port,
@@ -3835,7 +3895,7 @@ from fastapi.responses import PlainTextResponse
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.src.api.dependencies.rbac import (
@@ -3915,13 +3975,18 @@ async def require_reports_permission(
 )
 async def get_completeness_report(
     connection_ids: Optional[List[uuid.UUID]] = Query(None, description="Filter by database connection IDs"),
+    exclude_low_row_tables: bool = Query(False, description="Exclude low-row/empty tables (< 10 rows)"),
     user_ctx: UserContext = Depends(require_reports_permission),
     db: AsyncSession = Depends(get_db_session),
 ) -> CompletenessReport:
     """
     Returns aggregated metadata completeness metrics across all registered databases or filtered ones.
     """
-    return await report_service.get_metadata_completeness(db, connection_ids=connection_ids)
+    return await report_service.get_metadata_completeness(
+        db,
+        connection_ids=connection_ids,
+        exclude_low_row_tables=exclude_low_row_tables,
+    )
 
 
 @router.get(
@@ -3936,13 +4001,18 @@ async def get_completeness_report(
 )
 async def get_classification_distribution_report(
     connection_ids: Optional[List[uuid.UUID]] = Query(None, description="Filter by database connection IDs"),
+    exclude_low_row_tables: bool = Query(False, description="Exclude low-row/empty tables (< 10 rows)"),
     user_ctx: UserContext = Depends(require_reports_permission),
     db: AsyncSession = Depends(get_db_session),
 ) -> ClassificationReport:
     """
     Returns security classification and PII distribution metrics across all catalog columns or filtered ones.
     """
-    return await report_service.get_classification_distribution(db, connection_ids=connection_ids)
+    return await report_service.get_classification_distribution(
+        db,
+        connection_ids=connection_ids,
+        exclude_low_row_tables=exclude_low_row_tables,
+    )
 
 
 @router.post(
@@ -3972,6 +4042,7 @@ async def refresh_reporting_views(
 async def export_reports(
     format: str = Query("json", pattern="^(json|csv|xlsx)$"),
     connection_ids: Optional[List[uuid.UUID]] = Query(None, description="Filter by database connection IDs"),
+    exclude_low_row_tables: bool = Query(False, description="Exclude low-row/empty tables (< 10 rows)"),
     user_ctx: UserContext = Depends(require_reports_permission),
     db: AsyncSession = Depends(get_db_session),
 ):
@@ -3979,8 +4050,16 @@ async def export_reports(
     Exports executive reporting summary and enterprise data dictionary in XLSX, CSV (UTF-8 BOM), or JSON.
     Guarded by EXPORT_REPORTS permission.
     """
-    completeness = await report_service.get_metadata_completeness(db, connection_ids=connection_ids)
-    classification = await report_service.get_classification_distribution(db, connection_ids=connection_ids)
+    completeness = await report_service.get_metadata_completeness(
+        db,
+        connection_ids=connection_ids,
+        exclude_low_row_tables=exclude_low_row_tables,
+    )
+    classification = await report_service.get_classification_distribution(
+        db,
+        connection_ids=connection_ids,
+        exclude_low_row_tables=exclude_low_row_tables,
+    )
 
     # 1. Fetch Data Dictionary Tables
     table_stmt = (
@@ -4002,6 +4081,8 @@ async def export_reports(
     )
     if connection_ids:
         table_stmt = table_stmt.where(DatabaseConnection.id.in_(connection_ids))
+    if exclude_low_row_tables:
+        table_stmt = table_stmt.where(func.coalesce(CatalogTable.row_count_estimate, 0) >= 10)
     table_stmt = table_stmt.order_by(
         DatabaseConnection.database_name.asc(),
         DatabaseSchema.name.asc(),
@@ -4038,6 +4119,8 @@ async def export_reports(
     )
     if connection_ids:
         col_stmt = col_stmt.where(DatabaseConnection.id.in_(connection_ids))
+    if exclude_low_row_tables:
+        col_stmt = col_stmt.where(func.coalesce(CatalogTable.row_count_estimate, 0) >= 10)
     col_stmt = col_stmt.order_by(
         DatabaseConnection.database_name.asc(),
         DatabaseSchema.name.asc(),
@@ -4408,6 +4491,7 @@ async def export_reports(
 async def get_report_preview(
     connection_ids: Optional[List[uuid.UUID]] = Query(None, description="Filter by database connection IDs"),
     limit: int = Query(100, ge=1, le=500),
+    exclude_low_row_tables: bool = Query(False, description="Exclude low-row/empty tables (< 10 rows)"),
     user_ctx: UserContext = Depends(require_reports_permission),
     db: AsyncSession = Depends(get_db_session),
 ):
@@ -4433,6 +4517,8 @@ async def get_report_preview(
     )
     if connection_ids:
         stmt = stmt.where(DatabaseConnection.id.in_(connection_ids))
+    if exclude_low_row_tables:
+        stmt = stmt.where(func.coalesce(CatalogTable.row_count_estimate, 0) >= 10)
     stmt = stmt.order_by(
         DatabaseConnection.database_name.asc(),
         DatabaseSchema.name.asc(),
@@ -5035,6 +5121,8 @@ async def search_catalog(
     q: Optional[str] = Query("", description="Search query string"),
     limit: int = Query(50, ge=1, le=100, description="Max results per page"),
     cursor: Optional[str] = Query(None, description="Base64-encoded keyset cursor"),
+    sort_by: str = Query("row_count_desc", pattern="^(row_count_desc|row_count_asc|name_asc)$"),
+    min_rows: Optional[int] = Query(None, ge=0, description="Filter tables with row_count_estimate >= min_rows"),
     include_deleted: bool = Query(False, description="Include soft-deleted tables"),
     database: Optional[str] = Query(None, description="Filter by database name"),
     schema: Optional[str] = Query(None, description="Filter by schema name"),
@@ -5056,6 +5144,8 @@ async def search_catalog(
         query=q,
         limit=limit,
         cursor=cursor,
+        sort_by=sort_by,
+        min_rows=min_rows,
         include_deleted=include_deleted,
         database_name=database,
         schema_name=schema,
@@ -10291,7 +10381,7 @@ class ConnectionTestResponse(BaseModel):
 
 class DiscoverDatabasesRequest(BaseModel):
     engine_type: DatabaseEngine
-    host: str = Field(..., min_length=1, max_length=255)
+    host: str = Field(..., max_length=255)
     port: int = Field(..., ge=1, le=65535)
     credentials: Dict[str, Any] = Field(..., description="Credentials containing username and password")
     custom_params: Dict[str, Any] = Field(default_factory=dict)
@@ -10307,7 +10397,7 @@ class DiscoverDatabasesResponse(BaseModel):
 
 class TestUnsavedConnectionRequest(BaseModel):
     engine_type: DatabaseEngine
-    host: str = Field(..., min_length=1, max_length=255)
+    host: str = Field(..., max_length=255)
     port: int = Field(..., ge=1, le=65535)
     database_name: str = Field(..., min_length=1, max_length=255)
     credentials: Dict[str, Any] = Field(..., description="Credentials containing username and password")
@@ -11681,17 +11771,57 @@ from backend.src.models.rbac import Category, CategoryAssignment, EntityType, Pe
 from backend.src.services.rbac.category_service import CategoryService
 
 
-def encode_cursor(sort_val: str, row_id: uuid.UUID) -> str:
-    """Encodes a sort value and UUID into an opaque URL-safe Base64 cursor."""
-    payload = {"val": sort_val, "id": str(row_id)}
+class CursorData(dict):
+    """Cursor dictionary that also supports unpacking like a 2-tuple (val, id)."""
+
+    def __iter__(self):
+        yield self.get("name") or self.get("val", "")
+        yield uuid.UUID(str(self["id"]))
+
+    @property
+    def val(self) -> str:
+        return str(self.get("val", ""))
+
+    @property
+    def id(self) -> uuid.UUID:
+        return uuid.UUID(str(self["id"]))
+
+    @property
+    def name(self) -> str:
+        return str(self.get("name", self.get("val", "")))
+
+    @property
+    def rows(self) -> int:
+        return int(self.get("rows", 0))
+
+
+def encode_cursor(
+    sort_val: Any,
+    row_id: uuid.UUID,
+    name: Optional[str] = None,
+    row_count: Optional[int] = None,
+    sort_by: str = "row_count_desc",
+) -> str:
+    """Encodes a sort value, UUID, name and row count into an opaque URL-safe Base64 cursor."""
+    row_name = name or (str(sort_val) if not isinstance(sort_val, (int, float)) else "")
+    row_cnt = row_count if row_count is not None else (
+        int(sort_val) if isinstance(sort_val, (int, float)) or (isinstance(sort_val, str) and sort_val.isdigit()) else 0
+    )
+    payload = {
+        "val": str(row_cnt) if "row_count" in sort_by else row_name,
+        "id": str(row_id),
+        "name": row_name,
+        "rows": row_cnt,
+        "sort": sort_by,
+    }
     return base64.b64encode(json.dumps(payload).encode("utf-8")).decode("utf-8")
 
 
-def decode_cursor(cursor_str: str) -> Tuple[str, uuid.UUID]:
-    """Decodes a Base64 keyset cursor into sort value and row UUID."""
+def decode_cursor(cursor_str: str) -> CursorData:
+    """Decodes a Base64 keyset cursor into CursorData."""
     raw = base64.b64decode(cursor_str.encode("utf-8")).decode("utf-8")
     data = json.loads(raw)
-    return str(data["val"]), uuid.UUID(str(data["id"]))
+    return CursorData(data)
 
 
 class SearchService:
@@ -11707,6 +11837,8 @@ class SearchService:
         query: Optional[str] = "",
         limit: int = 50,
         cursor: Optional[str] = None,
+        sort_by: str = "row_count_desc",
+        min_rows: Optional[int] = None,
         include_deleted: bool = False,
         database_name: Optional[str] = None,
         schema_name: Optional[str] = None,
@@ -11812,26 +11944,83 @@ class SearchService:
             else:
                 stmt = stmt.where(or_())
 
+        if min_rows is not None:
+            stmt = stmt.where(func.coalesce(CatalogTable.row_count_estimate, 0) >= min_rows)
+
         # Apply SQL-pushed RBAC filter
         rbac_filter = build_table_rbac_filter(user_ctx=user_ctx, action=PermissionAction.VIEW_METADATA)
         stmt = rbac_filter(stmt)
 
-        # Keyset pagination condition: (name, id) > (cursor_val, cursor_id)
+        # Keyset pagination condition based on sort_by
+        coalesced_rows = func.coalesce(CatalogTable.row_count_estimate, 0)
         if cursor:
             try:
-                cursor_val, cursor_id = decode_cursor(cursor)
-                stmt = stmt.where(
-                    or_(
-                        CatalogTable.name > cursor_val,
-                        and_(CatalogTable.name == cursor_val, CatalogTable.id > cursor_id),
-                    )
+                cur_data = decode_cursor(cursor)
+                cur_id = uuid.UUID(str(cur_data["id"]))
+                cur_name = str(cur_data.get("name") or cur_data.get("val", ""))
+                cur_rows = int(cur_data.get("rows", 0)) if "rows" in cur_data else (
+                    int(cur_data["val"]) if str(cur_data.get("val", "")).isdigit() else 0
                 )
+
+                if sort_by == "row_count_desc":
+                    stmt = stmt.where(
+                        or_(
+                            coalesced_rows < cur_rows,
+                            and_(
+                                coalesced_rows == cur_rows,
+                                CatalogTable.name > cur_name,
+                            ),
+                            and_(
+                                coalesced_rows == cur_rows,
+                                CatalogTable.name == cur_name,
+                                CatalogTable.id > cur_id,
+                            ),
+                        )
+                    )
+                elif sort_by == "row_count_asc":
+                    stmt = stmt.where(
+                        or_(
+                            coalesced_rows > cur_rows,
+                            and_(
+                                coalesced_rows == cur_rows,
+                                CatalogTable.name > cur_name,
+                            ),
+                            and_(
+                                coalesced_rows == cur_rows,
+                                CatalogTable.name == cur_name,
+                                CatalogTable.id > cur_id,
+                            ),
+                        )
+                    )
+                else:  # name_asc
+                    stmt = stmt.where(
+                        or_(
+                            CatalogTable.name > cur_name,
+                            and_(CatalogTable.name == cur_name, CatalogTable.id > cur_id),
+                        )
+                    )
             except Exception:
                 # Invalid cursor format fallback -> ignore cursor
                 pass
 
         # Deterministic sorting for keyset cursor pagination
-        stmt = stmt.order_by(CatalogTable.name.asc(), CatalogTable.id.asc()).limit(limit + 1)
+        if sort_by == "row_count_desc":
+            stmt = stmt.order_by(
+                coalesced_rows.desc(),
+                CatalogTable.name.asc(),
+                CatalogTable.id.asc(),
+            ).limit(limit + 1)
+        elif sort_by == "row_count_asc":
+            stmt = stmt.order_by(
+                coalesced_rows.asc(),
+                CatalogTable.name.asc(),
+                CatalogTable.id.asc(),
+            ).limit(limit + 1)
+        else:  # name_asc
+            stmt = stmt.order_by(
+                CatalogTable.name.asc(),
+                CatalogTable.id.asc(),
+            ).limit(limit + 1)
 
         result = await session.execute(stmt)
         rows = result.all()
@@ -11889,7 +12078,13 @@ class SearchService:
         next_cursor = None
         if has_next_page and selected_rows:
             last_table: CatalogTable = selected_rows[-1][0]
-            next_cursor = encode_cursor(last_table.name, last_table.id)
+            next_cursor = encode_cursor(
+                sort_val=last_table.name,
+                row_id=last_table.id,
+                name=last_table.name,
+                row_count=last_table.row_count_estimate,
+                sort_by=sort_by,
+            )
 
         page_info = {
             "has_next_page": has_next_page,
@@ -14954,10 +15149,11 @@ class BulkIngestionService:
             )
             columns_upserted_count = len(col_upsert_res.scalars().all())
 
-        # 4b. Upsert Indexes
+        # 4b. Upsert & Refresh Indexes (clean up dropped indexes on scanned tables)
+        scanned_table_ids = list(table_id_map.values())
+        idx_table_ids: List[uuid.UUID] = []
+        idx_names: List[str] = []
         if payload.indexes:
-            idx_table_ids: List[uuid.UUID] = []
-            idx_names: List[str] = []
             idx_uniques: List[bool] = []
             idx_primaries: List[bool] = []
             idx_types: List[str] = []
@@ -15016,10 +15212,43 @@ class BulkIngestionService:
                     },
                 )
 
-        # 4c. Upsert Routines
+        # Stale/dropped index cleanup for scanned tables
+        if scanned_table_ids and payload.indexes is not None:
+            if idx_table_ids:
+                clean_idx_stmt = text("""
+                    WITH scanned_idx AS (
+                        SELECT UNNEST(CAST(:tbl_ids AS uuid[])) AS table_id,
+                               UNNEST(CAST(:names AS varchar[])) AS idx_name
+                    )
+                    DELETE FROM catalog_indexes ci
+                    WHERE ci.table_id = ANY(CAST(:distinct_tbl_ids AS uuid[]))
+                      AND NOT EXISTS (
+                          SELECT 1 FROM scanned_idx si
+                          WHERE si.table_id = ci.table_id AND si.idx_name = ci.name
+                      );
+                """)
+                await session.execute(
+                    clean_idx_stmt,
+                    {
+                        "tbl_ids": idx_table_ids,
+                        "names": idx_names,
+                        "distinct_tbl_ids": scanned_table_ids,
+                    },
+                )
+            elif len(payload.indexes) == 0 and len(payload.tables) > 0:
+                clean_idx_stmt = text("""
+                    DELETE FROM catalog_indexes
+                    WHERE table_id = ANY(CAST(:distinct_tbl_ids AS uuid[]));
+                """)
+                await session.execute(
+                    clean_idx_stmt,
+                    {"distinct_tbl_ids": scanned_table_ids},
+                )
+
+        # 4c. Upsert & Refresh Routines
+        rt_names: List[str] = []
+        rt_types: List[str] = []
         if payload.routines:
-            rt_names: List[str] = []
-            rt_types: List[str] = []
             rt_languages: List[str] = []
             rt_signatures: List[Optional[str]] = []
             rt_returns: List[Optional[str]] = []
@@ -15070,8 +15299,40 @@ class BulkIngestionService:
                     },
                 )
 
+        # Stale/dropped routine cleanup for schema (skipping failed schemas)
+        if payload.routines is not None and not (effective_failed_schemas and schema_name in effective_failed_schemas):
+            if rt_names:
+                clean_rt_stmt = text("""
+                    WITH scanned_rt AS (
+                        SELECT UNNEST(CAST(:names AS varchar[])) AS rt_name,
+                               UNNEST(CAST(:routine_types AS varchar[])) AS rt_type
+                    )
+                    DELETE FROM catalog_routines cr
+                    WHERE cr.schema_id = :schema_id
+                      AND NOT EXISTS (
+                          SELECT 1 FROM scanned_rt sr
+                          WHERE sr.rt_name = cr.name AND sr.rt_type = cr.routine_type
+                      );
+                """)
+                await session.execute(
+                    clean_rt_stmt,
+                    {
+                        "schema_id": schema_id,
+                        "names": rt_names,
+                        "routine_types": rt_types,
+                    },
+                )
+            elif len(payload.routines) == 0 and len(payload.tables) > 0:
+                clean_rt_stmt = text("""
+                    DELETE FROM catalog_routines
+                    WHERE schema_id = :schema_id;
+                """)
+                await session.execute(
+                    clean_rt_stmt,
+                    {"schema_id": schema_id},
+                )
+
         # 5. Soft-delete missing columns for scanned tables (Set-based vectorized sweep)
-        scanned_table_ids = list(table_id_map.values())
         if scanned_table_ids:
             if col_ids:
                 soft_del_col_stmt = text("""
@@ -16230,14 +16491,16 @@ class ReportService:
         self,
         session: AsyncSession,
         connection_ids: Optional[List[uuid.UUID]] = None,
+        exclude_low_row_tables: bool = False,
     ) -> CompletenessReport:
         """
         Retrieves metadata completeness metrics across all registered database connections
         or filtered by connection_ids.
         """
         start_time = time.perf_counter()
+        tbl_filter = "AND COALESCE(t.row_count_estimate, 0) >= 10" if exclude_low_row_tables else ""
         if connection_ids:
-            query_sql = """
+            query_sql = f"""
                 WITH tbl_stats AS (
                     SELECT 
                         s.connection_id,
@@ -16246,7 +16509,7 @@ class ReportService:
                         COUNT(t.id) FILTER (WHERE t.effective_description IS NOT NULL AND t.effective_description <> '') AS tables_with_desc,
                         COUNT(t.id) FILTER (WHERE t.owner IS NOT NULL AND t.owner <> '') AS tables_with_owner
                     FROM schemas s
-                    LEFT JOIN catalog_tables t ON t.schema_id = s.id AND t.status != 'DELETED'
+                    LEFT JOIN catalog_tables t ON t.schema_id = s.id AND t.status != 'DELETED' {tbl_filter}
                     WHERE s.status != 'DELETED' AND s.connection_id = ANY(:cids)
                     GROUP BY s.connection_id
                 ),
@@ -16255,7 +16518,7 @@ class ReportService:
                         s.connection_id,
                         COUNT(c.id) AS column_count
                     FROM schemas s
-                    JOIN catalog_tables t ON t.schema_id = s.id AND t.status != 'DELETED'
+                    JOIN catalog_tables t ON t.schema_id = s.id AND t.status != 'DELETED' {tbl_filter}
                     JOIN catalog_columns c ON c.table_id = t.id AND c.status != 'DELETED'
                     WHERE s.status != 'DELETED' AND s.connection_id = ANY(:cids)
                     GROUP BY s.connection_id
@@ -16279,7 +16542,7 @@ class ReportService:
             """
             params = {"cids": [str(cid) for cid in connection_ids]}
         else:
-            query_sql = """
+            query_sql = f"""
                 WITH tbl_stats AS (
                     SELECT 
                         s.connection_id,
@@ -16288,7 +16551,7 @@ class ReportService:
                         COUNT(t.id) FILTER (WHERE t.effective_description IS NOT NULL AND t.effective_description <> '') AS tables_with_desc,
                         COUNT(t.id) FILTER (WHERE t.owner IS NOT NULL AND t.owner <> '') AS tables_with_owner
                     FROM schemas s
-                    LEFT JOIN catalog_tables t ON t.schema_id = s.id AND t.status != 'DELETED'
+                    LEFT JOIN catalog_tables t ON t.schema_id = s.id AND t.status != 'DELETED' {tbl_filter}
                     WHERE s.status != 'DELETED'
                     GROUP BY s.connection_id
                 ),
@@ -16297,7 +16560,7 @@ class ReportService:
                         s.connection_id,
                         COUNT(c.id) AS column_count
                     FROM schemas s
-                    JOIN catalog_tables t ON t.schema_id = s.id AND t.status != 'DELETED'
+                    JOIN catalog_tables t ON t.schema_id = s.id AND t.status != 'DELETED' {tbl_filter}
                     JOIN catalog_columns c ON c.table_id = t.id AND c.status != 'DELETED'
                     WHERE s.status != 'DELETED'
                     GROUP BY s.connection_id
@@ -16377,6 +16640,7 @@ class ReportService:
         self,
         session: AsyncSession,
         connection_ids: Optional[List[uuid.UUID]] = None,
+        exclude_low_row_tables: bool = False,
     ) -> ClassificationReport:
         """
         Retrieves column-level security classification breakdown across all connected
@@ -16384,8 +16648,9 @@ class ReportService:
         """
         start_time = time.perf_counter()
         params = {}
+        tbl_filter = "AND COALESCE(t.row_count_estimate, 0) >= 10" if exclude_low_row_tables else ""
         if connection_ids:
-            query_sql = """
+            query_sql = f"""
                 SELECT 
                     c.classification_level,
                     count(c.id) AS column_count,
@@ -16393,14 +16658,14 @@ class ReportService:
                 FROM catalog_columns c
                 JOIN catalog_tables t ON t.id = c.table_id
                 JOIN schemas s ON s.id = t.schema_id
-                WHERE c.status != 'DELETED' AND t.status != 'DELETED' AND s.status != 'DELETED'
+                WHERE c.status != 'DELETED' AND t.status != 'DELETED' AND s.status != 'DELETED' {tbl_filter}
                   AND s.connection_id = ANY(:cids)
                 GROUP BY c.classification_level
                 ORDER BY c.classification_level ASC;
             """
             params["cids"] = [str(cid) for cid in connection_ids]
         else:
-            query_sql = """
+            query_sql = f"""
                 SELECT 
                     c.classification_level,
                     count(c.id) AS column_count,
@@ -16408,7 +16673,7 @@ class ReportService:
                 FROM catalog_columns c
                 JOIN catalog_tables t ON t.id = c.table_id
                 JOIN schemas s ON s.id = t.schema_id
-                WHERE c.status != 'DELETED' AND t.status != 'DELETED' AND s.status != 'DELETED'
+                WHERE c.status != 'DELETED' AND t.status != 'DELETED' AND s.status != 'DELETED' {tbl_filter}
                 GROUP BY c.classification_level
                 ORDER BY c.classification_level ASC;
             """
@@ -20739,7 +21004,7 @@ export class TableStatsService {
 /* --- Split Workspace --- */
 .monitor-workspace {
   display: grid;
-  grid-template-columns: 320px 1fr;
+  grid-template-columns: 340px 1fr;
   gap: 20px;
   align-items: start;
 }
@@ -20755,7 +21020,7 @@ export class TableStatsService {
   flex-direction: column;
 }
 .sidebar-header {
-  padding: 14px 16px;
+  padding: 12px 14px;
   border-bottom: 1px solid #f1f5f9;
   background-color: #f8fafc;
 }
@@ -20774,39 +21039,172 @@ export class TableStatsService {
   font-weight: 700;
   color: #1e293b;
   margin: 0;
+  flex: 1;
 }
-.sidebar-search-box {
+.db-counter-badge {
+  font-size: 11px;
+  font-weight: 700;
+  background-color: #e0e7ff;
+  color: #4338ca;
+  padding: 2px 7px;
+  border-radius: 12px;
+}
+
+/* --- Multi-Criteria Tree Filtering --- */
+.tree-filter-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.filter-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+.filter-row.engine-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.filter-input-group {
   position: relative;
+  display: flex;
+  align-items: center;
 }
-.sidebar-search-input {
+.input-icon {
+  position: absolute;
+  right: 8px;
+  font-size: 11px;
+  color: #94a3b8;
+  pointer-events: none;
+}
+.sidebar-filter-input {
   width: 100%;
-  padding: 7px 32px 7px 10px;
-  font-size: 12px;
+  padding: 6px 26px 6px 6px;
+  font-size: 11px;
   border: 1px solid #cbd5e1;
   border-radius: 6px;
   outline: none;
   background-color: #ffffff;
   box-sizing: border-box;
+  transition: border-color 0.15s ease;
 }
-.sidebar-search-input:focus {
+.sidebar-filter-input:focus {
   border-color: #6366f1;
-  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.15);
+  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.12);
 }
-.sidebar-search-box .search-icon {
-  position: absolute;
-  right: 10px;
-  top: 50%;
-  transform: translateY(-50%);
-  font-size: 12px;
-  color: #94a3b8;
+.sidebar-filter-select {
+  flex: 1;
+  padding: 6px 8px;
+  font-size: 11px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  outline: none;
+  background-color: #ffffff;
+  color: #334155;
+  cursor: pointer;
+  box-sizing: border-box;
 }
-.connections-list {
-  max-height: calc(100vh - 240px);
+.sidebar-filter-select:focus {
+  border-color: #6366f1;
+  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.12);
+}
+.btn-clear-tree-filters {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #dc2626;
+  background-color: #fef2f2;
+  border: 1px solid #fecaca;
+  border-radius: 6px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.15s ease;
+}
+.btn-clear-tree-filters:hover {
+  background-color: #fee2e2;
+}
+
+/* --- Tree Scroll Area & Categories Hierarchy --- */
+.tree-scroll-container {
+  max-height: calc(100vh - 270px);
   overflow-y: auto;
   padding: 8px;
   display: flex;
   flex-direction: column;
   gap: 6px;
+}
+.category-tree {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.tree-category-item {
+  display: flex;
+  flex-direction: column;
+}
+.category-header-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+  user-select: none;
+  font-size: 12px;
+  font-weight: 600;
+  color: #334155;
+  background-color: transparent;
+  transition: background-color 0.15s ease;
+}
+.category-header-row:hover {
+  background-color: #f1f5f9;
+}
+.category-header-row.expanded {
+  background-color: #f8fafc;
+}
+.category-header-row.uncategorized-header {
+  color: #92400e;
+}
+.expand-chevron {
+  font-size: 10px;
+  color: #94a3b8;
+  width: 14px;
+  text-align: center;
+}
+.category-icon {
+  font-size: 13px;
+}
+.category-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.category-count-badge {
+  font-size: 10px;
+  font-weight: 600;
+  background-color: #e2e8f0;
+  color: #475569;
+  padding: 1px 6px;
+  border-radius: 10px;
+}
+.category-children-container {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 3px;
+  margin-bottom: 4px;
+}
+.card-owner {
+  font-size: 10px;
+  color: #64748b;
+  margin-top: 2px;
+  display: flex;
+  align-items: center;
 }
 .connection-card-btn {
   display: flex;
@@ -21478,55 +21876,122 @@ export class TableStatsService {
 
   <!-- Workspace: Right Sidebar (Connections) + Main (Users Table) -->
   <div class="monitor-workspace">
-    <!-- Right Sidebar: Database Connections Selector -->
+    <!-- Right Sidebar: Hierarchical Category & Database Tree -->
     <aside class="connections-sidebar">
       <div class="sidebar-header">
         <div class="sidebar-title-row">
-          <i class="pi pi-server sidebar-icon"></i>
-          <h2 class="sidebar-title">ظ¾ط§غŒع¯ط§ظ‡â€Œظ‡ط§غŒ ط¯ط§ط¯ظ‡ ظ…طھطµظ„</h2>
+          <i class="pi pi-sitemap sidebar-icon"></i>
+          <h2 class="sidebar-title">ط¯ط±ط®طھظˆط§ط±ظ‡ ظ¾ط§غŒع¯ط§ظ‡â€Œظ‡ط§غŒ ط¯ط§ط¯ظ‡</h2>
+          <span class="db-counter-badge" title="طھط¹ط¯ط§ط¯ ظ¾ط§غŒع¯ط§ظ‡â€Œظ‡ط§غŒ ط¯ط§ط¯ظ‡ ظ…ظ†ط·ط¨ظ‚">
+            {{ totalFilteredDatabasesCount() }}
+          </span>
         </div>
-        <div class="sidebar-search-box">
-          <i class="pi pi-search search-icon"></i>
-          <input
-            type="text"
-            class="sidebar-search-input"
-            placeholder="ط¬ط³طھط¬ظˆغŒ ظ¾ط§غŒع¯ط§ظ‡ ط¯ط§ط¯ظ‡..."
-            [ngModel]="connectionSearchQuery()"
-            (ngModelChange)="connectionSearchQuery.set($event)"
-          />
+
+        <!-- Multi-criteria filter panel -->
+        <div class="tree-filter-panel">
+          <div class="filter-row">
+            <div class="filter-input-group">
+              <i class="pi pi-link input-icon"></i>
+              <input
+                type="text"
+                class="sidebar-filter-input"
+                placeholder="ظ†ط§ظ… ط§طھطµط§ظ„..."
+                [ngModel]="filterConnectionName()"
+                (ngModelChange)="filterConnectionName.set($event)"
+              />
+            </div>
+            <div class="filter-input-group">
+              <i class="pi pi-database input-icon"></i>
+              <input
+                type="text"
+                class="sidebar-filter-input td-mono"
+                placeholder="ظ†ط§ظ… ط¯غŒطھط§ط¨غŒط³..."
+                [ngModel]="filterDatabaseName()"
+                (ngModelChange)="filterDatabaseName.set($event)"
+              />
+            </div>
+          </div>
+
+          <div class="filter-row">
+            <div class="filter-input-group">
+              <i class="pi pi-globe input-icon"></i>
+              <input
+                type="text"
+                class="sidebar-filter-input td-mono td-ltr"
+                placeholder="IP / ظ‡ط§ط³طھ..."
+                [ngModel]="filterHost()"
+                (ngModelChange)="filterHost.set($event)"
+              />
+            </div>
+            <div class="filter-input-group">
+              <i class="pi pi-user input-icon"></i>
+              <input
+                type="text"
+                class="sidebar-filter-input"
+                placeholder="ظ…ط§ظ„ع©..."
+                [ngModel]="filterOwner()"
+                (ngModelChange)="filterOwner.set($event)"
+              />
+            </div>
+          </div>
+
+          <div class="filter-row engine-row">
+            <select
+              class="sidebar-filter-select"
+              [ngModel]="filterEngineType()"
+              (ngModelChange)="filterEngineType.set($event)"
+            >
+              <option value="">ظ‡ظ…ظ‡ ظ…ظˆطھظˆط±ظ‡ط§ (Engines)</option>
+              <option value="POSTGRESQL">PostgreSQL</option>
+              <option value="MSSQL">MSSQL</option>
+              <option value="ORACLE">Oracle</option>
+              <option value="MYSQL">MySQL</option>
+              <option value="CLICKHOUSE">ClickHouse</option>
+              <option value="MONGODB">MongoDB</option>
+            </select>
+
+            @if (hasActiveTreeFilters()) {
+              <button
+                type="button"
+                class="btn-clear-tree-filters"
+                (click)="clearTreeFilters()"
+                title="ظ¾ط§ع©ط³ط§ط²غŒ طھظ…ط§ظ…غŒ ظپغŒظ„طھط±ظ‡ط§"
+              >
+                <i class="pi pi-filter-slash"></i>
+                <span>ظ¾ط§ع©ط³ط§ط²غŒ</span>
+              </button>
+            }
+          </div>
         </div>
       </div>
 
-      <div class="connections-list">
+      <!-- Hierarchical Category & Database Tree Scroll Area -->
+      <div class="tree-scroll-container">
         @if (isLoadingConnections()) {
           <div class="loading-state">
             <i class="pi pi-spin pi-spinner"></i>
-            <span>ط¯ط± ط­ط§ظ„ ط¯ط±غŒط§ظپطھ ظ¾ط§غŒع¯ط§ظ‡â€Œظ‡ط§غŒ ط¯ط§ط¯ظ‡...</span>
+            <span>ط¯ط± ط­ط§ظ„ ط¨ط§ط±ع¯ط°ط§ط±غŒ ط¯ط±ط®طھظˆط§ط±ظ‡ ط¯ط³طھظ‡â€Œط¨ظ†ط¯غŒâ€Œظ‡ط§...</span>
           </div>
-        } @else if (filteredConnections().length === 0) {
+        } @else if (displayTree().length === 0 && !uncategorizedNode()) {
           <div class="empty-state-card">
             <i class="pi pi-info-circle"></i>
-            <span>ظ‡غŒع† ظ¾ط§غŒع¯ط§ظ‡ ط¯ط§ط¯ظ‡â€Œط§غŒ غŒط§ظپطھ ظ†ط´ط¯.</span>
+            <span>ظ‡غŒع† ظ¾ط§غŒع¯ط§ظ‡ ط¯ط§ط¯ظ‡â€Œط§غŒ ط¨ط§ ط´ط±ط§غŒط· ط¬ط³طھط¬ظˆ غŒط§ظپطھ ظ†ط´ط¯.</span>
+            @if (hasActiveTreeFilters()) {
+              <button type="button" class="btn btn-sm btn-secondary mt-2" (click)="clearTreeFilters()">
+                ظ¾ط§ع©ط³ط§ط²غŒ ظپغŒظ„طھط±ظ‡ط§
+              </button>
+            }
           </div>
         } @else {
-          @for (conn of filteredConnections(); track conn.id) {
-            <button
-              type="button"
-              class="connection-card-btn"
-              [class.active]="selectedConnection()?.id === conn.id"
-              (click)="selectConnection(conn)"
-            >
-              <div class="card-top-row">
-                <span class="engine-badge" [attr.data-engine]="conn.engine_type">
-                  {{ conn.engine_type }}
-                </span>
-                <span class="status-indicator-dot" [class.online]="conn.is_active" title="ظˆط¶ط¹غŒطھ ظپط¹ط§ظ„"></span>
-              </div>
-              <div class="card-name">{{ conn.name }}</div>
-              <div class="card-endpoint td-mono td-ltr">{{ conn.host }}:{{ conn.port }}</div>
-              <div class="card-db-name td-mono">{{ conn.database_name }}</div>
-            </button>
-          }
+          <div class="category-tree">
+            @for (rootNode of displayTree(); track rootNode.id) {
+              <ng-container *ngTemplateOutlet="categoryNodeTpl; context: { node: rootNode, depth: 0 }"></ng-container>
+            }
+
+            @if (uncategorizedNode(); as uncat) {
+              <ng-container *ngTemplateOutlet="categoryNodeTpl; context: { node: uncat, depth: 0, isUncategorized: true }"></ng-container>
+            }
+          </div>
         }
       </div>
     </aside>
@@ -21585,7 +22050,7 @@ export class TableStatsService {
                 [class.active]="userTypeFilter() === 'LOGIN'"
                 (click)="userTypeFilter.set('LOGIN')"
               >
-                ع©ط§ط±ط¨ط±ط§ظ† ط¯ط§ط±ط§غŒ ظ…ط¬ظˆط² ظˆط±ظˆط¯ ({{ userStats().loginUsers }})
+                ع©ط§ط±ط¨ط±ط§ظ† ط¯ط§ط±ط§غŒ ظ…ط¬ظˆط² ظˆط±ظˆط¯ (Login) ({{ userStats().loginUsers }})
               </button>
               <button
                 type="button"
@@ -21593,15 +22058,7 @@ export class TableStatsService {
                 [class.active]="userTypeFilter() === 'ROLES'"
                 (click)="userTypeFilter.set('ROLES')"
               >
-                ظ†ظ‚ط´â€Œظ‡ط§ ({{ userStats().roles }})
-              </button>
-              <button
-                type="button"
-                class="filter-pill"
-                [class.active]="userTypeFilter() === 'DISABLED'"
-                (click)="userTypeFilter.set('DISABLED')"
-              >
-                ع©ط§ط±ط¨ط±ط§ظ† ط؛غŒط±ظپط¹ط§ظ„
+                ظ†ظ‚ط´â€Œظ‡ط§غŒ ط¨ط¯ظˆظ† ظˆط±ظˆط¯ (Nologin Roles) ({{ userStats().roles }})
               </button>
             </div>
 
@@ -21906,6 +22363,66 @@ export class TableStatsService {
       </div>
     </div>
   }
+
+  <!-- Recursive RTL Category -> Subcategories -> Databases Tree Node Template -->
+  <ng-template #categoryNodeTpl let-node="node" let-depth="depth" let-isUncat="isUncategorized">
+    <div class="tree-category-item" [style.padding-right.px]="depth * 14">
+      <!-- Category Header Row -->
+      <div
+        class="category-header-row"
+        [class.expanded]="isCategoryExpanded(node)"
+        [class.uncategorized-header]="isUncat"
+        (click)="toggleCategory(node, $event)"
+      >
+        <i
+          class="pi expand-chevron"
+          [ngClass]="isCategoryExpanded(node) ? 'pi-chevron-down' : 'pi-chevron-left'"
+        ></i>
+        <i
+          class="pi category-icon"
+          [ngClass]="isUncat ? 'pi-inbox text-warning' : (isCategoryExpanded(node) ? 'pi-folder-open text-primary' : 'pi-folder text-primary')"
+        ></i>
+        <span class="category-name" [title]="node.description || node.name">{{ node.name }}</span>
+        <span class="category-count-badge">{{ node.connections.length }}</span>
+      </div>
+
+      <!-- Category Content: Subcategories & Databases -->
+      @if (isCategoryExpanded(node)) {
+        <div class="category-children-container">
+          <!-- Subcategories Recursion -->
+          @for (child of node.children; track child.id) {
+            <ng-container *ngTemplateOutlet="categoryNodeTpl; context: { node: child, depth: depth + 1 }"></ng-container>
+          }
+
+          <!-- Databases assigned to this category -->
+          @for (conn of node.connections; track conn.id) {
+            <button
+              type="button"
+              class="connection-card-btn"
+              [class.active]="selectedConnection()?.id === conn.id"
+              (click)="selectConnection(conn)"
+            >
+              <div class="card-top-row">
+                <span class="engine-badge" [attr.data-engine]="conn.engine_type">
+                  {{ conn.engine_type }}
+                </span>
+                <span class="status-indicator-dot" [class.online]="conn.is_active" title="ظˆط¶ط¹غŒطھ ظپط¹ط§ظ„"></span>
+              </div>
+              <div class="card-name">{{ conn.name }}</div>
+              <div class="card-endpoint td-mono td-ltr">{{ conn.host }}:{{ conn.port }}</div>
+              <div class="card-db-name td-mono">{{ conn.database_name }}</div>
+              @if (conn.owner) {
+                <div class="card-owner">
+                  <i class="pi pi-user me-1"></i>
+                  <span>{{ conn.owner }}</span>
+                </div>
+              }
+            </button>
+          }
+        </div>
+      }
+    </div>
+  </ng-template>
 </div>
 
 === FILE: D:\datacatalog\frontend\src\app\features\access-control\db-users\db-user-monitor.component.ts ===
@@ -21920,13 +22437,26 @@ import {
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, RouterModule } from '@angular/router';
+import { forkJoin } from 'rxjs';
 import { ConnectionService } from '../../connections/services/connection.service';
 import { DatabaseConnection } from '../../connections/models/connection.models';
+import { CategoryTreeNode } from '../../catalog/models/catalog.models';
 import { DbUserService } from '../services/db-user.service';
 import { DatabaseUserItem } from '../models/db-user.models';
 import { HasPermissionDirective } from '../../../core/directives/has-permission.directive';
 
-export type UserFilterType = 'ALL' | 'LOGIN' | 'ROLES' | 'DISABLED';
+export type UserFilterType = 'ALL' | 'LOGIN' | 'ROLES';
+
+export interface DbTreeCategoryNode {
+  id: string;
+  name: string;
+  description?: string | null;
+  connections: DatabaseConnection[];
+  children: DbTreeCategoryNode[];
+  hasMatchingDescendants: boolean;
+  totalDatabasesCount: number;
+  isUncategorized?: boolean;
+}
 
 @Component({
   selector: 'app-db-user-monitor',
@@ -21945,11 +22475,21 @@ export class DbUserMonitorComponent implements OnInit {
   successMessage = signal<string | null>(null);
   errorMessage = signal<string | null>(null);
 
-  // Connections list state
+  // Backend state
+  categories = signal<CategoryTreeNode[]>([]);
   connections = signal<DatabaseConnection[]>([]);
   isLoadingConnections = signal<boolean>(false);
-  connectionSearchQuery = signal<string>('');
   selectedConnection = signal<DatabaseConnection | null>(null);
+
+  // Multi-criteria tree filtering
+  filterConnectionName = signal<string>('');
+  filterDatabaseName = signal<string>('');
+  filterHost = signal<string>('');
+  filterOwner = signal<string>('');
+  filterEngineType = signal<string>('');
+
+  // Tree expansion state
+  expandedCategoryIds = signal<Set<string>>(new Set<string>());
 
   // Users list state
   users = signal<DatabaseUserItem[]>([]);
@@ -21957,21 +22497,218 @@ export class DbUserMonitorComponent implements OnInit {
   userSearchQuery = signal<string>('');
   userTypeFilter = signal<UserFilterType>('ALL');
 
-  // Filtered connections list
-  filteredConnections = computed<DatabaseConnection[]>(() => {
-    const q = this.connectionSearchQuery().trim().toLowerCase();
-    const conns = this.connections();
-    if (!q) return conns;
-    return conns.filter(
-      (c) =>
-        c.name.toLowerCase().includes(q) ||
-        c.host.toLowerCase().includes(q) ||
-        c.database_name.toLowerCase().includes(q) ||
-        c.engine_type.toLowerCase().includes(q)
+  // Check whether any tree filter is active
+  hasActiveTreeFilters = computed<boolean>(() => {
+    return Boolean(
+      this.filterConnectionName().trim() ||
+      this.filterDatabaseName().trim() ||
+      this.filterHost().trim() ||
+      this.filterOwner().trim() ||
+      this.filterEngineType()
     );
   });
 
-  // Filtered users list
+  // Predicate to verify if a connection matches all active multi-criteria filters
+  matchesConnection(conn: DatabaseConnection): boolean {
+    const nameQ = this.filterConnectionName().trim().toLowerCase();
+    if (nameQ && !conn.name.toLowerCase().includes(nameQ)) {
+      return false;
+    }
+
+    const dbNameQ = this.filterDatabaseName().trim().toLowerCase();
+    if (dbNameQ && !conn.database_name.toLowerCase().includes(dbNameQ)) {
+      return false;
+    }
+
+    const hostQ = this.filterHost().trim().toLowerCase();
+    if (hostQ && !conn.host.toLowerCase().includes(hostQ)) {
+      return false;
+    }
+
+    const ownerQ = this.filterOwner().trim().toLowerCase();
+    if (ownerQ && (!conn.owner || !conn.owner.toLowerCase().includes(ownerQ))) {
+      return false;
+    }
+
+    const engine = this.filterEngineType();
+    if (engine && conn.engine_type.toUpperCase() !== engine.toUpperCase()) {
+      return false;
+    }
+
+    return true;
+  }
+
+  // Hierarchical Category -> Subcategories -> Databases Tree
+  readonly displayTree = computed<DbTreeCategoryNode[]>(() => {
+    const rawCategories = this.categories();
+    const allConns = this.connections();
+    const activeFilters = this.hasActiveTreeFilters();
+    const connMap = new Map<string, DatabaseConnection>(allConns.map((c) => [c.id, c]));
+
+    const buildCategoryNode = (cat: CategoryTreeNode): DbTreeCategoryNode => {
+      const assigned: DatabaseConnection[] = [];
+      const seenIds = new Set<string>();
+
+      if (cat.databases) {
+        for (const dbInfo of cat.databases) {
+          const c = connMap.get(dbInfo.id);
+          if (c && !seenIds.has(c.id)) {
+            seenIds.add(c.id);
+            assigned.push(c);
+          }
+        }
+      }
+
+      for (const c of allConns) {
+        if (c.category_id === cat.id && !seenIds.has(c.id)) {
+          seenIds.add(c.id);
+          assigned.push(c);
+        }
+      }
+
+      const matchingConnections = activeFilters
+        ? assigned.filter((c) => this.matchesConnection(c))
+        : assigned;
+
+      const matchingChildren: DbTreeCategoryNode[] = [];
+      for (const child of cat.children || []) {
+        const childNode = buildCategoryNode(child);
+        if (!activeFilters || childNode.hasMatchingDescendants || childNode.connections.length > 0) {
+          matchingChildren.push(childNode);
+        }
+      }
+
+      const hasMatch =
+        matchingConnections.length > 0 ||
+        matchingChildren.some((child) => child.hasMatchingDescendants || child.connections.length > 0);
+
+      const totalDbs =
+        assigned.length +
+        matchingChildren.reduce((acc, child) => acc + child.totalDatabasesCount, 0);
+
+      return {
+        id: cat.id,
+        name: cat.name,
+        description: cat.description,
+        connections: matchingConnections,
+        children: matchingChildren,
+        hasMatchingDescendants: hasMatch,
+        totalDatabasesCount: totalDbs,
+      };
+    };
+
+    const tree: DbTreeCategoryNode[] = [];
+    for (const cat of rawCategories) {
+      const node = buildCategoryNode(cat);
+      if (!activeFilters || node.hasMatchingDescendants || node.connections.length > 0) {
+        tree.push(node);
+      }
+    }
+
+    return tree;
+  });
+
+  // Automatic آ«ظ¾ط§غŒع¯ط§ظ‡â€Œظ‡ط§غŒ ط¯ط§ط¯ظ‡ ط¯ط³طھظ‡â€Œط¨ظ†ط¯غŒâ€Œظ†ط´ط¯ظ‡آ» branch for uncategorized databases
+  readonly uncategorizedNode = computed<DbTreeCategoryNode | null>(() => {
+    const rawCategories = this.categories();
+    const allConns = this.connections();
+    const activeFilters = this.hasActiveTreeFilters();
+
+    const assignedIds = new Set<string>();
+    const collectAssignedIds = (nodes: CategoryTreeNode[]) => {
+      for (const cat of nodes) {
+        if (cat.databases) {
+          for (const db of cat.databases) {
+            assignedIds.add(db.id);
+          }
+        }
+        if (cat.children) {
+          collectAssignedIds(cat.children);
+        }
+      }
+    };
+    collectAssignedIds(rawCategories);
+
+    for (const c of allConns) {
+      if (c.category_id) {
+        assignedIds.add(c.id);
+      }
+    }
+
+    const uncatConns = allConns.filter((c) => !assignedIds.has(c.id));
+    if (uncatConns.length === 0) return null;
+
+    const matchingUncat = activeFilters
+      ? uncatConns.filter((c) => this.matchesConnection(c))
+      : uncatConns;
+
+    if (activeFilters && matchingUncat.length === 0) {
+      return null;
+    }
+
+    return {
+      id: 'uncategorized',
+      name: 'ظ¾ط§غŒع¯ط§ظ‡â€Œظ‡ط§غŒ ط¯ط§ط¯ظ‡ ط¯ط³طھظ‡â€Œط¨ظ†ط¯غŒâ€Œظ†ط´ط¯ظ‡',
+      description: 'ظ¾ط§غŒع¯ط§ظ‡â€Œظ‡ط§غŒ ط¯ط§ط¯ظ‡â€Œط§غŒ ع©ظ‡ ط¨ظ‡ ظ‡غŒع† ط¯ط³طھظ‡â€Œط¨ظ†ط¯غŒ ظ…ظˆط¶ظˆط¹غŒ ظ…ظ†طھط³ط¨ ظ†ط´ط¯ظ‡â€Œط§ظ†ط¯',
+      connections: matchingUncat,
+      children: [],
+      hasMatchingDescendants: matchingUncat.length > 0,
+      totalDatabasesCount: uncatConns.length,
+      isUncategorized: true,
+    };
+  });
+
+  // Total matching databases count across visible tree
+  totalFilteredDatabasesCount = computed<number>(() => {
+    const tree = this.displayTree();
+    const uncat = this.uncategorizedNode();
+    let sum = 0;
+    const countConns = (node: DbTreeCategoryNode) => {
+      sum += node.connections.length;
+      for (const ch of node.children) {
+        countConns(ch);
+      }
+    };
+    for (const root of tree) {
+      countConns(root);
+    }
+    if (uncat) {
+      sum += uncat.connections.length;
+    }
+    return sum;
+  });
+
+  // Determines whether a category node should be expanded (auto-expanded when searching)
+  isCategoryExpanded(node: DbTreeCategoryNode): boolean {
+    if (this.hasActiveTreeFilters()) {
+      return node.hasMatchingDescendants || node.connections.length > 0;
+    }
+    return this.expandedCategoryIds().has(node.id);
+  }
+
+  // Toggles expand/collapse state for a category node
+  toggleCategory(node: DbTreeCategoryNode, event?: Event): void {
+    if (event) event.stopPropagation();
+    const currentlyExpanded = this.isCategoryExpanded(node);
+    const next = new Set(this.expandedCategoryIds());
+    if (currentlyExpanded) {
+      next.delete(node.id);
+    } else {
+      next.add(node.id);
+    }
+    this.expandedCategoryIds.set(next);
+  }
+
+  // Resets all tree multi-criteria search filters
+  clearTreeFilters(): void {
+    this.filterConnectionName.set('');
+    this.filterDatabaseName.set('');
+    this.filterHost.set('');
+    this.filterOwner.set('');
+    this.filterEngineType.set('');
+  }
+
+  // Filtered users list with clarified filter pills
   filteredUsers = computed<DatabaseUserItem[]>(() => {
     const query = this.userSearchQuery().trim().toLowerCase();
     const filter = this.userTypeFilter();
@@ -21980,8 +22717,6 @@ export class DbUserMonitorComponent implements OnInit {
     if (filter === 'LOGIN') {
       list = list.filter((u) => u.can_login);
     } else if (filter === 'ROLES') {
-      list = list.filter((u) => !u.can_login);
-    } else if (filter === 'DISABLED') {
       list = list.filter((u) => !u.can_login);
     }
 
@@ -22019,20 +22754,30 @@ export class DbUserMonitorComponent implements OnInit {
   isSavingSettings = signal<boolean>(false);
 
   ngOnInit(): void {
-    this.loadConnections();
+    this.loadData();
   }
 
-  loadConnections(): void {
+  loadData(): void {
     this.isLoadingConnections.set(true);
-    this.connectionService.getConnections().subscribe({
-      next: (conns) => {
-        this.connections.set(conns);
+    forkJoin({
+      categories: this.connectionService.getCategoryTree(),
+      connections: this.connectionService.getConnections(),
+    }).subscribe({
+      next: ({ categories, connections }) => {
+        this.categories.set(categories);
+        this.connections.set(connections);
         this.isLoadingConnections.set(false);
+
+        // Auto-expand all top-level categories and uncategorized branch initially
+        const initialExpanded = new Set<string>();
+        categories.forEach((c) => initialExpanded.add(c.id));
+        initialExpanded.add('uncategorized');
+        this.expandedCategoryIds.set(initialExpanded);
 
         // Check if query param specifies connectionId
         const targetId = this.route.snapshot.queryParams['connectionId'];
         if (targetId) {
-          const match = conns.find((c) => c.id === targetId);
+          const match = connections.find((c) => c.id === targetId);
           if (match) {
             this.selectConnection(match);
             return;
@@ -22040,14 +22785,14 @@ export class DbUserMonitorComponent implements OnInit {
         }
 
         // Auto-select first PostgreSQL connection or first connection
-        if (conns.length > 0) {
-          const firstPg = conns.find((c) => c.engine_type === 'POSTGRESQL') || conns[0];
+        if (connections.length > 0) {
+          const firstPg = connections.find((c) => c.engine_type === 'POSTGRESQL') || connections[0];
           this.selectConnection(firstPg);
         }
       },
       error: (err) => {
         this.isLoadingConnections.set(false);
-        this.showError('ط®ط·ط§ ط¯ط± ط¯ط±غŒط§ظپطھ ظ„غŒط³طھ ط§طھطµط§ظ„ط§طھ ظ¾ط§غŒع¯ط§ظ‡â€Œظ‡ط§غŒ ط¯ط§ط¯ظ‡: ' + (err.error?.detail || err.message));
+        this.showError('ط®ط·ط§ ط¯ط± ط¯ط±غŒط§ظپطھ ط³ط§ط®طھط§ط± ط¯ط³طھظ‡â€Œط¨ظ†ط¯غŒâ€Œظ‡ط§ ظˆ ظ¾ط§غŒع¯ط§ظ‡â€Œظ‡ط§غŒ ط¯ط§ط¯ظ‡: ' + (err.error?.detail || err.message));
       },
     });
   }
@@ -22122,7 +22867,6 @@ export class DbUserMonitorComponent implements OnInit {
     this.editConnectionLimit.set(user.connection_limit ?? -1);
     if (user.valid_until && user.valid_until.toLowerCase() !== 'infinity') {
       this.editIsUnlimited.set(false);
-      // Format to YYYY-MM-DD
       const datePart = user.valid_until.split('T')[0].split(' ')[0];
       this.editValidUntil.set(datePart);
     } else {
@@ -29722,6 +30466,8 @@ export interface CatalogFilterOptions {
   tag?: string;
   category?: string;
   missing_descriptions_only?: boolean;
+  sort_by?: string;
+  min_rows?: number;
 }
 
 @Injectable({
@@ -29797,6 +30543,12 @@ export class CatalogStore {
     }
     if (activeOpts.missing_descriptions_only) {
       url += `&missing_descriptions_only=true`;
+    }
+    if (activeOpts.sort_by) {
+      url += `&sort_by=${encodeURIComponent(activeOpts.sort_by)}`;
+    }
+    if (activeOpts.min_rows !== undefined && activeOpts.min_rows !== null) {
+      url += `&min_rows=${activeOpts.min_rows}`;
     }
 
     try {
@@ -30640,8 +31392,51 @@ export class CatalogStore {
   background-color: var(--slate-50);
 }
 
+.table-row.row-empty {
+  background-color: #f8fafc;
+}
+
+.table-row.row-empty:hover {
+  background-color: #f1f5f9;
+}
+
+.table-row.row-low {
+  background-color: #ffffff;
+}
+
 .row-selected {
   background-color: #f0fdf4 !important;
+}
+
+.stats-row-count-line {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.row-count-badge {
+  display: inline-flex;
+  align-items: center;
+  font-size: 0.68rem;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 9999px;
+  line-height: 1.3;
+  white-space: nowrap;
+}
+
+.badge-empty {
+  background-color: #f1f5f9;
+  color: #64748b;
+  border: 1px solid #e2e8f0;
+}
+
+.badge-low-row {
+  background-color: #fef3c7;
+  color: #b45309;
+  border: 1px solid #fde68a;
 }
 
 .table-title {
@@ -31111,6 +31906,34 @@ export class CatalogStore {
   border-color: #d97706;
 }
 
+/* Low-Row Filter Toggle */
+.filter-hide-low-row {
+  display: flex;
+  align-items: flex-end;
+}
+.low-row-toggle-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  background-color: #f1f5f9;
+  color: #475569;
+  border: 1px solid #cbd5e1;
+  border-radius: var(--radius-sm);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.low-row-toggle-btn:hover {
+  background-color: #e2e8f0;
+}
+.low-row-toggle-btn.active {
+  background-color: #2563eb;
+  color: #ffffff;
+  border-color: #1d4ed8;
+}
+
 /* Inspector Badges & Attribution */
 .inspector-badge-row {
   display: flex;
@@ -31484,14 +32307,14 @@ export class CatalogStore {
                 class="db-filter-input"
                 [ngModel]="dbSearchFilter()"
                 (ngModelChange)="dbSearchFilter.set($event)"
-                placeholder="ًں”چ ظ†ط§ظ… ظ¾ط§غŒع¯ط§ظ‡ / ط§طھطµط§ظ„..."
+                placeholder="ظ†ط§ظ… ظ¾ط§غŒع¯ط§ظ‡ / ط§طھطµط§ظ„..."
               />
               <input
                 type="text"
                 class="db-filter-input mono-font"
                 [ngModel]="dbHostFilter()"
                 (ngModelChange)="dbHostFilter.set($event)"
-                placeholder="ًںŒگ ظ‡ط§ط³طھ / IP..."
+                placeholder="ظ‡ط§ط³طھ / IP..."
               />
             </div>
             <div class="db-filter-row">
@@ -31513,7 +32336,7 @@ export class CatalogStore {
                 class="db-filter-input"
                 [ngModel]="dbOwnerFilter()"
                 (ngModelChange)="dbOwnerFilter.set($event)"
-                placeholder="ًں‘¤ ظ…ط§ظ„ع©..."
+                placeholder="ظ…ط§ظ„ع©..."
               />
               @if (dbSearchFilter() || dbHostFilter() || dbEngineFilter() || dbOwnerFilter()) {
                 <button
@@ -31532,7 +32355,7 @@ export class CatalogStore {
             @for (conn of filteredPhysicalTree(); track conn.id) {
               <div class="tree-group">
                 <div class="tree-node node-db" (click)="filterByDatabase(conn.name)">
-                  <span class="node-icon">ًں—„ï¸ڈ</span>
+                  <span class="node-icon"><i class="pi pi-database"></i></span>
                   <div class="node-db-meta">
                     <span class="node-label mono-font">{{ conn.name }}</span>
                     @if (conn.host || conn.owner) {
@@ -31561,7 +32384,7 @@ export class CatalogStore {
                 <div class="tree-subnodes">
                   @for (schema of conn.schemas; track schema.id) {
                     <div class="tree-node node-schema" (click)="filterBySchema(schema.name)">
-                      <span class="node-icon">ًں“پ</span>
+                      <span class="node-icon"><i class="pi pi-folder"></i></span>
                       <span class="node-label mono-font">{{ schema.name }}</span>
                     </div>
                   }
@@ -31592,7 +32415,7 @@ export class CatalogStore {
     @for (cat of nodes; track cat.id) {
       <div class="tree-group" [style.padding-right.px]="depth * 8">
         <div class="tree-node node-cat" (click)="filterByCategory(cat.name)">
-          <span class="node-icon">ًںڈ·ï¸ڈ</span>
+          <span class="node-icon"><i class="pi pi-tag"></i></span>
           <span class="node-label">{{ cat.name }}</span>
           @if (cat.assigned_tables_count || (cat.tables && cat.tables.length)) {
             <span class="node-count-badge">{{ cat.assigned_tables_count || cat.tables?.length || 0 }} ط¬ط¯ظˆظ„</span>
@@ -31604,7 +32427,7 @@ export class CatalogStore {
           <div class="tree-subnodes">
             @for (db of cat.databases; track db.id) {
               <div class="tree-node node-db-assigned" (click)="filterByDatabase(db.name)">
-                <span class="node-icon">ًں—„ï¸ڈ</span>
+                <span class="node-icon"><i class="pi pi-database"></i></span>
                 <span class="node-label mono-font">{{ db.name }}</span>
                 @if (db.engine_type) {
                   <span class="node-engine-badge">{{ db.engine_type }}</span>
@@ -31619,7 +32442,7 @@ export class CatalogStore {
           <div class="tree-subnodes">
             @for (tbl of cat.tables; track tbl.id) {
               <div class="tree-node node-table-assigned" (click)="filterByTable(tbl.name)">
-                <span class="node-icon">ًں“ٹ</span>
+                <span class="node-icon"><i class="pi pi-table"></i></span>
                 <span class="node-label mono-font">{{ tbl.name }}</span>
               </div>
             }
@@ -31726,6 +32549,20 @@ export class CatalogStore {
           </select>
         </div>
 
+        <div class="filter-item">
+          <label>ظ…ط±طھط¨â€Œط³ط§ط²غŒ:</label>
+          <select
+            class="filter-select"
+            [ngModel]="selectedSortBy()"
+            (ngModelChange)="onSortChange($event)"
+            data-testid="sort-by-select"
+          >
+            <option value="row_count_desc">ظ…ط±طھط¨â€Œط³ط§ط²غŒ: طھط¹ط¯ط§ط¯ ط±ع©ظˆط±ط¯ (ط²غŒط§ط¯ ط¨ظ‡ ع©ظ…)</option>
+            <option value="row_count_asc">طھط¹ط¯ط§ط¯ ط±ع©ظˆط±ط¯ (ع©ظ… ط¨ظ‡ ط²غŒط§ط¯)</option>
+            <option value="name_asc">ظ†ط§ظ… ط¬ط¯ظˆظ„ (ط§ظ„ظپط¨ط§)</option>
+          </select>
+        </div>
+
         <div class="filter-item filter-missing-desc">
           <button
             type="button"
@@ -31733,7 +32570,19 @@ export class CatalogStore {
             [class.active]="missingDescriptionsOnly()"
             (click)="toggleMissingDescriptionsOnly()"
           >
-            <span>âڑ ï¸ڈ ظپظ‚ط· ظ…ظˆط§ط±ط¯ ظپط§ظ‚ط¯ طھظˆط¶غŒط­ط§طھ (Missing Only)</span>
+            <span><i class="pi pi-exclamation-triangle me-1"></i> ظپظ‚ط· ظ…ظˆط§ط±ط¯ ظپط§ظ‚ط¯ طھظˆط¶غŒط­ط§طھ (Missing Only)</span>
+          </button>
+        </div>
+
+        <div class="filter-item filter-hide-low-row">
+          <button
+            type="button"
+            class="low-row-toggle-btn"
+            [class.active]="hideLowRowTables()"
+            (click)="toggleHideLowRowTables()"
+            data-testid="hide-low-row-btn"
+          >
+            <span><i class="pi pi-filter-slash me-1"></i> ظ…ط®ظپغŒâ€Œط³ط§ط²غŒ ط¬ط¯ط§ظˆظ„ ط®ط§ظ„غŒ / ع©ظ…â€Œط±ع©ظˆط±ط¯ (&lt;غ±غ°)</span>
           </button>
         </div>
       </div>
@@ -31741,7 +32590,7 @@ export class CatalogStore {
       <!-- Persistent Description Policy Selector -->
       <div class="policy-selector-strip">
         <div class="policy-label-group">
-          <span class="policy-icon">ًں“‹</span>
+          <span class="policy-icon"><i class="pi pi-file"></i></span>
           <span class="policy-label">ط³غŒط§ط³طھ ظ†ظ…ط§غŒط´ طھظˆط¶غŒط­ط§طھ:</span>
         </div>
         <div class="policy-segmented-control">
@@ -31787,7 +32636,7 @@ export class CatalogStore {
               class="btn btn-primary btn-sm"
               (click)="openBulkTagModal()"
             >
-              ًںڈ·ï¸ڈ طھط®طµغŒطµ ع¯ط±ظˆظ‡غŒ طھع¯ (Bulk Tagging)
+              <i class="pi pi-tags me-1"></i> طھط®طµغŒطµ ع¯ط±ظˆظ‡غŒ طھع¯ (Bulk Tagging)
             </button>
             <button class="btn btn-secondary btn-sm" (click)="clearSelection()">
               ط§ظ†طµط±ط§ظپ ط§ط² ط§ظ†طھط®ط§ط¨
@@ -31829,7 +32678,7 @@ export class CatalogStore {
       <!-- 4-Card Scope KPI Strip -->
       <div class="scope-kpi-grid">
         <div class="scope-kpi-card">
-          <span class="scope-kpi-icon">{{ kpiDynamicIcon() }}</span>
+          <span class="scope-kpi-icon"><i [class]="kpiDynamicIcon()"></i></span>
           <div class="scope-kpi-meta">
             <span class="scope-kpi-label">{{ kpiDynamicLabel() }}</span>
             <span class="scope-kpi-value mono-font">{{ kpiDynamicCount().toLocaleString('fa-IR') }}</span>
@@ -31837,7 +32686,7 @@ export class CatalogStore {
         </div>
 
         <div class="scope-kpi-card">
-          <span class="scope-kpi-icon">ًں“‌</span>
+          <span class="scope-kpi-icon"><i class="pi pi-pencil"></i></span>
           <div class="scope-kpi-meta">
             <span class="scope-kpi-label">ط¯ط±طµط¯ ظ…ط³طھظ†ط¯ط³ط§ط²غŒâ€Œط´ط¯ظ‡</span>
             <span
@@ -31851,7 +32700,7 @@ export class CatalogStore {
         </div>
 
         <div class="scope-kpi-card">
-          <span class="scope-kpi-icon">ًں”’</span>
+          <span class="scope-kpi-icon"><i class="pi pi-lock"></i></span>
           <div class="scope-kpi-meta">
             <span class="scope-kpi-label">طھط¹ط¯ط§ط¯ ط³طھظˆظ†â€Œظ‡ط§غŒ ط­ط³ط§ط³ (PII / Confidential)</span>
             <span class="scope-kpi-value mono-font" [class.sensitive]="kpiSensitiveColumnsCount() > 0">
@@ -31861,7 +32710,7 @@ export class CatalogStore {
         </div>
 
         <div class="scope-kpi-card">
-          <span class="scope-kpi-icon">âڑ ï¸ڈ</span>
+          <span class="scope-kpi-icon"><i class="pi pi-exclamation-triangle"></i></span>
           <div class="scope-kpi-meta">
             <span class="scope-kpi-label">طھط¹ط¯ط§ط¯ ظ…ظˆط§ط±ط¯ ط¯ط§ط±ط§غŒ طھط¹ط§ط±ط¶ ط´ط±ط­</span>
             <span class="scope-kpi-value mono-font" [class.drift]="kpiDriftCount() > 0">
@@ -31882,7 +32731,7 @@ export class CatalogStore {
           (click)="setActiveObjectTab('tables')"
           role="tab"
         >
-          <span class="tab-icon">ًں“ٹ</span>
+          <span class="tab-icon"><i class="pi pi-table"></i></span>
           <span class="tab-label">ط¬ط¯ط§ظˆظ„ (Tables)</span>
           <span class="tab-count-badge">{{ objectCounts().tables }}</span>
         </button>
@@ -31894,7 +32743,7 @@ export class CatalogStore {
           (click)="setActiveObjectTab('views')"
           role="tab"
         >
-          <span class="tab-icon">ًں‘پï¸ڈ</span>
+          <span class="tab-icon"><i class="pi pi-eye"></i></span>
           <span class="tab-label">ظ†ظ…ط§ظ‡ط§ (Views)</span>
           <span class="tab-count-badge">{{ objectCounts().views }}</span>
         </button>
@@ -31906,7 +32755,7 @@ export class CatalogStore {
           (click)="setActiveObjectTab('indexes')"
           role="tab"
         >
-          <span class="tab-icon">âڑ،</span>
+          <span class="tab-icon"><i class="pi pi-bolt"></i></span>
           <span class="tab-label">ط§غŒظ†ط¯ع©ط³â€Œظ‡ط§ (Indexes)</span>
           <span class="tab-count-badge">{{ objectCounts().indexes }}</span>
         </button>
@@ -31918,7 +32767,7 @@ export class CatalogStore {
           (click)="setActiveObjectTab('procedures')"
           role="tab"
         >
-          <span class="tab-icon">âڑ™ï¸ڈ</span>
+          <span class="tab-icon"><i class="pi pi-cog"></i></span>
           <span class="tab-label">ط±ظˆط§ظ„â€Œظ‡ط§غŒ ط°ط®غŒط±ظ‡ (Stored Procedures)</span>
           <span class="tab-count-badge">{{ objectCounts().procedures }}</span>
         </button>
@@ -31930,7 +32779,7 @@ export class CatalogStore {
           (click)="setActiveObjectTab('functions')"
           role="tab"
         >
-          <span class="tab-icon">ئ’</span>
+          <span class="tab-icon"><i class="pi pi-code"></i></span>
           <span class="tab-label">طھظˆط§ط¨ط¹ (Functions)</span>
           <span class="tab-count-badge">{{ objectCounts().functions }}</span>
         </button>
@@ -31947,11 +32796,11 @@ export class CatalogStore {
           </div>
         } @else if (store.searchHits().length === 0) {
           <div class="empty-state" dir="rtl">
-            <div class="empty-icon">ًں”چ</div>
+            <div class="empty-icon"><i class="pi pi-search"></i></div>
             <h3>ظ…ظˆط±ط¯غŒ ط¯ط± ع©ط§طھط§ظ„ظˆع¯ ظ…طھط§ط¯غŒطھط§ غŒط§ظپطھ ظ†ط´ط¯</h3>
             <p>ظ‡غŒع† ط¬ط¯ظˆظ„غŒ ط¨ط§ ط´ط±ط§غŒط· ظپغŒظ„طھط± غŒط§ ع©ظ„غŒط¯ظˆط§عکظ‡ ط¬ط³طھط¬ظˆغŒ ظپط¹ظ„غŒ طھط·ط§ط¨ظ‚ ظ†ط¯ط§ط±ط¯ غŒط§ ط³ط·ط­ ط¯ط³طھط±ط³غŒ ط´ظ…ط§ ط¨ط±ط§غŒ ظ…ط´ط§ظ‡ط¯ظ‡ ط¢ظ† ظ…ط­ط¯ظˆط¯ ط§ط³طھ.</p>
             <div class="completeness-hint-box">
-              <span class="hint-icon">ًں’،</span>
+              <span class="hint-icon"><i class="pi pi-lightbulb"></i></span>
               <div class="hint-content">
                 <strong>ط±ط§ظ‡ظ†ظ…ط§غŒ ط­ط§ع©ظ…غŒطھ ط¯ط§ط¯ظ‡ ظˆ طھع©ظ…غŒظ„ ظ…طھط§ط¯غŒطھط§:</strong><br />
                 ط´ط§ط®طµ طھع©ظ…غŒظ„ ظ…طھط§ط¯غŒطھط§ (Metadata Completeness) ط¨ط± ظ¾ط§غŒظ‡ ط«ط¨طھ ظ‡ظ…ط²ظ…ط§ظ†
@@ -31983,6 +32832,8 @@ export class CatalogStore {
               *cdkVirtualFor="let hit of store.searchHits(); trackBy: trackByHitId"
               class="table-row"
               [class.row-selected]="isTableSelected(hit.id)"
+              [class.row-empty]="isTableEmpty(hit)"
+              [class.row-low]="isTableLowRow(hit)"
             >
               <div class="col-checkbox">
                 <input
@@ -31994,7 +32845,7 @@ export class CatalogStore {
 
               <div class="col-name" (click)="inspectTable(hit.id)">
                 <div class="table-title mono-font">
-                  <span class="type-icon">ًں“ٹ</span>
+                  <span class="type-icon"><i class="pi pi-table"></i></span>
                   <strong>{{ hit.name }}</strong>
                   @if (hit.description_drift_detected) {
                     <span class="drift-badge" title="طھط¹ط§ط±ط¶ ط´ط±ط­">طھط¹ط§ط±ط¶ ط´ط±ط­</span>
@@ -32009,7 +32860,14 @@ export class CatalogStore {
               </div>
 
               <div class="col-stats">
-                <div>{{ (hit.row_count_estimate || 0).toLocaleString('fa-IR') }} ط±ع©ظˆط±ط¯</div>
+                <div class="stats-row-count-line">
+                  <span>{{ (hit.row_count_estimate || 0).toLocaleString('fa-IR') }} ط±ع©ظˆط±ط¯</span>
+                  @if (isTableEmpty(hit)) {
+                    <span class="row-count-badge badge-empty" title="ط¬ط¯ظˆظ„ ظپط§ظ‚ط¯ ط¯ط§ط¯ظ‡ / ط®ط§ظ„غŒ">ط®ط§ظ„غŒ (غ°)</span>
+                  } @else if (isTableLowRow(hit)) {
+                    <span class="row-count-badge badge-low-row" title="ط¬ط¯ظˆظ„ ع©ظ…â€Œط±ع©ظˆط±ط¯ (ط§ط­طھظ…ط§ظ„ط§ظ‹ ط¯ط§ط¯ظ‡ ظ¾ط§غŒظ‡â€Œط§غŒ غŒط§ طھط³طھغŒ)">ع©ظ…â€Œط±ع©ظˆط±ط¯ (&lt;غ±غ°)</span>
+                  }
+                </div>
                 <div class="text-muted">{{ (hit.size_bytes ? (hit.size_bytes / 1024 / 1024).toFixed(1) : 0) }} ظ…ع¯ط§ط¨ط§غŒطھ</div>
               </div>
 
@@ -32065,7 +32923,7 @@ export class CatalogStore {
 
               <div class="col-action">
                 <button class="btn btn-secondary btn-sm" (click)="inspectTable(hit.id)">
-                  ط´ظ†ط§ط³ظ†ط§ظ…ظ‡ ط¬ط¯ظˆظ„ ًں”چ
+                  <i class="pi pi-search me-1"></i> ط´ظ†ط§ط³ظ†ط§ظ…ظ‡ ط¬ط¯ظˆظ„
                 </button>
               </div>
             </div>
@@ -32089,7 +32947,7 @@ export class CatalogStore {
               @for (view of catalogObjects()?.views || []; track view.id) {
                 <tr>
                   <td class="mono-font fw-bold">
-                    <span class="type-icon">ًں‘پï¸ڈ</span> {{ view.name }}
+                    <span class="type-icon"><i class="pi pi-eye"></i></span> {{ view.name }}
                   </td>
                   <td class="mono-font text-muted">
                     {{ view.database_name }}.{{ view.schema_name }}
@@ -32121,7 +32979,7 @@ export class CatalogStore {
                   </td>
                   <td>
                     <button class="btn btn-secondary btn-sm" (click)="inspectTable(view.id)">
-                      ط´ظ†ط§ط³ظ†ط§ظ…ظ‡ ظ†ظ…ط§ ًں”چ
+                      <i class="pi pi-search me-1"></i> ط´ظ†ط§ط³ظ†ط§ظ…ظ‡ ظ†ظ…ط§
                     </button>
                   </td>
                 </tr>
@@ -32151,7 +33009,7 @@ export class CatalogStore {
               @for (idx of catalogObjects()?.indexes || []; track idx.id) {
                 <tr>
                   <td class="mono-font fw-bold">
-                    <span class="type-icon">âڑ،</span> {{ idx.name }}
+                    <span class="type-icon"><i class="pi pi-bolt"></i></span> {{ idx.name }}
                   </td>
                   <td class="mono-font text-muted">
                     {{ idx.table_name || idx.details?.['table_name'] }} ({{ idx.schema_name }})
@@ -32203,7 +33061,7 @@ export class CatalogStore {
               @for (proc of catalogObjects()?.procedures || []; track proc.id) {
                 <tr>
                   <td class="mono-font fw-bold">
-                    <span class="type-icon">âڑ™ï¸ڈ</span> {{ proc.name }}
+                    <span class="type-icon"><i class="pi pi-cog"></i></span> {{ proc.name }}
                   </td>
                   <td class="mono-font text-muted">
                     {{ proc.database_name }}.{{ proc.schema_name }}
@@ -32263,7 +33121,7 @@ export class CatalogStore {
               @for (fn of catalogObjects()?.functions || []; track fn.id) {
                 <tr>
                   <td class="mono-font fw-bold">
-                    <span class="type-icon">ئ’</span> {{ fn.name }}
+                    <span class="type-icon"><i class="pi pi-code"></i></span> {{ fn.name }}
                   </td>
                   <td class="mono-font text-muted">
                     {{ fn.database_name }}.{{ fn.schema_name }}
@@ -32642,7 +33500,7 @@ export class CatalogStore {
                   @for (idx of tableIndexes(); track idx.id) {
                     <tr>
                       <td class="mono-font fw-bold">
-                        <span class="type-icon">âڑ،</span> {{ idx.name }}
+                        <span class="type-icon"><i class="pi pi-bolt"></i></span> {{ idx.name }}
                       </td>
                       <td>
                         <span class="code-badge">{{ idx.details?.['index_type'] || 'BTREE' }}</span>
@@ -32934,6 +33792,8 @@ export class CatalogExplorerComponent implements OnInit {
   selectedTag = '';
   selectedCategory = '';
   missingDescriptionsOnly = signal<boolean>(false);
+  selectedSortBy = signal<string>('row_count_desc');
+  hideLowRowTables = signal<boolean>(false);
 
   // Advanced Tree Filtering State
   readonly dbSearchFilter = signal<string>('');
@@ -33093,32 +33953,32 @@ export class CatalogExplorerComponent implements OnInit {
         return {
           label: 'طھط¹ط¯ط§ط¯ ع©ظ„ ظ†ظ…ط§ظ‡ط§',
           count: objs?.views?.length ?? this.objectCounts().views,
-          icon: 'ًں‘پï¸ڈ',
+          icon: 'pi pi-eye',
         };
       case 'indexes':
         return {
           label: 'طھط¹ط¯ط§ط¯ ع©ظ„ ط§غŒظ†ط¯ع©ط³â€Œظ‡ط§',
           count: objs?.indexes?.length ?? this.objectCounts().indexes,
-          icon: 'âڑ،',
+          icon: 'pi pi-bolt',
         };
       case 'procedures':
         return {
           label: 'طھط¹ط¯ط§ط¯ ع©ظ„ ط±ظˆط§ظ„â€Œظ‡ط§غŒ ط°ط®غŒط±ظ‡',
           count: objs?.procedures?.length ?? this.objectCounts().procedures,
-          icon: 'âڑ™ï¸ڈ',
+          icon: 'pi pi-cog',
         };
       case 'functions':
         return {
           label: 'طھط¹ط¯ط§ط¯ ع©ظ„ طھظˆط§ط¨ط¹',
           count: objs?.functions?.length ?? this.objectCounts().functions,
-          icon: 'ئ’',
+          icon: 'pi pi-code',
         };
       case 'tables':
       default:
         return {
           label: 'طھط¹ط¯ط§ط¯ ع©ظ„ ط¬ط¯ط§ظˆظ„',
           count: this.store.searchHits().length || this.objectCounts().tables,
-          icon: 'ًں“ٹ',
+          icon: 'pi pi-table',
         };
     }
   });
@@ -33313,6 +34173,8 @@ export class CatalogExplorerComponent implements OnInit {
       tag: this.selectedTag || undefined,
       category: this.selectedCategory || undefined,
       missing_descriptions_only: this.missingDescriptionsOnly() || undefined,
+      sort_by: this.selectedSortBy(),
+      min_rows: this.hideLowRowTables() ? 10 : undefined,
     };
     this.store.search(this.searchQuery, true, filters).catch(() => {
       this.showToast('ط®ط·ط§ ط¯ط± ط¨ط±ظ‚ط±ط§ط±غŒ ط§ط±طھط¨ط§ط· ط¨ط§ ط³ط±ظˆط± ظ…طھط§ط¯غŒطھط§', 'error');
@@ -33325,6 +34187,25 @@ export class CatalogExplorerComponent implements OnInit {
     this.executeSearch();
   }
 
+  toggleHideLowRowTables(): void {
+    this.hideLowRowTables.update((v) => !v);
+    this.executeSearch();
+  }
+
+  onSortChange(sortBy: string): void {
+    this.selectedSortBy.set(sortBy);
+    this.executeSearch();
+  }
+
+  isTableEmpty(hit: SearchHit): boolean {
+    return (hit.row_count_estimate || 0) === 0;
+  }
+
+  isTableLowRow(hit: SearchHit): boolean {
+    const c = hit.row_count_estimate || 0;
+    return c >= 1 && c < 10;
+  }
+
   resetFilters(): void {
     this.searchQuery = '';
     this.selectedDatabase = '';
@@ -33334,6 +34215,8 @@ export class CatalogExplorerComponent implements OnInit {
     this.selectedTag = '';
     this.selectedCategory = '';
     this.missingDescriptionsOnly.set(false);
+    this.hideLowRowTables.set(false);
+    this.selectedSortBy.set('row_count_desc');
     this.executeSearch();
   }
 
@@ -39814,12 +40697,15 @@ export class ReportService {
   /**
    * Retrieves aggregated metadata completeness metrics across all or selected databases.
    */
-  getCompletenessReport(connectionIds?: string[]): Observable<CompletenessReport> {
+  getCompletenessReport(connectionIds?: string[], excludeLowRowTables: boolean = false): Observable<CompletenessReport> {
     let params = new HttpParams();
     if (connectionIds && connectionIds.length > 0) {
       connectionIds.forEach((id) => {
         params = params.append('connection_ids', id);
       });
+    }
+    if (excludeLowRowTables) {
+      params = params.set('exclude_low_row_tables', 'true');
     }
     return this.http.get<CompletenessReport>(`${this.baseUrl}/completeness`, { params });
   }
@@ -39827,12 +40713,15 @@ export class ReportService {
   /**
    * Retrieves security classification and PII distribution metrics across all or selected databases.
    */
-  getClassificationDistribution(connectionIds?: string[]): Observable<ClassificationReport> {
+  getClassificationDistribution(connectionIds?: string[], excludeLowRowTables: boolean = false): Observable<ClassificationReport> {
     let params = new HttpParams();
     if (connectionIds && connectionIds.length > 0) {
       connectionIds.forEach((id) => {
         params = params.append('connection_ids', id);
       });
+    }
+    if (excludeLowRowTables) {
+      params = params.set('exclude_low_row_tables', 'true');
     }
     return this.http.get<ClassificationReport>(`${this.baseUrl}/classification-distribution`, { params });
   }
@@ -39847,12 +40736,15 @@ export class ReportService {
   /**
    * Fetches data dictionary preview items including both source and approved descriptions.
    */
-  getReportPreview(connectionIds?: string[], limit: number = 100): Observable<ReportPreviewItem[]> {
+  getReportPreview(connectionIds?: string[], limit: number = 100, excludeLowRowTables: boolean = false): Observable<ReportPreviewItem[]> {
     let params = new HttpParams().set('limit', limit);
     if (connectionIds && connectionIds.length > 0) {
       connectionIds.forEach((id) => {
         params = params.append('connection_ids', id);
       });
+    }
+    if (excludeLowRowTables) {
+      params = params.set('exclude_low_row_tables', 'true');
     }
     return this.http.get<ReportPreviewItem[]>(`${this.baseUrl}/preview`, { params });
   }
@@ -39860,12 +40752,15 @@ export class ReportService {
   /**
    * Exports executive reporting summary to JSON, CSV, or XLSX format.
    */
-  exportReports(format: 'json' | 'csv' | 'xlsx', connectionIds?: string[]): Observable<Blob> {
+  exportReports(format: 'json' | 'csv' | 'xlsx', connectionIds?: string[], excludeLowRowTables: boolean = false): Observable<Blob> {
     let params = new HttpParams().set('format', format);
     if (connectionIds && connectionIds.length > 0) {
       connectionIds.forEach((id) => {
         params = params.append('connection_ids', id);
       });
+    }
+    if (excludeLowRowTables) {
+      params = params.set('exclude_low_row_tables', 'true');
     }
     return this.http.get(`${this.baseUrl}/export`, {
       params,
@@ -40220,6 +41115,35 @@ export class CompletenessGaugeComponent {
   display: flex;
   align-items: center;
   gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.filter-low-row-checkbox-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: #334155;
+  background-color: #f8fafc;
+  border: 1px solid #cbd5e1;
+  padding: 0.5rem 0.75rem;
+  border-radius: 6px;
+  cursor: pointer;
+  user-select: none;
+  transition: all 0.2s ease;
+}
+
+.filter-low-row-checkbox-label:hover {
+  background-color: #f1f5f9;
+  border-color: #94a3b8;
+}
+
+.filter-low-row-checkbox-label input[type="checkbox"] {
+  cursor: pointer;
+  accent-color: #2563eb;
+  width: 1rem;
+  height: 1rem;
 }
 
 .btn-export {
@@ -41178,6 +42102,15 @@ export class CompletenessGaugeComponent {
         </p>
       </div>
       <div class="header-actions">
+        <label class="filter-low-row-checkbox-label">
+          <input
+            type="checkbox"
+            [checked]="excludeLowRowTables()"
+            (change)="toggleExcludeLowRowTables()"
+            data-testid="exclude-low-row-checkbox"
+          />
+          <span>ط­ط°ظپ ط¬ط¯ط§ظˆظ„ ط®ط§ظ„غŒ ظˆ طھط³طھغŒ (ع©ظ…طھط± ط§ط² غ±غ° ط±ع©ظˆط±ط¯) ط§ط² ع¯ط²ط§ط±ط´</span>
+        </label>
         <button
           *hasPermission="'EXPORT_REPORTS'"
           type="button"
@@ -41739,6 +42672,7 @@ export class ExecutiveDashboardComponent implements OnInit {
   readonly isLoading = signal<boolean>(false);
   readonly isRefreshing = signal<boolean>(false);
   readonly isExporting = signal<boolean>(false);
+  readonly excludeLowRowTables = signal<boolean>(false);
   readonly errorMessage = signal<string | null>(null);
   readonly refreshSuccessMessage = signal<string | null>(null);
 
@@ -41943,16 +42877,32 @@ export class ExecutiveDashboardComponent implements OnInit {
     this.loadReports();
   }
 
+  toggleExcludeLowRowTables(): void {
+    this.excludeLowRowTables.update((v) => !v);
+    this.loadReports();
+  }
+
   loadReports(): void {
     this.isLoading.set(true);
     this.errorMessage.set(null);
 
     const ids = Array.from(this.selectedConnectionIds());
+    const excludeLowRows = this.excludeLowRowTables();
+
+    const completeness$ = excludeLowRows
+      ? this.reportService.getCompletenessReport(ids, true)
+      : this.reportService.getCompletenessReport(ids);
+    const classification$ = excludeLowRows
+      ? this.reportService.getClassificationDistribution(ids, true)
+      : this.reportService.getClassificationDistribution(ids);
+    const preview$ = excludeLowRows
+      ? this.reportService.getReportPreview(ids, 100, true)
+      : this.reportService.getReportPreview(ids);
 
     forkJoin({
-      completeness: this.reportService.getCompletenessReport(ids),
-      classification: this.reportService.getClassificationDistribution(ids),
-      preview: this.reportService.getReportPreview(ids),
+      completeness: completeness$,
+      classification: classification$,
+      preview: preview$,
     }).subscribe({
       next: ({ completeness, classification, preview }) => {
         this.completenessReport.set(completeness);
@@ -41994,7 +42944,11 @@ export class ExecutiveDashboardComponent implements OnInit {
   exportReport(format: 'json' | 'csv' | 'xlsx'): void {
     this.isExporting.set(true);
     const ids = Array.from(this.selectedConnectionIds());
-    this.reportService.exportReports(format, ids).subscribe({
+    const excludeLowRows = this.excludeLowRowTables();
+    const export$ = excludeLowRows
+      ? this.reportService.exportReports(format, ids, true)
+      : this.reportService.exportReports(format, ids);
+    export$.subscribe({
       next: (blob) => {
         const url = window.URL.createObjectURL(blob);
         const a = document.createElement('a');

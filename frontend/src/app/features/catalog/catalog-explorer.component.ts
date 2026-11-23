@@ -70,6 +70,8 @@ export class CatalogExplorerComponent implements OnInit {
   selectedTag = '';
   selectedCategory = '';
   missingDescriptionsOnly = signal<boolean>(false);
+  selectedSortBy = signal<string>('row_count_desc');
+  hideLowRowTables = signal<boolean>(false);
 
   // Advanced Tree Filtering State
   readonly dbSearchFilter = signal<string>('');
@@ -449,6 +451,8 @@ export class CatalogExplorerComponent implements OnInit {
       tag: this.selectedTag || undefined,
       category: this.selectedCategory || undefined,
       missing_descriptions_only: this.missingDescriptionsOnly() || undefined,
+      sort_by: this.selectedSortBy(),
+      min_rows: this.hideLowRowTables() ? 10 : undefined,
     };
     this.store.search(this.searchQuery, true, filters).catch(() => {
       this.showToast('خطا در برقراری ارتباط با سرور متادیتا', 'error');
@@ -461,6 +465,25 @@ export class CatalogExplorerComponent implements OnInit {
     this.executeSearch();
   }
 
+  toggleHideLowRowTables(): void {
+    this.hideLowRowTables.update((v) => !v);
+    this.executeSearch();
+  }
+
+  onSortChange(sortBy: string): void {
+    this.selectedSortBy.set(sortBy);
+    this.executeSearch();
+  }
+
+  isTableEmpty(hit: SearchHit): boolean {
+    return (hit.row_count_estimate || 0) === 0;
+  }
+
+  isTableLowRow(hit: SearchHit): boolean {
+    const c = hit.row_count_estimate || 0;
+    return c >= 1 && c < 10;
+  }
+
   resetFilters(): void {
     this.searchQuery = '';
     this.selectedDatabase = '';
@@ -470,6 +493,8 @@ export class CatalogExplorerComponent implements OnInit {
     this.selectedTag = '';
     this.selectedCategory = '';
     this.missingDescriptionsOnly.set(false);
+    this.hideLowRowTables.set(false);
+    this.selectedSortBy.set('row_count_desc');
     this.executeSearch();
   }
 

@@ -304,6 +304,20 @@
           </select>
         </div>
 
+        <div class="filter-item">
+          <label>مرتب‌سازی:</label>
+          <select
+            class="filter-select"
+            [ngModel]="selectedSortBy()"
+            (ngModelChange)="onSortChange($event)"
+            data-testid="sort-by-select"
+          >
+            <option value="row_count_desc">مرتب‌سازی: تعداد رکورد (زیاد به کم)</option>
+            <option value="row_count_asc">تعداد رکورد (کم به زیاد)</option>
+            <option value="name_asc">نام جدول (الفبا)</option>
+          </select>
+        </div>
+
         <div class="filter-item filter-missing-desc">
           <button
             type="button"
@@ -312,6 +326,18 @@
             (click)="toggleMissingDescriptionsOnly()"
           >
             <span><i class="pi pi-exclamation-triangle me-1"></i> فقط موارد فاقد توضیحات (Missing Only)</span>
+          </button>
+        </div>
+
+        <div class="filter-item filter-hide-low-row">
+          <button
+            type="button"
+            class="low-row-toggle-btn"
+            [class.active]="hideLowRowTables()"
+            (click)="toggleHideLowRowTables()"
+            data-testid="hide-low-row-btn"
+          >
+            <span><i class="pi pi-filter-slash me-1"></i> مخفی‌سازی جداول خالی / کم‌رکورد (&lt;۱۰)</span>
           </button>
         </div>
       </div>
@@ -561,6 +587,8 @@
               *cdkVirtualFor="let hit of store.searchHits(); trackBy: trackByHitId"
               class="table-row"
               [class.row-selected]="isTableSelected(hit.id)"
+              [class.row-empty]="isTableEmpty(hit)"
+              [class.row-low]="isTableLowRow(hit)"
             >
               <div class="col-checkbox">
                 <input
@@ -587,7 +615,14 @@
               </div>
 
               <div class="col-stats">
-                <div>{{ (hit.row_count_estimate || 0).toLocaleString('fa-IR') }} رکورد</div>
+                <div class="stats-row-count-line">
+                  <span>{{ (hit.row_count_estimate || 0).toLocaleString('fa-IR') }} رکورد</span>
+                  @if (isTableEmpty(hit)) {
+                    <span class="row-count-badge badge-empty" title="جدول فاقد داده / خالی">خالی (۰)</span>
+                  } @else if (isTableLowRow(hit)) {
+                    <span class="row-count-badge badge-low-row" title="جدول کم‌رکورد (احتمالاً داده پایه‌ای یا تستی)">کم‌رکورد (&lt;۱۰)</span>
+                  }
+                </div>
                 <div class="text-muted">{{ (hit.size_bytes ? (hit.size_bytes / 1024 / 1024).toFixed(1) : 0) }} مگابایت</div>
               </div>
 

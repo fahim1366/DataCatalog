@@ -1154,7 +1154,7 @@ export class TableStatsService {
 /* --- Split Workspace --- */
 .monitor-workspace {
   display: grid;
-  grid-template-columns: 320px 1fr;
+  grid-template-columns: 340px 1fr;
   gap: 20px;
   align-items: start;
 }
@@ -1170,7 +1170,7 @@ export class TableStatsService {
   flex-direction: column;
 }
 .sidebar-header {
-  padding: 14px 16px;
+  padding: 12px 14px;
   border-bottom: 1px solid #f1f5f9;
   background-color: #f8fafc;
 }
@@ -1189,39 +1189,172 @@ export class TableStatsService {
   font-weight: 700;
   color: #1e293b;
   margin: 0;
+  flex: 1;
 }
-.sidebar-search-box {
+.db-counter-badge {
+  font-size: 11px;
+  font-weight: 700;
+  background-color: #e0e7ff;
+  color: #4338ca;
+  padding: 2px 7px;
+  border-radius: 12px;
+}
+
+/* --- Multi-Criteria Tree Filtering --- */
+.tree-filter-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.filter-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+.filter-row.engine-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.filter-input-group {
   position: relative;
+  display: flex;
+  align-items: center;
 }
-.sidebar-search-input {
+.input-icon {
+  position: absolute;
+  right: 8px;
+  font-size: 11px;
+  color: #94a3b8;
+  pointer-events: none;
+}
+.sidebar-filter-input {
   width: 100%;
-  padding: 7px 32px 7px 10px;
-  font-size: 12px;
+  padding: 6px 26px 6px 6px;
+  font-size: 11px;
   border: 1px solid #cbd5e1;
   border-radius: 6px;
   outline: none;
   background-color: #ffffff;
   box-sizing: border-box;
+  transition: border-color 0.15s ease;
 }
-.sidebar-search-input:focus {
+.sidebar-filter-input:focus {
   border-color: #6366f1;
-  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.15);
+  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.12);
 }
-.sidebar-search-box .search-icon {
-  position: absolute;
-  right: 10px;
-  top: 50%;
-  transform: translateY(-50%);
-  font-size: 12px;
-  color: #94a3b8;
+.sidebar-filter-select {
+  flex: 1;
+  padding: 6px 8px;
+  font-size: 11px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  outline: none;
+  background-color: #ffffff;
+  color: #334155;
+  cursor: pointer;
+  box-sizing: border-box;
 }
-.connections-list {
-  max-height: calc(100vh - 240px);
+.sidebar-filter-select:focus {
+  border-color: #6366f1;
+  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.12);
+}
+.btn-clear-tree-filters {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #dc2626;
+  background-color: #fef2f2;
+  border: 1px solid #fecaca;
+  border-radius: 6px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.15s ease;
+}
+.btn-clear-tree-filters:hover {
+  background-color: #fee2e2;
+}
+
+/* --- Tree Scroll Area & Categories Hierarchy --- */
+.tree-scroll-container {
+  max-height: calc(100vh - 270px);
   overflow-y: auto;
   padding: 8px;
   display: flex;
   flex-direction: column;
   gap: 6px;
+}
+.category-tree {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.tree-category-item {
+  display: flex;
+  flex-direction: column;
+}
+.category-header-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+  user-select: none;
+  font-size: 12px;
+  font-weight: 600;
+  color: #334155;
+  background-color: transparent;
+  transition: background-color 0.15s ease;
+}
+.category-header-row:hover {
+  background-color: #f1f5f9;
+}
+.category-header-row.expanded {
+  background-color: #f8fafc;
+}
+.category-header-row.uncategorized-header {
+  color: #92400e;
+}
+.expand-chevron {
+  font-size: 10px;
+  color: #94a3b8;
+  width: 14px;
+  text-align: center;
+}
+.category-icon {
+  font-size: 13px;
+}
+.category-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.category-count-badge {
+  font-size: 10px;
+  font-weight: 600;
+  background-color: #e2e8f0;
+  color: #475569;
+  padding: 1px 6px;
+  border-radius: 10px;
+}
+.category-children-container {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 3px;
+  margin-bottom: 4px;
+}
+.card-owner {
+  font-size: 10px;
+  color: #64748b;
+  margin-top: 2px;
+  display: flex;
+  align-items: center;
 }
 .connection-card-btn {
   display: flex;
@@ -1893,55 +2026,122 @@ export class TableStatsService {
 
   <!-- Workspace: Right Sidebar (Connections) + Main (Users Table) -->
   <div class="monitor-workspace">
-    <!-- Right Sidebar: Database Connections Selector -->
+    <!-- Right Sidebar: Hierarchical Category & Database Tree -->
     <aside class="connections-sidebar">
       <div class="sidebar-header">
         <div class="sidebar-title-row">
-          <i class="pi pi-server sidebar-icon"></i>
-          <h2 class="sidebar-title">ظ¾ط§غŒع¯ط§ظ‡â€Œظ‡ط§غŒ ط¯ط§ط¯ظ‡ ظ…طھطµظ„</h2>
+          <i class="pi pi-sitemap sidebar-icon"></i>
+          <h2 class="sidebar-title">ط¯ط±ط®طھظˆط§ط±ظ‡ ظ¾ط§غŒع¯ط§ظ‡â€Œظ‡ط§غŒ ط¯ط§ط¯ظ‡</h2>
+          <span class="db-counter-badge" title="طھط¹ط¯ط§ط¯ ظ¾ط§غŒع¯ط§ظ‡â€Œظ‡ط§غŒ ط¯ط§ط¯ظ‡ ظ…ظ†ط·ط¨ظ‚">
+            {{ totalFilteredDatabasesCount() }}
+          </span>
         </div>
-        <div class="sidebar-search-box">
-          <i class="pi pi-search search-icon"></i>
-          <input
-            type="text"
-            class="sidebar-search-input"
-            placeholder="ط¬ط³طھط¬ظˆغŒ ظ¾ط§غŒع¯ط§ظ‡ ط¯ط§ط¯ظ‡..."
-            [ngModel]="connectionSearchQuery()"
-            (ngModelChange)="connectionSearchQuery.set($event)"
-          />
+
+        <!-- Multi-criteria filter panel -->
+        <div class="tree-filter-panel">
+          <div class="filter-row">
+            <div class="filter-input-group">
+              <i class="pi pi-link input-icon"></i>
+              <input
+                type="text"
+                class="sidebar-filter-input"
+                placeholder="ظ†ط§ظ… ط§طھطµط§ظ„..."
+                [ngModel]="filterConnectionName()"
+                (ngModelChange)="filterConnectionName.set($event)"
+              />
+            </div>
+            <div class="filter-input-group">
+              <i class="pi pi-database input-icon"></i>
+              <input
+                type="text"
+                class="sidebar-filter-input td-mono"
+                placeholder="ظ†ط§ظ… ط¯غŒطھط§ط¨غŒط³..."
+                [ngModel]="filterDatabaseName()"
+                (ngModelChange)="filterDatabaseName.set($event)"
+              />
+            </div>
+          </div>
+
+          <div class="filter-row">
+            <div class="filter-input-group">
+              <i class="pi pi-globe input-icon"></i>
+              <input
+                type="text"
+                class="sidebar-filter-input td-mono td-ltr"
+                placeholder="IP / ظ‡ط§ط³طھ..."
+                [ngModel]="filterHost()"
+                (ngModelChange)="filterHost.set($event)"
+              />
+            </div>
+            <div class="filter-input-group">
+              <i class="pi pi-user input-icon"></i>
+              <input
+                type="text"
+                class="sidebar-filter-input"
+                placeholder="ظ…ط§ظ„ع©..."
+                [ngModel]="filterOwner()"
+                (ngModelChange)="filterOwner.set($event)"
+              />
+            </div>
+          </div>
+
+          <div class="filter-row engine-row">
+            <select
+              class="sidebar-filter-select"
+              [ngModel]="filterEngineType()"
+              (ngModelChange)="filterEngineType.set($event)"
+            >
+              <option value="">ظ‡ظ…ظ‡ ظ…ظˆطھظˆط±ظ‡ط§ (Engines)</option>
+              <option value="POSTGRESQL">PostgreSQL</option>
+              <option value="MSSQL">MSSQL</option>
+              <option value="ORACLE">Oracle</option>
+              <option value="MYSQL">MySQL</option>
+              <option value="CLICKHOUSE">ClickHouse</option>
+              <option value="MONGODB">MongoDB</option>
+            </select>
+
+            @if (hasActiveTreeFilters()) {
+              <button
+                type="button"
+                class="btn-clear-tree-filters"
+                (click)="clearTreeFilters()"
+                title="ظ¾ط§ع©ط³ط§ط²غŒ طھظ…ط§ظ…غŒ ظپغŒظ„طھط±ظ‡ط§"
+              >
+                <i class="pi pi-filter-slash"></i>
+                <span>ظ¾ط§ع©ط³ط§ط²غŒ</span>
+              </button>
+            }
+          </div>
         </div>
       </div>
 
-      <div class="connections-list">
+      <!-- Hierarchical Category & Database Tree Scroll Area -->
+      <div class="tree-scroll-container">
         @if (isLoadingConnections()) {
           <div class="loading-state">
             <i class="pi pi-spin pi-spinner"></i>
-            <span>ط¯ط± ط­ط§ظ„ ط¯ط±غŒط§ظپطھ ظ¾ط§غŒع¯ط§ظ‡â€Œظ‡ط§غŒ ط¯ط§ط¯ظ‡...</span>
+            <span>ط¯ط± ط­ط§ظ„ ط¨ط§ط±ع¯ط°ط§ط±غŒ ط¯ط±ط®طھظˆط§ط±ظ‡ ط¯ط³طھظ‡â€Œط¨ظ†ط¯غŒâ€Œظ‡ط§...</span>
           </div>
-        } @else if (filteredConnections().length === 0) {
+        } @else if (displayTree().length === 0 && !uncategorizedNode()) {
           <div class="empty-state-card">
             <i class="pi pi-info-circle"></i>
-            <span>ظ‡غŒع† ظ¾ط§غŒع¯ط§ظ‡ ط¯ط§ط¯ظ‡â€Œط§غŒ غŒط§ظپطھ ظ†ط´ط¯.</span>
+            <span>ظ‡غŒع† ظ¾ط§غŒع¯ط§ظ‡ ط¯ط§ط¯ظ‡â€Œط§غŒ ط¨ط§ ط´ط±ط§غŒط· ط¬ط³طھط¬ظˆ غŒط§ظپطھ ظ†ط´ط¯.</span>
+            @if (hasActiveTreeFilters()) {
+              <button type="button" class="btn btn-sm btn-secondary mt-2" (click)="clearTreeFilters()">
+                ظ¾ط§ع©ط³ط§ط²غŒ ظپغŒظ„طھط±ظ‡ط§
+              </button>
+            }
           </div>
         } @else {
-          @for (conn of filteredConnections(); track conn.id) {
-            <button
-              type="button"
-              class="connection-card-btn"
-              [class.active]="selectedConnection()?.id === conn.id"
-              (click)="selectConnection(conn)"
-            >
-              <div class="card-top-row">
-                <span class="engine-badge" [attr.data-engine]="conn.engine_type">
-                  {{ conn.engine_type }}
-                </span>
-                <span class="status-indicator-dot" [class.online]="conn.is_active" title="ظˆط¶ط¹غŒطھ ظپط¹ط§ظ„"></span>
-              </div>
-              <div class="card-name">{{ conn.name }}</div>
-              <div class="card-endpoint td-mono td-ltr">{{ conn.host }}:{{ conn.port }}</div>
-              <div class="card-db-name td-mono">{{ conn.database_name }}</div>
-            </button>
-          }
+          <div class="category-tree">
+            @for (rootNode of displayTree(); track rootNode.id) {
+              <ng-container *ngTemplateOutlet="categoryNodeTpl; context: { node: rootNode, depth: 0 }"></ng-container>
+            }
+
+            @if (uncategorizedNode(); as uncat) {
+              <ng-container *ngTemplateOutlet="categoryNodeTpl; context: { node: uncat, depth: 0, isUncategorized: true }"></ng-container>
+            }
+          </div>
         }
       </div>
     </aside>
@@ -2000,7 +2200,7 @@ export class TableStatsService {
                 [class.active]="userTypeFilter() === 'LOGIN'"
                 (click)="userTypeFilter.set('LOGIN')"
               >
-                ع©ط§ط±ط¨ط±ط§ظ† ط¯ط§ط±ط§غŒ ظ…ط¬ظˆط² ظˆط±ظˆط¯ ({{ userStats().loginUsers }})
+                ع©ط§ط±ط¨ط±ط§ظ† ط¯ط§ط±ط§غŒ ظ…ط¬ظˆط² ظˆط±ظˆط¯ (Login) ({{ userStats().loginUsers }})
               </button>
               <button
                 type="button"
@@ -2008,15 +2208,7 @@ export class TableStatsService {
                 [class.active]="userTypeFilter() === 'ROLES'"
                 (click)="userTypeFilter.set('ROLES')"
               >
-                ظ†ظ‚ط´â€Œظ‡ط§ ({{ userStats().roles }})
-              </button>
-              <button
-                type="button"
-                class="filter-pill"
-                [class.active]="userTypeFilter() === 'DISABLED'"
-                (click)="userTypeFilter.set('DISABLED')"
-              >
-                ع©ط§ط±ط¨ط±ط§ظ† ط؛غŒط±ظپط¹ط§ظ„
+                ظ†ظ‚ط´â€Œظ‡ط§غŒ ط¨ط¯ظˆظ† ظˆط±ظˆط¯ (Nologin Roles) ({{ userStats().roles }})
               </button>
             </div>
 
@@ -2321,6 +2513,66 @@ export class TableStatsService {
       </div>
     </div>
   }
+
+  <!-- Recursive RTL Category -> Subcategories -> Databases Tree Node Template -->
+  <ng-template #categoryNodeTpl let-node="node" let-depth="depth" let-isUncat="isUncategorized">
+    <div class="tree-category-item" [style.padding-right.px]="depth * 14">
+      <!-- Category Header Row -->
+      <div
+        class="category-header-row"
+        [class.expanded]="isCategoryExpanded(node)"
+        [class.uncategorized-header]="isUncat"
+        (click)="toggleCategory(node, $event)"
+      >
+        <i
+          class="pi expand-chevron"
+          [ngClass]="isCategoryExpanded(node) ? 'pi-chevron-down' : 'pi-chevron-left'"
+        ></i>
+        <i
+          class="pi category-icon"
+          [ngClass]="isUncat ? 'pi-inbox text-warning' : (isCategoryExpanded(node) ? 'pi-folder-open text-primary' : 'pi-folder text-primary')"
+        ></i>
+        <span class="category-name" [title]="node.description || node.name">{{ node.name }}</span>
+        <span class="category-count-badge">{{ node.connections.length }}</span>
+      </div>
+
+      <!-- Category Content: Subcategories & Databases -->
+      @if (isCategoryExpanded(node)) {
+        <div class="category-children-container">
+          <!-- Subcategories Recursion -->
+          @for (child of node.children; track child.id) {
+            <ng-container *ngTemplateOutlet="categoryNodeTpl; context: { node: child, depth: depth + 1 }"></ng-container>
+          }
+
+          <!-- Databases assigned to this category -->
+          @for (conn of node.connections; track conn.id) {
+            <button
+              type="button"
+              class="connection-card-btn"
+              [class.active]="selectedConnection()?.id === conn.id"
+              (click)="selectConnection(conn)"
+            >
+              <div class="card-top-row">
+                <span class="engine-badge" [attr.data-engine]="conn.engine_type">
+                  {{ conn.engine_type }}
+                </span>
+                <span class="status-indicator-dot" [class.online]="conn.is_active" title="ظˆط¶ط¹غŒطھ ظپط¹ط§ظ„"></span>
+              </div>
+              <div class="card-name">{{ conn.name }}</div>
+              <div class="card-endpoint td-mono td-ltr">{{ conn.host }}:{{ conn.port }}</div>
+              <div class="card-db-name td-mono">{{ conn.database_name }}</div>
+              @if (conn.owner) {
+                <div class="card-owner">
+                  <i class="pi pi-user me-1"></i>
+                  <span>{{ conn.owner }}</span>
+                </div>
+              }
+            </button>
+          }
+        </div>
+      }
+    </div>
+  </ng-template>
 </div>
 
 === FILE: D:\datacatalog\frontend\src\app\features\access-control\db-users\db-user-monitor.component.ts ===
@@ -2335,13 +2587,26 @@ import {
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, RouterModule } from '@angular/router';
+import { forkJoin } from 'rxjs';
 import { ConnectionService } from '../../connections/services/connection.service';
 import { DatabaseConnection } from '../../connections/models/connection.models';
+import { CategoryTreeNode } from '../../catalog/models/catalog.models';
 import { DbUserService } from '../services/db-user.service';
 import { DatabaseUserItem } from '../models/db-user.models';
 import { HasPermissionDirective } from '../../../core/directives/has-permission.directive';
 
-export type UserFilterType = 'ALL' | 'LOGIN' | 'ROLES' | 'DISABLED';
+export type UserFilterType = 'ALL' | 'LOGIN' | 'ROLES';
+
+export interface DbTreeCategoryNode {
+  id: string;
+  name: string;
+  description?: string | null;
+  connections: DatabaseConnection[];
+  children: DbTreeCategoryNode[];
+  hasMatchingDescendants: boolean;
+  totalDatabasesCount: number;
+  isUncategorized?: boolean;
+}
 
 @Component({
   selector: 'app-db-user-monitor',
@@ -2360,11 +2625,21 @@ export class DbUserMonitorComponent implements OnInit {
   successMessage = signal<string | null>(null);
   errorMessage = signal<string | null>(null);
 
-  // Connections list state
+  // Backend state
+  categories = signal<CategoryTreeNode[]>([]);
   connections = signal<DatabaseConnection[]>([]);
   isLoadingConnections = signal<boolean>(false);
-  connectionSearchQuery = signal<string>('');
   selectedConnection = signal<DatabaseConnection | null>(null);
+
+  // Multi-criteria tree filtering
+  filterConnectionName = signal<string>('');
+  filterDatabaseName = signal<string>('');
+  filterHost = signal<string>('');
+  filterOwner = signal<string>('');
+  filterEngineType = signal<string>('');
+
+  // Tree expansion state
+  expandedCategoryIds = signal<Set<string>>(new Set<string>());
 
   // Users list state
   users = signal<DatabaseUserItem[]>([]);
@@ -2372,21 +2647,218 @@ export class DbUserMonitorComponent implements OnInit {
   userSearchQuery = signal<string>('');
   userTypeFilter = signal<UserFilterType>('ALL');
 
-  // Filtered connections list
-  filteredConnections = computed<DatabaseConnection[]>(() => {
-    const q = this.connectionSearchQuery().trim().toLowerCase();
-    const conns = this.connections();
-    if (!q) return conns;
-    return conns.filter(
-      (c) =>
-        c.name.toLowerCase().includes(q) ||
-        c.host.toLowerCase().includes(q) ||
-        c.database_name.toLowerCase().includes(q) ||
-        c.engine_type.toLowerCase().includes(q)
+  // Check whether any tree filter is active
+  hasActiveTreeFilters = computed<boolean>(() => {
+    return Boolean(
+      this.filterConnectionName().trim() ||
+      this.filterDatabaseName().trim() ||
+      this.filterHost().trim() ||
+      this.filterOwner().trim() ||
+      this.filterEngineType()
     );
   });
 
-  // Filtered users list
+  // Predicate to verify if a connection matches all active multi-criteria filters
+  matchesConnection(conn: DatabaseConnection): boolean {
+    const nameQ = this.filterConnectionName().trim().toLowerCase();
+    if (nameQ && !conn.name.toLowerCase().includes(nameQ)) {
+      return false;
+    }
+
+    const dbNameQ = this.filterDatabaseName().trim().toLowerCase();
+    if (dbNameQ && !conn.database_name.toLowerCase().includes(dbNameQ)) {
+      return false;
+    }
+
+    const hostQ = this.filterHost().trim().toLowerCase();
+    if (hostQ && !conn.host.toLowerCase().includes(hostQ)) {
+      return false;
+    }
+
+    const ownerQ = this.filterOwner().trim().toLowerCase();
+    if (ownerQ && (!conn.owner || !conn.owner.toLowerCase().includes(ownerQ))) {
+      return false;
+    }
+
+    const engine = this.filterEngineType();
+    if (engine && conn.engine_type.toUpperCase() !== engine.toUpperCase()) {
+      return false;
+    }
+
+    return true;
+  }
+
+  // Hierarchical Category -> Subcategories -> Databases Tree
+  readonly displayTree = computed<DbTreeCategoryNode[]>(() => {
+    const rawCategories = this.categories();
+    const allConns = this.connections();
+    const activeFilters = this.hasActiveTreeFilters();
+    const connMap = new Map<string, DatabaseConnection>(allConns.map((c) => [c.id, c]));
+
+    const buildCategoryNode = (cat: CategoryTreeNode): DbTreeCategoryNode => {
+      const assigned: DatabaseConnection[] = [];
+      const seenIds = new Set<string>();
+
+      if (cat.databases) {
+        for (const dbInfo of cat.databases) {
+          const c = connMap.get(dbInfo.id);
+          if (c && !seenIds.has(c.id)) {
+            seenIds.add(c.id);
+            assigned.push(c);
+          }
+        }
+      }
+
+      for (const c of allConns) {
+        if (c.category_id === cat.id && !seenIds.has(c.id)) {
+          seenIds.add(c.id);
+          assigned.push(c);
+        }
+      }
+
+      const matchingConnections = activeFilters
+        ? assigned.filter((c) => this.matchesConnection(c))
+        : assigned;
+
+      const matchingChildren: DbTreeCategoryNode[] = [];
+      for (const child of cat.children || []) {
+        const childNode = buildCategoryNode(child);
+        if (!activeFilters || childNode.hasMatchingDescendants || childNode.connections.length > 0) {
+          matchingChildren.push(childNode);
+        }
+      }
+
+      const hasMatch =
+        matchingConnections.length > 0 ||
+        matchingChildren.some((child) => child.hasMatchingDescendants || child.connections.length > 0);
+
+      const totalDbs =
+        assigned.length +
+        matchingChildren.reduce((acc, child) => acc + child.totalDatabasesCount, 0);
+
+      return {
+        id: cat.id,
+        name: cat.name,
+        description: cat.description,
+        connections: matchingConnections,
+        children: matchingChildren,
+        hasMatchingDescendants: hasMatch,
+        totalDatabasesCount: totalDbs,
+      };
+    };
+
+    const tree: DbTreeCategoryNode[] = [];
+    for (const cat of rawCategories) {
+      const node = buildCategoryNode(cat);
+      if (!activeFilters || node.hasMatchingDescendants || node.connections.length > 0) {
+        tree.push(node);
+      }
+    }
+
+    return tree;
+  });
+
+  // Automatic آ«ظ¾ط§غŒع¯ط§ظ‡â€Œظ‡ط§غŒ ط¯ط§ط¯ظ‡ ط¯ط³طھظ‡â€Œط¨ظ†ط¯غŒâ€Œظ†ط´ط¯ظ‡آ» branch for uncategorized databases
+  readonly uncategorizedNode = computed<DbTreeCategoryNode | null>(() => {
+    const rawCategories = this.categories();
+    const allConns = this.connections();
+    const activeFilters = this.hasActiveTreeFilters();
+
+    const assignedIds = new Set<string>();
+    const collectAssignedIds = (nodes: CategoryTreeNode[]) => {
+      for (const cat of nodes) {
+        if (cat.databases) {
+          for (const db of cat.databases) {
+            assignedIds.add(db.id);
+          }
+        }
+        if (cat.children) {
+          collectAssignedIds(cat.children);
+        }
+      }
+    };
+    collectAssignedIds(rawCategories);
+
+    for (const c of allConns) {
+      if (c.category_id) {
+        assignedIds.add(c.id);
+      }
+    }
+
+    const uncatConns = allConns.filter((c) => !assignedIds.has(c.id));
+    if (uncatConns.length === 0) return null;
+
+    const matchingUncat = activeFilters
+      ? uncatConns.filter((c) => this.matchesConnection(c))
+      : uncatConns;
+
+    if (activeFilters && matchingUncat.length === 0) {
+      return null;
+    }
+
+    return {
+      id: 'uncategorized',
+      name: 'ظ¾ط§غŒع¯ط§ظ‡â€Œظ‡ط§غŒ ط¯ط§ط¯ظ‡ ط¯ط³طھظ‡â€Œط¨ظ†ط¯غŒâ€Œظ†ط´ط¯ظ‡',
+      description: 'ظ¾ط§غŒع¯ط§ظ‡â€Œظ‡ط§غŒ ط¯ط§ط¯ظ‡â€Œط§غŒ ع©ظ‡ ط¨ظ‡ ظ‡غŒع† ط¯ط³طھظ‡â€Œط¨ظ†ط¯غŒ ظ…ظˆط¶ظˆط¹غŒ ظ…ظ†طھط³ط¨ ظ†ط´ط¯ظ‡â€Œط§ظ†ط¯',
+      connections: matchingUncat,
+      children: [],
+      hasMatchingDescendants: matchingUncat.length > 0,
+      totalDatabasesCount: uncatConns.length,
+      isUncategorized: true,
+    };
+  });
+
+  // Total matching databases count across visible tree
+  totalFilteredDatabasesCount = computed<number>(() => {
+    const tree = this.displayTree();
+    const uncat = this.uncategorizedNode();
+    let sum = 0;
+    const countConns = (node: DbTreeCategoryNode) => {
+      sum += node.connections.length;
+      for (const ch of node.children) {
+        countConns(ch);
+      }
+    };
+    for (const root of tree) {
+      countConns(root);
+    }
+    if (uncat) {
+      sum += uncat.connections.length;
+    }
+    return sum;
+  });
+
+  // Determines whether a category node should be expanded (auto-expanded when searching)
+  isCategoryExpanded(node: DbTreeCategoryNode): boolean {
+    if (this.hasActiveTreeFilters()) {
+      return node.hasMatchingDescendants || node.connections.length > 0;
+    }
+    return this.expandedCategoryIds().has(node.id);
+  }
+
+  // Toggles expand/collapse state for a category node
+  toggleCategory(node: DbTreeCategoryNode, event?: Event): void {
+    if (event) event.stopPropagation();
+    const currentlyExpanded = this.isCategoryExpanded(node);
+    const next = new Set(this.expandedCategoryIds());
+    if (currentlyExpanded) {
+      next.delete(node.id);
+    } else {
+      next.add(node.id);
+    }
+    this.expandedCategoryIds.set(next);
+  }
+
+  // Resets all tree multi-criteria search filters
+  clearTreeFilters(): void {
+    this.filterConnectionName.set('');
+    this.filterDatabaseName.set('');
+    this.filterHost.set('');
+    this.filterOwner.set('');
+    this.filterEngineType.set('');
+  }
+
+  // Filtered users list with clarified filter pills
   filteredUsers = computed<DatabaseUserItem[]>(() => {
     const query = this.userSearchQuery().trim().toLowerCase();
     const filter = this.userTypeFilter();
@@ -2395,8 +2867,6 @@ export class DbUserMonitorComponent implements OnInit {
     if (filter === 'LOGIN') {
       list = list.filter((u) => u.can_login);
     } else if (filter === 'ROLES') {
-      list = list.filter((u) => !u.can_login);
-    } else if (filter === 'DISABLED') {
       list = list.filter((u) => !u.can_login);
     }
 
@@ -2434,20 +2904,30 @@ export class DbUserMonitorComponent implements OnInit {
   isSavingSettings = signal<boolean>(false);
 
   ngOnInit(): void {
-    this.loadConnections();
+    this.loadData();
   }
 
-  loadConnections(): void {
+  loadData(): void {
     this.isLoadingConnections.set(true);
-    this.connectionService.getConnections().subscribe({
-      next: (conns) => {
-        this.connections.set(conns);
+    forkJoin({
+      categories: this.connectionService.getCategoryTree(),
+      connections: this.connectionService.getConnections(),
+    }).subscribe({
+      next: ({ categories, connections }) => {
+        this.categories.set(categories);
+        this.connections.set(connections);
         this.isLoadingConnections.set(false);
+
+        // Auto-expand all top-level categories and uncategorized branch initially
+        const initialExpanded = new Set<string>();
+        categories.forEach((c) => initialExpanded.add(c.id));
+        initialExpanded.add('uncategorized');
+        this.expandedCategoryIds.set(initialExpanded);
 
         // Check if query param specifies connectionId
         const targetId = this.route.snapshot.queryParams['connectionId'];
         if (targetId) {
-          const match = conns.find((c) => c.id === targetId);
+          const match = connections.find((c) => c.id === targetId);
           if (match) {
             this.selectConnection(match);
             return;
@@ -2455,14 +2935,14 @@ export class DbUserMonitorComponent implements OnInit {
         }
 
         // Auto-select first PostgreSQL connection or first connection
-        if (conns.length > 0) {
-          const firstPg = conns.find((c) => c.engine_type === 'POSTGRESQL') || conns[0];
+        if (connections.length > 0) {
+          const firstPg = connections.find((c) => c.engine_type === 'POSTGRESQL') || connections[0];
           this.selectConnection(firstPg);
         }
       },
       error: (err) => {
         this.isLoadingConnections.set(false);
-        this.showError('ط®ط·ط§ ط¯ط± ط¯ط±غŒط§ظپطھ ظ„غŒط³طھ ط§طھطµط§ظ„ط§طھ ظ¾ط§غŒع¯ط§ظ‡â€Œظ‡ط§غŒ ط¯ط§ط¯ظ‡: ' + (err.error?.detail || err.message));
+        this.showError('ط®ط·ط§ ط¯ط± ط¯ط±غŒط§ظپطھ ط³ط§ط®طھط§ط± ط¯ط³طھظ‡â€Œط¨ظ†ط¯غŒâ€Œظ‡ط§ ظˆ ظ¾ط§غŒع¯ط§ظ‡â€Œظ‡ط§غŒ ط¯ط§ط¯ظ‡: ' + (err.error?.detail || err.message));
       },
     });
   }
@@ -2537,7 +3017,6 @@ export class DbUserMonitorComponent implements OnInit {
     this.editConnectionLimit.set(user.connection_limit ?? -1);
     if (user.valid_until && user.valid_until.toLowerCase() !== 'infinity') {
       this.editIsUnlimited.set(false);
-      // Format to YYYY-MM-DD
       const datePart = user.valid_until.split('T')[0].split(' ')[0];
       this.editValidUntil.set(datePart);
     } else {
@@ -9113,6 +9592,8 @@ export interface CatalogFilterOptions {
   tag?: string;
   category?: string;
   missing_descriptions_only?: boolean;
+  sort_by?: string;
+  min_rows?: number;
 }
 
 @Injectable({
@@ -9188,6 +9669,12 @@ export class CatalogStore {
     }
     if (activeOpts.missing_descriptions_only) {
       url += `&missing_descriptions_only=true`;
+    }
+    if (activeOpts.sort_by) {
+      url += `&sort_by=${encodeURIComponent(activeOpts.sort_by)}`;
+    }
+    if (activeOpts.min_rows !== undefined && activeOpts.min_rows !== null) {
+      url += `&min_rows=${activeOpts.min_rows}`;
     }
 
     try {
@@ -10031,8 +10518,51 @@ export class CatalogStore {
   background-color: var(--slate-50);
 }
 
+.table-row.row-empty {
+  background-color: #f8fafc;
+}
+
+.table-row.row-empty:hover {
+  background-color: #f1f5f9;
+}
+
+.table-row.row-low {
+  background-color: #ffffff;
+}
+
 .row-selected {
   background-color: #f0fdf4 !important;
+}
+
+.stats-row-count-line {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.row-count-badge {
+  display: inline-flex;
+  align-items: center;
+  font-size: 0.68rem;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 9999px;
+  line-height: 1.3;
+  white-space: nowrap;
+}
+
+.badge-empty {
+  background-color: #f1f5f9;
+  color: #64748b;
+  border: 1px solid #e2e8f0;
+}
+
+.badge-low-row {
+  background-color: #fef3c7;
+  color: #b45309;
+  border: 1px solid #fde68a;
 }
 
 .table-title {
@@ -10502,6 +11032,34 @@ export class CatalogStore {
   border-color: #d97706;
 }
 
+/* Low-Row Filter Toggle */
+.filter-hide-low-row {
+  display: flex;
+  align-items: flex-end;
+}
+.low-row-toggle-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  background-color: #f1f5f9;
+  color: #475569;
+  border: 1px solid #cbd5e1;
+  border-radius: var(--radius-sm);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.low-row-toggle-btn:hover {
+  background-color: #e2e8f0;
+}
+.low-row-toggle-btn.active {
+  background-color: #2563eb;
+  color: #ffffff;
+  border-color: #1d4ed8;
+}
+
 /* Inspector Badges & Attribution */
 .inspector-badge-row {
   display: flex;
@@ -10875,14 +11433,14 @@ export class CatalogStore {
                 class="db-filter-input"
                 [ngModel]="dbSearchFilter()"
                 (ngModelChange)="dbSearchFilter.set($event)"
-                placeholder="ًں”چ ظ†ط§ظ… ظ¾ط§غŒع¯ط§ظ‡ / ط§طھطµط§ظ„..."
+                placeholder="ظ†ط§ظ… ظ¾ط§غŒع¯ط§ظ‡ / ط§طھطµط§ظ„..."
               />
               <input
                 type="text"
                 class="db-filter-input mono-font"
                 [ngModel]="dbHostFilter()"
                 (ngModelChange)="dbHostFilter.set($event)"
-                placeholder="ًںŒگ ظ‡ط§ط³طھ / IP..."
+                placeholder="ظ‡ط§ط³طھ / IP..."
               />
             </div>
             <div class="db-filter-row">
@@ -10904,7 +11462,7 @@ export class CatalogStore {
                 class="db-filter-input"
                 [ngModel]="dbOwnerFilter()"
                 (ngModelChange)="dbOwnerFilter.set($event)"
-                placeholder="ًں‘¤ ظ…ط§ظ„ع©..."
+                placeholder="ظ…ط§ظ„ع©..."
               />
               @if (dbSearchFilter() || dbHostFilter() || dbEngineFilter() || dbOwnerFilter()) {
                 <button
@@ -10923,7 +11481,7 @@ export class CatalogStore {
             @for (conn of filteredPhysicalTree(); track conn.id) {
               <div class="tree-group">
                 <div class="tree-node node-db" (click)="filterByDatabase(conn.name)">
-                  <span class="node-icon">ًں—„ï¸ڈ</span>
+                  <span class="node-icon"><i class="pi pi-database"></i></span>
                   <div class="node-db-meta">
                     <span class="node-label mono-font">{{ conn.name }}</span>
                     @if (conn.host || conn.owner) {
@@ -10952,7 +11510,7 @@ export class CatalogStore {
                 <div class="tree-subnodes">
                   @for (schema of conn.schemas; track schema.id) {
                     <div class="tree-node node-schema" (click)="filterBySchema(schema.name)">
-                      <span class="node-icon">ًں“پ</span>
+                      <span class="node-icon"><i class="pi pi-folder"></i></span>
                       <span class="node-label mono-font">{{ schema.name }}</span>
                     </div>
                   }
@@ -10983,7 +11541,7 @@ export class CatalogStore {
     @for (cat of nodes; track cat.id) {
       <div class="tree-group" [style.padding-right.px]="depth * 8">
         <div class="tree-node node-cat" (click)="filterByCategory(cat.name)">
-          <span class="node-icon">ًںڈ·ï¸ڈ</span>
+          <span class="node-icon"><i class="pi pi-tag"></i></span>
           <span class="node-label">{{ cat.name }}</span>
           @if (cat.assigned_tables_count || (cat.tables && cat.tables.length)) {
             <span class="node-count-badge">{{ cat.assigned_tables_count || cat.tables?.length || 0 }} ط¬ط¯ظˆظ„</span>
@@ -10995,7 +11553,7 @@ export class CatalogStore {
           <div class="tree-subnodes">
             @for (db of cat.databases; track db.id) {
               <div class="tree-node node-db-assigned" (click)="filterByDatabase(db.name)">
-                <span class="node-icon">ًں—„ï¸ڈ</span>
+                <span class="node-icon"><i class="pi pi-database"></i></span>
                 <span class="node-label mono-font">{{ db.name }}</span>
                 @if (db.engine_type) {
                   <span class="node-engine-badge">{{ db.engine_type }}</span>
@@ -11010,7 +11568,7 @@ export class CatalogStore {
           <div class="tree-subnodes">
             @for (tbl of cat.tables; track tbl.id) {
               <div class="tree-node node-table-assigned" (click)="filterByTable(tbl.name)">
-                <span class="node-icon">ًں“ٹ</span>
+                <span class="node-icon"><i class="pi pi-table"></i></span>
                 <span class="node-label mono-font">{{ tbl.name }}</span>
               </div>
             }
@@ -11117,6 +11675,20 @@ export class CatalogStore {
           </select>
         </div>
 
+        <div class="filter-item">
+          <label>ظ…ط±طھط¨â€Œط³ط§ط²غŒ:</label>
+          <select
+            class="filter-select"
+            [ngModel]="selectedSortBy()"
+            (ngModelChange)="onSortChange($event)"
+            data-testid="sort-by-select"
+          >
+            <option value="row_count_desc">ظ…ط±طھط¨â€Œط³ط§ط²غŒ: طھط¹ط¯ط§ط¯ ط±ع©ظˆط±ط¯ (ط²غŒط§ط¯ ط¨ظ‡ ع©ظ…)</option>
+            <option value="row_count_asc">طھط¹ط¯ط§ط¯ ط±ع©ظˆط±ط¯ (ع©ظ… ط¨ظ‡ ط²غŒط§ط¯)</option>
+            <option value="name_asc">ظ†ط§ظ… ط¬ط¯ظˆظ„ (ط§ظ„ظپط¨ط§)</option>
+          </select>
+        </div>
+
         <div class="filter-item filter-missing-desc">
           <button
             type="button"
@@ -11124,7 +11696,19 @@ export class CatalogStore {
             [class.active]="missingDescriptionsOnly()"
             (click)="toggleMissingDescriptionsOnly()"
           >
-            <span>âڑ ï¸ڈ ظپظ‚ط· ظ…ظˆط§ط±ط¯ ظپط§ظ‚ط¯ طھظˆط¶غŒط­ط§طھ (Missing Only)</span>
+            <span><i class="pi pi-exclamation-triangle me-1"></i> ظپظ‚ط· ظ…ظˆط§ط±ط¯ ظپط§ظ‚ط¯ طھظˆط¶غŒط­ط§طھ (Missing Only)</span>
+          </button>
+        </div>
+
+        <div class="filter-item filter-hide-low-row">
+          <button
+            type="button"
+            class="low-row-toggle-btn"
+            [class.active]="hideLowRowTables()"
+            (click)="toggleHideLowRowTables()"
+            data-testid="hide-low-row-btn"
+          >
+            <span><i class="pi pi-filter-slash me-1"></i> ظ…ط®ظپغŒâ€Œط³ط§ط²غŒ ط¬ط¯ط§ظˆظ„ ط®ط§ظ„غŒ / ع©ظ…â€Œط±ع©ظˆط±ط¯ (&lt;غ±غ°)</span>
           </button>
         </div>
       </div>
@@ -11132,7 +11716,7 @@ export class CatalogStore {
       <!-- Persistent Description Policy Selector -->
       <div class="policy-selector-strip">
         <div class="policy-label-group">
-          <span class="policy-icon">ًں“‹</span>
+          <span class="policy-icon"><i class="pi pi-file"></i></span>
           <span class="policy-label">ط³غŒط§ط³طھ ظ†ظ…ط§غŒط´ طھظˆط¶غŒط­ط§طھ:</span>
         </div>
         <div class="policy-segmented-control">
@@ -11178,7 +11762,7 @@ export class CatalogStore {
               class="btn btn-primary btn-sm"
               (click)="openBulkTagModal()"
             >
-              ًںڈ·ï¸ڈ طھط®طµغŒطµ ع¯ط±ظˆظ‡غŒ طھع¯ (Bulk Tagging)
+              <i class="pi pi-tags me-1"></i> طھط®طµغŒطµ ع¯ط±ظˆظ‡غŒ طھع¯ (Bulk Tagging)
             </button>
             <button class="btn btn-secondary btn-sm" (click)="clearSelection()">
               ط§ظ†طµط±ط§ظپ ط§ط² ط§ظ†طھط®ط§ط¨
@@ -11220,7 +11804,7 @@ export class CatalogStore {
       <!-- 4-Card Scope KPI Strip -->
       <div class="scope-kpi-grid">
         <div class="scope-kpi-card">
-          <span class="scope-kpi-icon">{{ kpiDynamicIcon() }}</span>
+          <span class="scope-kpi-icon"><i [class]="kpiDynamicIcon()"></i></span>
           <div class="scope-kpi-meta">
             <span class="scope-kpi-label">{{ kpiDynamicLabel() }}</span>
             <span class="scope-kpi-value mono-font">{{ kpiDynamicCount().toLocaleString('fa-IR') }}</span>
@@ -11228,7 +11812,7 @@ export class CatalogStore {
         </div>
 
         <div class="scope-kpi-card">
-          <span class="scope-kpi-icon">ًں“‌</span>
+          <span class="scope-kpi-icon"><i class="pi pi-pencil"></i></span>
           <div class="scope-kpi-meta">
             <span class="scope-kpi-label">ط¯ط±طµط¯ ظ…ط³طھظ†ط¯ط³ط§ط²غŒâ€Œط´ط¯ظ‡</span>
             <span
@@ -11242,7 +11826,7 @@ export class CatalogStore {
         </div>
 
         <div class="scope-kpi-card">
-          <span class="scope-kpi-icon">ًں”’</span>
+          <span class="scope-kpi-icon"><i class="pi pi-lock"></i></span>
           <div class="scope-kpi-meta">
             <span class="scope-kpi-label">طھط¹ط¯ط§ط¯ ط³طھظˆظ†â€Œظ‡ط§غŒ ط­ط³ط§ط³ (PII / Confidential)</span>
             <span class="scope-kpi-value mono-font" [class.sensitive]="kpiSensitiveColumnsCount() > 0">
@@ -11252,7 +11836,7 @@ export class CatalogStore {
         </div>
 
         <div class="scope-kpi-card">
-          <span class="scope-kpi-icon">âڑ ï¸ڈ</span>
+          <span class="scope-kpi-icon"><i class="pi pi-exclamation-triangle"></i></span>
           <div class="scope-kpi-meta">
             <span class="scope-kpi-label">طھط¹ط¯ط§ط¯ ظ…ظˆط§ط±ط¯ ط¯ط§ط±ط§غŒ طھط¹ط§ط±ط¶ ط´ط±ط­</span>
             <span class="scope-kpi-value mono-font" [class.drift]="kpiDriftCount() > 0">
@@ -11273,7 +11857,7 @@ export class CatalogStore {
           (click)="setActiveObjectTab('tables')"
           role="tab"
         >
-          <span class="tab-icon">ًں“ٹ</span>
+          <span class="tab-icon"><i class="pi pi-table"></i></span>
           <span class="tab-label">ط¬ط¯ط§ظˆظ„ (Tables)</span>
           <span class="tab-count-badge">{{ objectCounts().tables }}</span>
         </button>
@@ -11285,7 +11869,7 @@ export class CatalogStore {
           (click)="setActiveObjectTab('views')"
           role="tab"
         >
-          <span class="tab-icon">ًں‘پï¸ڈ</span>
+          <span class="tab-icon"><i class="pi pi-eye"></i></span>
           <span class="tab-label">ظ†ظ…ط§ظ‡ط§ (Views)</span>
           <span class="tab-count-badge">{{ objectCounts().views }}</span>
         </button>
@@ -11297,7 +11881,7 @@ export class CatalogStore {
           (click)="setActiveObjectTab('indexes')"
           role="tab"
         >
-          <span class="tab-icon">âڑ،</span>
+          <span class="tab-icon"><i class="pi pi-bolt"></i></span>
           <span class="tab-label">ط§غŒظ†ط¯ع©ط³â€Œظ‡ط§ (Indexes)</span>
           <span class="tab-count-badge">{{ objectCounts().indexes }}</span>
         </button>
@@ -11309,7 +11893,7 @@ export class CatalogStore {
           (click)="setActiveObjectTab('procedures')"
           role="tab"
         >
-          <span class="tab-icon">âڑ™ï¸ڈ</span>
+          <span class="tab-icon"><i class="pi pi-cog"></i></span>
           <span class="tab-label">ط±ظˆط§ظ„â€Œظ‡ط§غŒ ط°ط®غŒط±ظ‡ (Stored Procedures)</span>
           <span class="tab-count-badge">{{ objectCounts().procedures }}</span>
         </button>
@@ -11321,7 +11905,7 @@ export class CatalogStore {
           (click)="setActiveObjectTab('functions')"
           role="tab"
         >
-          <span class="tab-icon">ئ’</span>
+          <span class="tab-icon"><i class="pi pi-code"></i></span>
           <span class="tab-label">طھظˆط§ط¨ط¹ (Functions)</span>
           <span class="tab-count-badge">{{ objectCounts().functions }}</span>
         </button>
@@ -11338,11 +11922,11 @@ export class CatalogStore {
           </div>
         } @else if (store.searchHits().length === 0) {
           <div class="empty-state" dir="rtl">
-            <div class="empty-icon">ًں”چ</div>
+            <div class="empty-icon"><i class="pi pi-search"></i></div>
             <h3>ظ…ظˆط±ط¯غŒ ط¯ط± ع©ط§طھط§ظ„ظˆع¯ ظ…طھط§ط¯غŒطھط§ غŒط§ظپطھ ظ†ط´ط¯</h3>
             <p>ظ‡غŒع† ط¬ط¯ظˆظ„غŒ ط¨ط§ ط´ط±ط§غŒط· ظپغŒظ„طھط± غŒط§ ع©ظ„غŒط¯ظˆط§عکظ‡ ط¬ط³طھط¬ظˆغŒ ظپط¹ظ„غŒ طھط·ط§ط¨ظ‚ ظ†ط¯ط§ط±ط¯ غŒط§ ط³ط·ط­ ط¯ط³طھط±ط³غŒ ط´ظ…ط§ ط¨ط±ط§غŒ ظ…ط´ط§ظ‡ط¯ظ‡ ط¢ظ† ظ…ط­ط¯ظˆط¯ ط§ط³طھ.</p>
             <div class="completeness-hint-box">
-              <span class="hint-icon">ًں’،</span>
+              <span class="hint-icon"><i class="pi pi-lightbulb"></i></span>
               <div class="hint-content">
                 <strong>ط±ط§ظ‡ظ†ظ…ط§غŒ ط­ط§ع©ظ…غŒطھ ط¯ط§ط¯ظ‡ ظˆ طھع©ظ…غŒظ„ ظ…طھط§ط¯غŒطھط§:</strong><br />
                 ط´ط§ط®طµ طھع©ظ…غŒظ„ ظ…طھط§ط¯غŒطھط§ (Metadata Completeness) ط¨ط± ظ¾ط§غŒظ‡ ط«ط¨طھ ظ‡ظ…ط²ظ…ط§ظ†
@@ -11374,6 +11958,8 @@ export class CatalogStore {
               *cdkVirtualFor="let hit of store.searchHits(); trackBy: trackByHitId"
               class="table-row"
               [class.row-selected]="isTableSelected(hit.id)"
+              [class.row-empty]="isTableEmpty(hit)"
+              [class.row-low]="isTableLowRow(hit)"
             >
               <div class="col-checkbox">
                 <input
@@ -11385,7 +11971,7 @@ export class CatalogStore {
 
               <div class="col-name" (click)="inspectTable(hit.id)">
                 <div class="table-title mono-font">
-                  <span class="type-icon">ًں“ٹ</span>
+                  <span class="type-icon"><i class="pi pi-table"></i></span>
                   <strong>{{ hit.name }}</strong>
                   @if (hit.description_drift_detected) {
                     <span class="drift-badge" title="طھط¹ط§ط±ط¶ ط´ط±ط­">طھط¹ط§ط±ط¶ ط´ط±ط­</span>
@@ -11400,7 +11986,14 @@ export class CatalogStore {
               </div>
 
               <div class="col-stats">
-                <div>{{ (hit.row_count_estimate || 0).toLocaleString('fa-IR') }} ط±ع©ظˆط±ط¯</div>
+                <div class="stats-row-count-line">
+                  <span>{{ (hit.row_count_estimate || 0).toLocaleString('fa-IR') }} ط±ع©ظˆط±ط¯</span>
+                  @if (isTableEmpty(hit)) {
+                    <span class="row-count-badge badge-empty" title="ط¬ط¯ظˆظ„ ظپط§ظ‚ط¯ ط¯ط§ط¯ظ‡ / ط®ط§ظ„غŒ">ط®ط§ظ„غŒ (غ°)</span>
+                  } @else if (isTableLowRow(hit)) {
+                    <span class="row-count-badge badge-low-row" title="ط¬ط¯ظˆظ„ ع©ظ…â€Œط±ع©ظˆط±ط¯ (ط§ط­طھظ…ط§ظ„ط§ظ‹ ط¯ط§ط¯ظ‡ ظ¾ط§غŒظ‡â€Œط§غŒ غŒط§ طھط³طھغŒ)">ع©ظ…â€Œط±ع©ظˆط±ط¯ (&lt;غ±غ°)</span>
+                  }
+                </div>
                 <div class="text-muted">{{ (hit.size_bytes ? (hit.size_bytes / 1024 / 1024).toFixed(1) : 0) }} ظ…ع¯ط§ط¨ط§غŒطھ</div>
               </div>
 
@@ -11456,7 +12049,7 @@ export class CatalogStore {
 
               <div class="col-action">
                 <button class="btn btn-secondary btn-sm" (click)="inspectTable(hit.id)">
-                  ط´ظ†ط§ط³ظ†ط§ظ…ظ‡ ط¬ط¯ظˆظ„ ًں”چ
+                  <i class="pi pi-search me-1"></i> ط´ظ†ط§ط³ظ†ط§ظ…ظ‡ ط¬ط¯ظˆظ„
                 </button>
               </div>
             </div>
@@ -11480,7 +12073,7 @@ export class CatalogStore {
               @for (view of catalogObjects()?.views || []; track view.id) {
                 <tr>
                   <td class="mono-font fw-bold">
-                    <span class="type-icon">ًں‘پï¸ڈ</span> {{ view.name }}
+                    <span class="type-icon"><i class="pi pi-eye"></i></span> {{ view.name }}
                   </td>
                   <td class="mono-font text-muted">
                     {{ view.database_name }}.{{ view.schema_name }}
@@ -11512,7 +12105,7 @@ export class CatalogStore {
                   </td>
                   <td>
                     <button class="btn btn-secondary btn-sm" (click)="inspectTable(view.id)">
-                      ط´ظ†ط§ط³ظ†ط§ظ…ظ‡ ظ†ظ…ط§ ًں”چ
+                      <i class="pi pi-search me-1"></i> ط´ظ†ط§ط³ظ†ط§ظ…ظ‡ ظ†ظ…ط§
                     </button>
                   </td>
                 </tr>
@@ -11542,7 +12135,7 @@ export class CatalogStore {
               @for (idx of catalogObjects()?.indexes || []; track idx.id) {
                 <tr>
                   <td class="mono-font fw-bold">
-                    <span class="type-icon">âڑ،</span> {{ idx.name }}
+                    <span class="type-icon"><i class="pi pi-bolt"></i></span> {{ idx.name }}
                   </td>
                   <td class="mono-font text-muted">
                     {{ idx.table_name || idx.details?.['table_name'] }} ({{ idx.schema_name }})
@@ -11594,7 +12187,7 @@ export class CatalogStore {
               @for (proc of catalogObjects()?.procedures || []; track proc.id) {
                 <tr>
                   <td class="mono-font fw-bold">
-                    <span class="type-icon">âڑ™ï¸ڈ</span> {{ proc.name }}
+                    <span class="type-icon"><i class="pi pi-cog"></i></span> {{ proc.name }}
                   </td>
                   <td class="mono-font text-muted">
                     {{ proc.database_name }}.{{ proc.schema_name }}
@@ -11654,7 +12247,7 @@ export class CatalogStore {
               @for (fn of catalogObjects()?.functions || []; track fn.id) {
                 <tr>
                   <td class="mono-font fw-bold">
-                    <span class="type-icon">ئ’</span> {{ fn.name }}
+                    <span class="type-icon"><i class="pi pi-code"></i></span> {{ fn.name }}
                   </td>
                   <td class="mono-font text-muted">
                     {{ fn.database_name }}.{{ fn.schema_name }}
@@ -12033,7 +12626,7 @@ export class CatalogStore {
                   @for (idx of tableIndexes(); track idx.id) {
                     <tr>
                       <td class="mono-font fw-bold">
-                        <span class="type-icon">âڑ،</span> {{ idx.name }}
+                        <span class="type-icon"><i class="pi pi-bolt"></i></span> {{ idx.name }}
                       </td>
                       <td>
                         <span class="code-badge">{{ idx.details?.['index_type'] || 'BTREE' }}</span>
@@ -12325,6 +12918,8 @@ export class CatalogExplorerComponent implements OnInit {
   selectedTag = '';
   selectedCategory = '';
   missingDescriptionsOnly = signal<boolean>(false);
+  selectedSortBy = signal<string>('row_count_desc');
+  hideLowRowTables = signal<boolean>(false);
 
   // Advanced Tree Filtering State
   readonly dbSearchFilter = signal<string>('');
@@ -12484,32 +13079,32 @@ export class CatalogExplorerComponent implements OnInit {
         return {
           label: 'طھط¹ط¯ط§ط¯ ع©ظ„ ظ†ظ…ط§ظ‡ط§',
           count: objs?.views?.length ?? this.objectCounts().views,
-          icon: 'ًں‘پï¸ڈ',
+          icon: 'pi pi-eye',
         };
       case 'indexes':
         return {
           label: 'طھط¹ط¯ط§ط¯ ع©ظ„ ط§غŒظ†ط¯ع©ط³â€Œظ‡ط§',
           count: objs?.indexes?.length ?? this.objectCounts().indexes,
-          icon: 'âڑ،',
+          icon: 'pi pi-bolt',
         };
       case 'procedures':
         return {
           label: 'طھط¹ط¯ط§ط¯ ع©ظ„ ط±ظˆط§ظ„â€Œظ‡ط§غŒ ط°ط®غŒط±ظ‡',
           count: objs?.procedures?.length ?? this.objectCounts().procedures,
-          icon: 'âڑ™ï¸ڈ',
+          icon: 'pi pi-cog',
         };
       case 'functions':
         return {
           label: 'طھط¹ط¯ط§ط¯ ع©ظ„ طھظˆط§ط¨ط¹',
           count: objs?.functions?.length ?? this.objectCounts().functions,
-          icon: 'ئ’',
+          icon: 'pi pi-code',
         };
       case 'tables':
       default:
         return {
           label: 'طھط¹ط¯ط§ط¯ ع©ظ„ ط¬ط¯ط§ظˆظ„',
           count: this.store.searchHits().length || this.objectCounts().tables,
-          icon: 'ًں“ٹ',
+          icon: 'pi pi-table',
         };
     }
   });
@@ -12704,6 +13299,8 @@ export class CatalogExplorerComponent implements OnInit {
       tag: this.selectedTag || undefined,
       category: this.selectedCategory || undefined,
       missing_descriptions_only: this.missingDescriptionsOnly() || undefined,
+      sort_by: this.selectedSortBy(),
+      min_rows: this.hideLowRowTables() ? 10 : undefined,
     };
     this.store.search(this.searchQuery, true, filters).catch(() => {
       this.showToast('ط®ط·ط§ ط¯ط± ط¨ط±ظ‚ط±ط§ط±غŒ ط§ط±طھط¨ط§ط· ط¨ط§ ط³ط±ظˆط± ظ…طھط§ط¯غŒطھط§', 'error');
@@ -12716,6 +13313,25 @@ export class CatalogExplorerComponent implements OnInit {
     this.executeSearch();
   }
 
+  toggleHideLowRowTables(): void {
+    this.hideLowRowTables.update((v) => !v);
+    this.executeSearch();
+  }
+
+  onSortChange(sortBy: string): void {
+    this.selectedSortBy.set(sortBy);
+    this.executeSearch();
+  }
+
+  isTableEmpty(hit: SearchHit): boolean {
+    return (hit.row_count_estimate || 0) === 0;
+  }
+
+  isTableLowRow(hit: SearchHit): boolean {
+    const c = hit.row_count_estimate || 0;
+    return c >= 1 && c < 10;
+  }
+
   resetFilters(): void {
     this.searchQuery = '';
     this.selectedDatabase = '';
@@ -12725,6 +13341,8 @@ export class CatalogExplorerComponent implements OnInit {
     this.selectedTag = '';
     this.selectedCategory = '';
     this.missingDescriptionsOnly.set(false);
+    this.hideLowRowTables.set(false);
+    this.selectedSortBy.set('row_count_desc');
     this.executeSearch();
   }
 
@@ -19205,12 +19823,15 @@ export class ReportService {
   /**
    * Retrieves aggregated metadata completeness metrics across all or selected databases.
    */
-  getCompletenessReport(connectionIds?: string[]): Observable<CompletenessReport> {
+  getCompletenessReport(connectionIds?: string[], excludeLowRowTables: boolean = false): Observable<CompletenessReport> {
     let params = new HttpParams();
     if (connectionIds && connectionIds.length > 0) {
       connectionIds.forEach((id) => {
         params = params.append('connection_ids', id);
       });
+    }
+    if (excludeLowRowTables) {
+      params = params.set('exclude_low_row_tables', 'true');
     }
     return this.http.get<CompletenessReport>(`${this.baseUrl}/completeness`, { params });
   }
@@ -19218,12 +19839,15 @@ export class ReportService {
   /**
    * Retrieves security classification and PII distribution metrics across all or selected databases.
    */
-  getClassificationDistribution(connectionIds?: string[]): Observable<ClassificationReport> {
+  getClassificationDistribution(connectionIds?: string[], excludeLowRowTables: boolean = false): Observable<ClassificationReport> {
     let params = new HttpParams();
     if (connectionIds && connectionIds.length > 0) {
       connectionIds.forEach((id) => {
         params = params.append('connection_ids', id);
       });
+    }
+    if (excludeLowRowTables) {
+      params = params.set('exclude_low_row_tables', 'true');
     }
     return this.http.get<ClassificationReport>(`${this.baseUrl}/classification-distribution`, { params });
   }
@@ -19238,12 +19862,15 @@ export class ReportService {
   /**
    * Fetches data dictionary preview items including both source and approved descriptions.
    */
-  getReportPreview(connectionIds?: string[], limit: number = 100): Observable<ReportPreviewItem[]> {
+  getReportPreview(connectionIds?: string[], limit: number = 100, excludeLowRowTables: boolean = false): Observable<ReportPreviewItem[]> {
     let params = new HttpParams().set('limit', limit);
     if (connectionIds && connectionIds.length > 0) {
       connectionIds.forEach((id) => {
         params = params.append('connection_ids', id);
       });
+    }
+    if (excludeLowRowTables) {
+      params = params.set('exclude_low_row_tables', 'true');
     }
     return this.http.get<ReportPreviewItem[]>(`${this.baseUrl}/preview`, { params });
   }
@@ -19251,12 +19878,15 @@ export class ReportService {
   /**
    * Exports executive reporting summary to JSON, CSV, or XLSX format.
    */
-  exportReports(format: 'json' | 'csv' | 'xlsx', connectionIds?: string[]): Observable<Blob> {
+  exportReports(format: 'json' | 'csv' | 'xlsx', connectionIds?: string[], excludeLowRowTables: boolean = false): Observable<Blob> {
     let params = new HttpParams().set('format', format);
     if (connectionIds && connectionIds.length > 0) {
       connectionIds.forEach((id) => {
         params = params.append('connection_ids', id);
       });
+    }
+    if (excludeLowRowTables) {
+      params = params.set('exclude_low_row_tables', 'true');
     }
     return this.http.get(`${this.baseUrl}/export`, {
       params,
@@ -19611,6 +20241,35 @@ export class CompletenessGaugeComponent {
   display: flex;
   align-items: center;
   gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.filter-low-row-checkbox-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: #334155;
+  background-color: #f8fafc;
+  border: 1px solid #cbd5e1;
+  padding: 0.5rem 0.75rem;
+  border-radius: 6px;
+  cursor: pointer;
+  user-select: none;
+  transition: all 0.2s ease;
+}
+
+.filter-low-row-checkbox-label:hover {
+  background-color: #f1f5f9;
+  border-color: #94a3b8;
+}
+
+.filter-low-row-checkbox-label input[type="checkbox"] {
+  cursor: pointer;
+  accent-color: #2563eb;
+  width: 1rem;
+  height: 1rem;
 }
 
 .btn-export {
@@ -20569,6 +21228,15 @@ export class CompletenessGaugeComponent {
         </p>
       </div>
       <div class="header-actions">
+        <label class="filter-low-row-checkbox-label">
+          <input
+            type="checkbox"
+            [checked]="excludeLowRowTables()"
+            (change)="toggleExcludeLowRowTables()"
+            data-testid="exclude-low-row-checkbox"
+          />
+          <span>ط­ط°ظپ ط¬ط¯ط§ظˆظ„ ط®ط§ظ„غŒ ظˆ طھط³طھغŒ (ع©ظ…طھط± ط§ط² غ±غ° ط±ع©ظˆط±ط¯) ط§ط² ع¯ط²ط§ط±ط´</span>
+        </label>
         <button
           *hasPermission="'EXPORT_REPORTS'"
           type="button"
@@ -21130,6 +21798,7 @@ export class ExecutiveDashboardComponent implements OnInit {
   readonly isLoading = signal<boolean>(false);
   readonly isRefreshing = signal<boolean>(false);
   readonly isExporting = signal<boolean>(false);
+  readonly excludeLowRowTables = signal<boolean>(false);
   readonly errorMessage = signal<string | null>(null);
   readonly refreshSuccessMessage = signal<string | null>(null);
 
@@ -21334,16 +22003,32 @@ export class ExecutiveDashboardComponent implements OnInit {
     this.loadReports();
   }
 
+  toggleExcludeLowRowTables(): void {
+    this.excludeLowRowTables.update((v) => !v);
+    this.loadReports();
+  }
+
   loadReports(): void {
     this.isLoading.set(true);
     this.errorMessage.set(null);
 
     const ids = Array.from(this.selectedConnectionIds());
+    const excludeLowRows = this.excludeLowRowTables();
+
+    const completeness$ = excludeLowRows
+      ? this.reportService.getCompletenessReport(ids, true)
+      : this.reportService.getCompletenessReport(ids);
+    const classification$ = excludeLowRows
+      ? this.reportService.getClassificationDistribution(ids, true)
+      : this.reportService.getClassificationDistribution(ids);
+    const preview$ = excludeLowRows
+      ? this.reportService.getReportPreview(ids, 100, true)
+      : this.reportService.getReportPreview(ids);
 
     forkJoin({
-      completeness: this.reportService.getCompletenessReport(ids),
-      classification: this.reportService.getClassificationDistribution(ids),
-      preview: this.reportService.getReportPreview(ids),
+      completeness: completeness$,
+      classification: classification$,
+      preview: preview$,
     }).subscribe({
       next: ({ completeness, classification, preview }) => {
         this.completenessReport.set(completeness);
@@ -21385,7 +22070,11 @@ export class ExecutiveDashboardComponent implements OnInit {
   exportReport(format: 'json' | 'csv' | 'xlsx'): void {
     this.isExporting.set(true);
     const ids = Array.from(this.selectedConnectionIds());
-    this.reportService.exportReports(format, ids).subscribe({
+    const excludeLowRows = this.excludeLowRowTables();
+    const export$ = excludeLowRows
+      ? this.reportService.exportReports(format, ids, true)
+      : this.reportService.exportReports(format, ids);
+    export$.subscribe({
       next: (blob) => {
         const url = window.URL.createObjectURL(blob);
         const a = document.createElement('a');

@@ -72,14 +72,16 @@ class ReportService:
         self,
         session: AsyncSession,
         connection_ids: Optional[List[uuid.UUID]] = None,
+        exclude_low_row_tables: bool = False,
     ) -> CompletenessReport:
         """
         Retrieves metadata completeness metrics across all registered database connections
         or filtered by connection_ids.
         """
         start_time = time.perf_counter()
+        tbl_filter = "AND COALESCE(t.row_count_estimate, 0) >= 10" if exclude_low_row_tables else ""
         if connection_ids:
-            query_sql = """
+            query_sql = f"""
                 WITH tbl_stats AS (
                     SELECT 
                         s.connection_id,
@@ -88,7 +90,7 @@ class ReportService:
                         COUNT(t.id) FILTER (WHERE t.effective_description IS NOT NULL AND t.effective_description <> '') AS tables_with_desc,
                         COUNT(t.id) FILTER (WHERE t.owner IS NOT NULL AND t.owner <> '') AS tables_with_owner
                     FROM schemas s
-                    LEFT JOIN catalog_tables t ON t.schema_id = s.id AND t.status != 'DELETED'
+                    LEFT JOIN catalog_tables t ON t.schema_id = s.id AND t.status != 'DELETED' {tbl_filter}
                     WHERE s.status != 'DELETED' AND s.connection_id = ANY(:cids)
                     GROUP BY s.connection_id
                 ),
@@ -97,7 +99,7 @@ class ReportService:
                         s.connection_id,
                         COUNT(c.id) AS column_count
                     FROM schemas s
-                    JOIN catalog_tables t ON t.schema_id = s.id AND t.status != 'DELETED'
+                    JOIN catalog_tables t ON t.schema_id = s.id AND t.status != 'DELETED' {tbl_filter}
                     JOIN catalog_columns c ON c.table_id = t.id AND c.status != 'DELETED'
                     WHERE s.status != 'DELETED' AND s.connection_id = ANY(:cids)
                     GROUP BY s.connection_id
@@ -121,7 +123,7 @@ class ReportService:
             """
             params = {"cids": [str(cid) for cid in connection_ids]}
         else:
-            query_sql = """
+            query_sql = f"""
                 WITH tbl_stats AS (
                     SELECT 
                         s.connection_id,
@@ -130,7 +132,7 @@ class ReportService:
                         COUNT(t.id) FILTER (WHERE t.effective_description IS NOT NULL AND t.effective_description <> '') AS tables_with_desc,
                         COUNT(t.id) FILTER (WHERE t.owner IS NOT NULL AND t.owner <> '') AS tables_with_owner
                     FROM schemas s
-                    LEFT JOIN catalog_tables t ON t.schema_id = s.id AND t.status != 'DELETED'
+                    LEFT JOIN catalog_tables t ON t.schema_id = s.id AND t.status != 'DELETED' {tbl_filter}
                     WHERE s.status != 'DELETED'
                     GROUP BY s.connection_id
                 ),
@@ -139,7 +141,7 @@ class ReportService:
                         s.connection_id,
                         COUNT(c.id) AS column_count
                     FROM schemas s
-                    JOIN catalog_tables t ON t.schema_id = s.id AND t.status != 'DELETED'
+                    JOIN catalog_tables t ON t.schema_id = s.id AND t.status != 'DELETED' {tbl_filter}
                     JOIN catalog_columns c ON c.table_id = t.id AND c.status != 'DELETED'
                     WHERE s.status != 'DELETED'
                     GROUP BY s.connection_id
@@ -219,6 +221,7 @@ class ReportService:
         self,
         session: AsyncSession,
         connection_ids: Optional[List[uuid.UUID]] = None,
+        exclude_low_row_tables: bool = False,
     ) -> ClassificationReport:
         """
         Retrieves column-level security classification breakdown across all connected
@@ -226,8 +229,9 @@ class ReportService:
         """
         start_time = time.perf_counter()
         params = {}
+        tbl_filter = "AND COALESCE(t.row_count_estimate, 0) >= 10" if exclude_low_row_tables else ""
         if connection_ids:
-            query_sql = """
+            query_sql = f"""
                 SELECT 
                     c.classification_level,
                     count(c.id) AS column_count,
@@ -235,14 +239,14 @@ class ReportService:
                 FROM catalog_columns c
                 JOIN catalog_tables t ON t.id = c.table_id
                 JOIN schemas s ON s.id = t.schema_id
-                WHERE c.status != 'DELETED' AND t.status != 'DELETED' AND s.status != 'DELETED'
+                WHERE c.status != 'DELETED' AND t.status != 'DELETED' AND s.status != 'DELETED' {tbl_filter}
                   AND s.connection_id = ANY(:cids)
                 GROUP BY c.classification_level
                 ORDER BY c.classification_level ASC;
             """
             params["cids"] = [str(cid) for cid in connection_ids]
         else:
-            query_sql = """
+            query_sql = f"""
                 SELECT 
                     c.classification_level,
                     count(c.id) AS column_count,
@@ -250,7 +254,7 @@ class ReportService:
                 FROM catalog_columns c
                 JOIN catalog_tables t ON t.id = c.table_id
                 JOIN schemas s ON s.id = t.schema_id
-                WHERE c.status != 'DELETED' AND t.status != 'DELETED' AND s.status != 'DELETED'
+                WHERE c.status != 'DELETED' AND t.status != 'DELETED' AND s.status != 'DELETED' {tbl_filter}
                 GROUP BY c.classification_level
                 ORDER BY c.classification_level ASC;
             """

@@ -279,3 +279,110 @@ async def test_get_schema_tables_and_table_detail_contract(
             assert not_found_resp.status_code == 404
     finally:
         app.dependency_overrides.clear()
+
+
+@pytest.mark.asyncio
+async def test_search_sort_by_and_min_rows_contract(
+    test_db_session: AsyncSession, keyset_test_data: dict
+):
+    """
+    Asserts that /api/v1/search supports:
+    - Default sort_by=row_count_desc
+    - Explicit sort_by=row_count_asc and sort_by=name_asc
+    - min_rows filter
+    - Deterministic keyset cursor pagination with row_count_desc
+    """
+    data = keyset_test_data
+    token = data["token"]
+    schema = data["schema"]
+    headers = {"Authorization": f"Bearer {token}"}
+    suffix = uuid.uuid4().hex[:8]
+
+    # Create tables with varying row counts
+    counts = [0, 5, 50, 500, 5000]
+    tables = []
+    for c in counts:
+        tbl = CatalogTable(
+            id=uuid.uuid4(),
+            schema_id=schema.id,
+            name=f"sort_test_{c}_{suffix}",
+            table_type=TableType.TABLE,
+            row_count_estimate=c,
+            size_bytes=c * 100,
+            status=LifecycleStatus.ACTIVE,
+        )
+        test_db_session.add(tbl)
+        tables.append(tbl)
+    await test_db_session.flush()
+
+    async def override_db():
+        yield test_db_session
+
+    app.dependency_overrides[get_db_session] = override_db
+    try:
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            # 1. Default sort_by=row_count_desc
+            resp = await client.get(
+                f"/api/v1/search?q=sort_test_&schema={schema.name}",
+                headers=headers,
+            )
+            assert resp.status_code == 200
+            items = resp.json()["items"]
+            assert len(items) == 5
+            row_counts = [it["row_count_estimate"] for it in items]
+            assert row_counts == [5000, 500, 50, 5, 0]
+
+            # 2. Keyset pagination with row_count_desc
+            page1_resp = await client.get(
+                f"/api/v1/search?q=sort_test_&schema={schema.name}&limit=2",
+                headers=headers,
+            )
+            assert page1_resp.status_code == 200
+            p1_body = page1_resp.json()
+            assert len(p1_body["items"]) == 2
+            assert p1_body["items"][0]["row_count_estimate"] == 5000
+            assert p1_body["items"][1]["row_count_estimate"] == 500
+            assert p1_body["page_info"]["has_next_page"] is True
+            cursor1 = p1_body["page_info"]["next_cursor"]
+            assert cursor1 is not None
+
+            # Fetch page 2 with cursor
+            page2_resp = await client.get(
+                f"/api/v1/search?q=sort_test_&schema={schema.name}&limit=2&cursor={cursor1}",
+                headers=headers,
+            )
+            assert page2_resp.status_code == 200
+            p2_body = page2_resp.json()
+            assert len(p2_body["items"]) == 2
+            assert p2_body["items"][0]["row_count_estimate"] == 50
+            assert p2_body["items"][1]["row_count_estimate"] == 5
+
+            # 3. sort_by=row_count_asc
+            asc_resp = await client.get(
+                f"/api/v1/search?q=sort_test_&schema={schema.name}&sort_by=row_count_asc",
+                headers=headers,
+            )
+            assert asc_resp.status_code == 200
+            asc_counts = [it["row_count_estimate"] for it in asc_resp.json()["items"]]
+            assert asc_counts == [0, 5, 50, 500, 5000]
+
+            # 4. min_rows=10 filter (should exclude 0 and 5)
+            min_rows_resp = await client.get(
+                f"/api/v1/search?q=sort_test_&schema={schema.name}&min_rows=10",
+                headers=headers,
+            )
+            assert min_rows_resp.status_code == 200
+            mr_items = min_rows_resp.json()["items"]
+            assert len(mr_items) == 3
+            mr_counts = [it["row_count_estimate"] for it in mr_items]
+            assert mr_counts == [5000, 500, 50]
+
+            # 5. Invalid sort_by returns 422
+            inv_resp = await client.get(
+                f"/api/v1/search?sort_by=invalid_sort",
+                headers=headers,
+            )
+            assert inv_resp.status_code == 422
+    finally:
+        app.dependency_overrides.clear()

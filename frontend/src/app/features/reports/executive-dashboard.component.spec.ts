@@ -453,5 +453,30 @@ describe('Executive Governance Reporting Dashboard (T044: Apache ECharts Executi
       expect(catalogLink).toBeTruthy();
       expect(catalogLink.attributes['routerLink']).toBe('/catalog');
     });
+
+    it('should toggle excludeLowRowTables and pass to loadReports and exportReport', async () => {
+      expect(component.excludeLowRowTables()).toBe(false);
+      const compSpy = vi.spyOn(reportService, 'getCompletenessReport');
+      const classSpy = vi.spyOn(reportService, 'getClassificationDistribution');
+      const prevSpy = vi.spyOn(reportService, 'getReportPreview');
+      const expSpy = vi.spyOn(reportService, 'exportReports');
+
+      component.toggleExcludeLowRowTables();
+      expect(component.excludeLowRowTables()).toBe(true);
+
+      expect(compSpy).toHaveBeenCalledWith([], true);
+      expect(classSpy).toHaveBeenCalledWith([], true);
+      expect(prevSpy).toHaveBeenCalledWith([], 100, true);
+
+      component.exportReport('xlsx');
+      expect(expSpy).toHaveBeenCalledWith('xlsx', [], true);
+
+      fixture.detectChanges();
+      await fixture.whenStable();
+
+      const checkbox = fixture.debugElement.query(By.css('[data-testid="exclude-low-row-checkbox"]'));
+      expect(checkbox).toBeTruthy();
+      expect(checkbox.nativeElement.checked).toBe(true);
+    });
   });
 });

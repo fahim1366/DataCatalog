@@ -45,6 +45,7 @@ export class ExecutiveDashboardComponent implements OnInit {
   readonly isLoading = signal<boolean>(false);
   readonly isRefreshing = signal<boolean>(false);
   readonly isExporting = signal<boolean>(false);
+  readonly excludeLowRowTables = signal<boolean>(false);
   readonly errorMessage = signal<string | null>(null);
   readonly refreshSuccessMessage = signal<string | null>(null);
 
@@ -249,16 +250,32 @@ export class ExecutiveDashboardComponent implements OnInit {
     this.loadReports();
   }
 
+  toggleExcludeLowRowTables(): void {
+    this.excludeLowRowTables.update((v) => !v);
+    this.loadReports();
+  }
+
   loadReports(): void {
     this.isLoading.set(true);
     this.errorMessage.set(null);
 
     const ids = Array.from(this.selectedConnectionIds());
+    const excludeLowRows = this.excludeLowRowTables();
+
+    const completeness$ = excludeLowRows
+      ? this.reportService.getCompletenessReport(ids, true)
+      : this.reportService.getCompletenessReport(ids);
+    const classification$ = excludeLowRows
+      ? this.reportService.getClassificationDistribution(ids, true)
+      : this.reportService.getClassificationDistribution(ids);
+    const preview$ = excludeLowRows
+      ? this.reportService.getReportPreview(ids, 100, true)
+      : this.reportService.getReportPreview(ids);
 
     forkJoin({
-      completeness: this.reportService.getCompletenessReport(ids),
-      classification: this.reportService.getClassificationDistribution(ids),
-      preview: this.reportService.getReportPreview(ids),
+      completeness: completeness$,
+      classification: classification$,
+      preview: preview$,
     }).subscribe({
       next: ({ completeness, classification, preview }) => {
         this.completenessReport.set(completeness);
@@ -300,7 +317,11 @@ export class ExecutiveDashboardComponent implements OnInit {
   exportReport(format: 'json' | 'csv' | 'xlsx'): void {
     this.isExporting.set(true);
     const ids = Array.from(this.selectedConnectionIds());
-    this.reportService.exportReports(format, ids).subscribe({
+    const excludeLowRows = this.excludeLowRowTables();
+    const export$ = excludeLowRows
+      ? this.reportService.exportReports(format, ids, true)
+      : this.reportService.exportReports(format, ids);
+    export$.subscribe({
       next: (blob) => {
         const url = window.URL.createObjectURL(blob);
         const a = document.createElement('a');

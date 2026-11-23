@@ -30,17 +30,57 @@ from backend.src.models.rbac import Category, CategoryAssignment, EntityType, Pe
 from backend.src.services.rbac.category_service import CategoryService
 
 
-def encode_cursor(sort_val: str, row_id: uuid.UUID) -> str:
-    """Encodes a sort value and UUID into an opaque URL-safe Base64 cursor."""
-    payload = {"val": sort_val, "id": str(row_id)}
+class CursorData(dict):
+    """Cursor dictionary that also supports unpacking like a 2-tuple (val, id)."""
+
+    def __iter__(self):
+        yield self.get("name") or self.get("val", "")
+        yield uuid.UUID(str(self["id"]))
+
+    @property
+    def val(self) -> str:
+        return str(self.get("val", ""))
+
+    @property
+    def id(self) -> uuid.UUID:
+        return uuid.UUID(str(self["id"]))
+
+    @property
+    def name(self) -> str:
+        return str(self.get("name", self.get("val", "")))
+
+    @property
+    def rows(self) -> int:
+        return int(self.get("rows", 0))
+
+
+def encode_cursor(
+    sort_val: Any,
+    row_id: uuid.UUID,
+    name: Optional[str] = None,
+    row_count: Optional[int] = None,
+    sort_by: str = "row_count_desc",
+) -> str:
+    """Encodes a sort value, UUID, name and row count into an opaque URL-safe Base64 cursor."""
+    row_name = name or (str(sort_val) if not isinstance(sort_val, (int, float)) else "")
+    row_cnt = row_count if row_count is not None else (
+        int(sort_val) if isinstance(sort_val, (int, float)) or (isinstance(sort_val, str) and sort_val.isdigit()) else 0
+    )
+    payload = {
+        "val": str(row_cnt) if "row_count" in sort_by else row_name,
+        "id": str(row_id),
+        "name": row_name,
+        "rows": row_cnt,
+        "sort": sort_by,
+    }
     return base64.b64encode(json.dumps(payload).encode("utf-8")).decode("utf-8")
 
 
-def decode_cursor(cursor_str: str) -> Tuple[str, uuid.UUID]:
-    """Decodes a Base64 keyset cursor into sort value and row UUID."""
+def decode_cursor(cursor_str: str) -> CursorData:
+    """Decodes a Base64 keyset cursor into CursorData."""
     raw = base64.b64decode(cursor_str.encode("utf-8")).decode("utf-8")
     data = json.loads(raw)
-    return str(data["val"]), uuid.UUID(str(data["id"]))
+    return CursorData(data)
 
 
 class SearchService:
@@ -56,6 +96,8 @@ class SearchService:
         query: Optional[str] = "",
         limit: int = 50,
         cursor: Optional[str] = None,
+        sort_by: str = "row_count_desc",
+        min_rows: Optional[int] = None,
         include_deleted: bool = False,
         database_name: Optional[str] = None,
         schema_name: Optional[str] = None,
@@ -161,26 +203,83 @@ class SearchService:
             else:
                 stmt = stmt.where(or_())
 
+        if min_rows is not None:
+            stmt = stmt.where(func.coalesce(CatalogTable.row_count_estimate, 0) >= min_rows)
+
         # Apply SQL-pushed RBAC filter
         rbac_filter = build_table_rbac_filter(user_ctx=user_ctx, action=PermissionAction.VIEW_METADATA)
         stmt = rbac_filter(stmt)
 
-        # Keyset pagination condition: (name, id) > (cursor_val, cursor_id)
+        # Keyset pagination condition based on sort_by
+        coalesced_rows = func.coalesce(CatalogTable.row_count_estimate, 0)
         if cursor:
             try:
-                cursor_val, cursor_id = decode_cursor(cursor)
-                stmt = stmt.where(
-                    or_(
-                        CatalogTable.name > cursor_val,
-                        and_(CatalogTable.name == cursor_val, CatalogTable.id > cursor_id),
-                    )
+                cur_data = decode_cursor(cursor)
+                cur_id = uuid.UUID(str(cur_data["id"]))
+                cur_name = str(cur_data.get("name") or cur_data.get("val", ""))
+                cur_rows = int(cur_data.get("rows", 0)) if "rows" in cur_data else (
+                    int(cur_data["val"]) if str(cur_data.get("val", "")).isdigit() else 0
                 )
+
+                if sort_by == "row_count_desc":
+                    stmt = stmt.where(
+                        or_(
+                            coalesced_rows < cur_rows,
+                            and_(
+                                coalesced_rows == cur_rows,
+                                CatalogTable.name > cur_name,
+                            ),
+                            and_(
+                                coalesced_rows == cur_rows,
+                                CatalogTable.name == cur_name,
+                                CatalogTable.id > cur_id,
+                            ),
+                        )
+                    )
+                elif sort_by == "row_count_asc":
+                    stmt = stmt.where(
+                        or_(
+                            coalesced_rows > cur_rows,
+                            and_(
+                                coalesced_rows == cur_rows,
+                                CatalogTable.name > cur_name,
+                            ),
+                            and_(
+                                coalesced_rows == cur_rows,
+                                CatalogTable.name == cur_name,
+                                CatalogTable.id > cur_id,
+                            ),
+                        )
+                    )
+                else:  # name_asc
+                    stmt = stmt.where(
+                        or_(
+                            CatalogTable.name > cur_name,
+                            and_(CatalogTable.name == cur_name, CatalogTable.id > cur_id),
+                        )
+                    )
             except Exception:
                 # Invalid cursor format fallback -> ignore cursor
                 pass
 
         # Deterministic sorting for keyset cursor pagination
-        stmt = stmt.order_by(CatalogTable.name.asc(), CatalogTable.id.asc()).limit(limit + 1)
+        if sort_by == "row_count_desc":
+            stmt = stmt.order_by(
+                coalesced_rows.desc(),
+                CatalogTable.name.asc(),
+                CatalogTable.id.asc(),
+            ).limit(limit + 1)
+        elif sort_by == "row_count_asc":
+            stmt = stmt.order_by(
+                coalesced_rows.asc(),
+                CatalogTable.name.asc(),
+                CatalogTable.id.asc(),
+            ).limit(limit + 1)
+        else:  # name_asc
+            stmt = stmt.order_by(
+                CatalogTable.name.asc(),
+                CatalogTable.id.asc(),
+            ).limit(limit + 1)
 
         result = await session.execute(stmt)
         rows = result.all()
@@ -238,7 +337,13 @@ class SearchService:
         next_cursor = None
         if has_next_page and selected_rows:
             last_table: CatalogTable = selected_rows[-1][0]
-            next_cursor = encode_cursor(last_table.name, last_table.id)
+            next_cursor = encode_cursor(
+                sort_val=last_table.name,
+                row_id=last_table.id,
+                name=last_table.name,
+                row_count=last_table.row_count_estimate,
+                sort_by=sort_by,
+            )
 
         page_info = {
             "has_next_page": has_next_page,

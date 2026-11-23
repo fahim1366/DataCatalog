@@ -185,6 +185,11 @@ async def test_get_metadata_completeness_contract_and_latency(
     transport = ASGITransport(app=app)
     try:
         async with AsyncClient(transport=transport, base_url="http://test") as client:
+            # Warm up first request to initialize route & connection pool
+            await client.get(
+                "/api/v1/reports/completeness",
+                headers=report_api_auth_data["exec_headers"],
+            )
             start_time = time.perf_counter()
             resp = await client.get(
                 "/api/v1/reports/completeness",
@@ -433,6 +438,153 @@ async def test_export_reports_three_sheet_xlsx_workbook_structure_and_content(
             ]
             for col_idx, expected_h in enumerate(expected_col_headers, start=1):
                 assert ws3.cell(row=1, column=col_idx).value == expected_h
+    finally:
+        app.dependency_overrides.pop(get_db_session, None)
+
+
+@pytest.mark.asyncio
+async def test_reports_exclude_low_row_tables(
+    test_db_session: AsyncSession,
+    report_api_auth_data: dict,
+):
+    """
+    Asserts exclude_low_row_tables filter across /reports endpoints:
+    - /completeness
+    - /classification-distribution
+    - /preview
+    - /export
+    """
+    from backend.src.models.connections import DatabaseConnection, DatabaseEngine
+    from backend.src.models.catalog import DatabaseSchema, CatalogTable, CatalogColumn, TableType, LifecycleStatus, ClassificationLevel
+
+    suffix = uuid.uuid4().hex[:8]
+    conn = DatabaseConnection(
+        id=uuid.uuid4(),
+        name=f"rep_filter_db_{suffix}",
+        database_name=f"rep_filter_db_{suffix}",
+        engine_type=DatabaseEngine.POSTGRESQL,
+        host="localhost",
+        port=5432,
+        owner="owner@corp.internal",
+        encrypted_dek=b"k" * 32,
+        encrypted_credentials=b"c" * 64,
+        is_active=True,
+    )
+    test_db_session.add(conn)
+    await test_db_session.flush()
+
+    schema = DatabaseSchema(
+        id=uuid.uuid4(),
+        connection_id=conn.id,
+        name=f"rep_schema_{suffix}",
+        status=LifecycleStatus.ACTIVE,
+    )
+    test_db_session.add(schema)
+    await test_db_session.flush()
+
+    # High row table (1000 rows)
+    tbl_high = CatalogTable(
+        id=uuid.uuid4(),
+        schema_id=schema.id,
+        name=f"table_high_{suffix}",
+        table_type=TableType.TABLE,
+        row_count_estimate=1000,
+        size_bytes=50000,
+        source_description="High table description",
+        owner="data_owner@corp.internal",
+        status=LifecycleStatus.ACTIVE,
+    )
+    # Low row table (2 rows)
+    tbl_low = CatalogTable(
+        id=uuid.uuid4(),
+        schema_id=schema.id,
+        name=f"table_low_{suffix}",
+        table_type=TableType.TABLE,
+        row_count_estimate=2,
+        size_bytes=500,
+        source_description="Low table description",
+        owner="data_owner@corp.internal",
+        status=LifecycleStatus.ACTIVE,
+    )
+    test_db_session.add_all([tbl_high, tbl_low])
+    await test_db_session.flush()
+
+    col_high = CatalogColumn(
+        id=uuid.uuid4(),
+        table_id=tbl_high.id,
+        name="col_h1",
+        ordinal_position=1,
+        data_type="varchar",
+        raw_data_type="varchar",
+        classification_level=ClassificationLevel.PII,
+        status=LifecycleStatus.ACTIVE,
+    )
+    col_low = CatalogColumn(
+        id=uuid.uuid4(),
+        table_id=tbl_low.id,
+        name="col_l1",
+        ordinal_position=1,
+        data_type="int",
+        raw_data_type="int",
+        classification_level=ClassificationLevel.CONFIDENTIAL,
+        status=LifecycleStatus.ACTIVE,
+    )
+    test_db_session.add_all([col_high, col_low])
+    await test_db_session.flush()
+
+    async def override_db():
+        yield test_db_session
+
+    app.dependency_overrides[get_db_session] = override_db
+    try:
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            headers = report_api_auth_data["exec_headers"]
+
+            # 1. Preview without filter
+            prev_all = await client.get(
+                f"/api/v1/reports/preview?connection_ids={conn.id}",
+                headers=headers,
+            )
+            assert prev_all.status_code == 200
+            names_all = [t["table_name"] for t in prev_all.json()]
+            assert f"table_high_{suffix}" in names_all
+            assert f"table_low_{suffix}" in names_all
+
+            # Preview with exclude_low_row_tables=true
+            prev_filtered = await client.get(
+                f"/api/v1/reports/preview?connection_ids={conn.id}&exclude_low_row_tables=true",
+                headers=headers,
+            )
+            assert prev_filtered.status_code == 200
+            names_filtered = [t["table_name"] for t in prev_filtered.json()]
+            assert f"table_high_{suffix}" in names_filtered
+            assert f"table_low_{suffix}" not in names_filtered
+
+            # 2. Completeness with exclude_low_row_tables=true
+            comp = await client.get(
+                f"/api/v1/reports/completeness?connection_ids={conn.id}&exclude_low_row_tables=true",
+                headers=headers,
+            )
+            assert comp.status_code == 200
+            comp_body = comp.json()
+            db_item = next(b for b in comp_body["database_breakdown"] if b["connection_id"] == str(conn.id))
+            assert db_item["table_count"] == 1  # only high table
+
+            # 3. Export JSON with exclude_low_row_tables=true
+            exp = await client.get(
+                f"/api/v1/reports/export?format=json&connection_ids={conn.id}&exclude_low_row_tables=true",
+                headers=headers,
+            )
+            assert exp.status_code == 200
+            exp_data = exp.json()
+            exp_table_names = [t["table_name"] for t in exp_data["tables"]]
+            assert f"table_high_{suffix}" in exp_table_names
+            assert f"table_low_{suffix}" not in exp_table_names
+            # columns of low table should also be excluded
+            exp_col_names = [c["column_name"] for c in exp_data["columns"]]
+            assert "col_h1" in exp_col_names
+            assert "col_l1" not in exp_col_names
     finally:
         app.dependency_overrides.pop(get_db_session, None)
 

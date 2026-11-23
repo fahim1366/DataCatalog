@@ -18,12 +18,15 @@ export class ReportService {
   /**
    * Retrieves aggregated metadata completeness metrics across all or selected databases.
    */
-  getCompletenessReport(connectionIds?: string[]): Observable<CompletenessReport> {
+  getCompletenessReport(connectionIds?: string[], excludeLowRowTables: boolean = false): Observable<CompletenessReport> {
     let params = new HttpParams();
     if (connectionIds && connectionIds.length > 0) {
       connectionIds.forEach((id) => {
         params = params.append('connection_ids', id);
       });
+    }
+    if (excludeLowRowTables) {
+      params = params.set('exclude_low_row_tables', 'true');
     }
     return this.http.get<CompletenessReport>(`${this.baseUrl}/completeness`, { params });
   }
@@ -31,12 +34,15 @@ export class ReportService {
   /**
    * Retrieves security classification and PII distribution metrics across all or selected databases.
    */
-  getClassificationDistribution(connectionIds?: string[]): Observable<ClassificationReport> {
+  getClassificationDistribution(connectionIds?: string[], excludeLowRowTables: boolean = false): Observable<ClassificationReport> {
     let params = new HttpParams();
     if (connectionIds && connectionIds.length > 0) {
       connectionIds.forEach((id) => {
         params = params.append('connection_ids', id);
       });
+    }
+    if (excludeLowRowTables) {
+      params = params.set('exclude_low_row_tables', 'true');
     }
     return this.http.get<ClassificationReport>(`${this.baseUrl}/classification-distribution`, { params });
   }
@@ -51,12 +57,15 @@ export class ReportService {
   /**
    * Fetches data dictionary preview items including both source and approved descriptions.
    */
-  getReportPreview(connectionIds?: string[], limit: number = 100): Observable<ReportPreviewItem[]> {
+  getReportPreview(connectionIds?: string[], limit: number = 100, excludeLowRowTables: boolean = false): Observable<ReportPreviewItem[]> {
     let params = new HttpParams().set('limit', limit);
     if (connectionIds && connectionIds.length > 0) {
       connectionIds.forEach((id) => {
         params = params.append('connection_ids', id);
       });
+    }
+    if (excludeLowRowTables) {
+      params = params.set('exclude_low_row_tables', 'true');
     }
     return this.http.get<ReportPreviewItem[]>(`${this.baseUrl}/preview`, { params });
   }
@@ -64,12 +73,15 @@ export class ReportService {
   /**
    * Exports executive reporting summary to JSON, CSV, or XLSX format.
    */
-  exportReports(format: 'json' | 'csv' | 'xlsx', connectionIds?: string[]): Observable<Blob> {
+  exportReports(format: 'json' | 'csv' | 'xlsx', connectionIds?: string[], excludeLowRowTables: boolean = false): Observable<Blob> {
     let params = new HttpParams().set('format', format);
     if (connectionIds && connectionIds.length > 0) {
       connectionIds.forEach((id) => {
         params = params.append('connection_ids', id);
       });
+    }
+    if (excludeLowRowTables) {
+      params = params.set('exclude_low_row_tables', 'true');
     }
     return this.http.get(`${this.baseUrl}/export`, {
       params,

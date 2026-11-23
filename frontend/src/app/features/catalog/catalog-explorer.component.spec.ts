@@ -1,6 +1,7 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideHttpClient } from '@angular/common/http';
 import { provideHttpClientTesting } from '@angular/common/http/testing';
+import { By } from '@angular/platform-browser';
 import { of } from 'rxjs';
 import { CatalogExplorerComponent } from './catalog-explorer.component';
 import { CatalogStore } from './stores/catalog.store';
@@ -453,5 +454,95 @@ describe('CatalogExplorerComponent (Phase 2 UI/UX Overhaul)', () => {
     expect(compiled.textContent).toContain('Collation');
     expect(compiled.textContent).toContain('fa_IR.utf8');
     expect(compiled.textContent).toContain('پیش‌فرض دیتابیس');
+  });
+
+  it('should support sort selector defaulting to row_count_desc and trigger search on change', async () => {
+    expect(component.selectedSortBy()).toBe('row_count_desc');
+    const searchSpy = vi.spyOn(store, 'search');
+
+    component.onSortChange('row_count_asc');
+    expect(component.selectedSortBy()).toBe('row_count_asc');
+    expect(searchSpy).toHaveBeenCalledWith(
+      '',
+      true,
+      expect.objectContaining({ sort_by: 'row_count_asc' })
+    );
+
+    component.onSortChange('name_asc');
+    expect(component.selectedSortBy()).toBe('name_asc');
+    expect(searchSpy).toHaveBeenCalledWith(
+      '',
+      true,
+      expect.objectContaining({ sort_by: 'name_asc' })
+    );
+  });
+
+  it('should toggle hideLowRowTables and pass min_rows: 10 to search', async () => {
+    expect(component.hideLowRowTables()).toBe(false);
+    const searchSpy = vi.spyOn(store, 'search');
+
+    component.toggleHideLowRowTables();
+    expect(component.hideLowRowTables()).toBe(true);
+    expect(searchSpy).toHaveBeenCalledWith(
+      '',
+      true,
+      expect.objectContaining({ min_rows: 10 })
+    );
+
+    component.toggleHideLowRowTables();
+    expect(component.hideLowRowTables()).toBe(false);
+    expect(searchSpy).toHaveBeenCalledWith(
+      '',
+      true,
+      expect.objectContaining({ min_rows: undefined })
+    );
+  });
+
+  it('should reset sort and low-row filter on resetFilters()', async () => {
+    component.selectedSortBy.set('row_count_asc');
+    component.hideLowRowTables.set(true);
+
+    component.resetFilters();
+    expect(component.selectedSortBy()).toBe('row_count_desc');
+    expect(component.hideLowRowTables()).toBe(false);
+  });
+
+  it('should identify empty (0) and low-row (<10) tables correctly with isTableEmpty and isTableLowRow', () => {
+    const emptyHit: SearchHit = {
+      id: 't-empty',
+      entity_type: 'TABLE',
+      name: 't_empty',
+      database_name: 'db',
+      schema_name: 's',
+      status: 'ACTIVE',
+      row_count_estimate: 0,
+    };
+    const lowHit: SearchHit = {
+      id: 't-low',
+      entity_type: 'TABLE',
+      name: 't_low',
+      database_name: 'db',
+      schema_name: 's',
+      status: 'ACTIVE',
+      row_count_estimate: 7,
+    };
+    const normalHit: SearchHit = {
+      id: 't-norm',
+      entity_type: 'TABLE',
+      name: 't_norm',
+      database_name: 'db',
+      schema_name: 's',
+      status: 'ACTIVE',
+      row_count_estimate: 1500,
+    };
+
+    expect(component.isTableEmpty(emptyHit)).toBe(true);
+    expect(component.isTableLowRow(emptyHit)).toBe(false);
+
+    expect(component.isTableEmpty(lowHit)).toBe(false);
+    expect(component.isTableLowRow(lowHit)).toBe(true);
+
+    expect(component.isTableEmpty(normalHit)).toBe(false);
+    expect(component.isTableLowRow(normalHit)).toBe(false);
   });
 });

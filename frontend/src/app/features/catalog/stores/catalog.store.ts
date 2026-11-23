@@ -23,6 +23,8 @@ export interface CatalogFilterOptions {
   tag?: string;
   category?: string;
   missing_descriptions_only?: boolean;
+  sort_by?: string;
+  min_rows?: number;
 }
 
 @Injectable({
@@ -98,6 +100,12 @@ export class CatalogStore {
     }
     if (activeOpts.missing_descriptions_only) {
       url += `&missing_descriptions_only=true`;
+    }
+    if (activeOpts.sort_by) {
+      url += `&sort_by=${encodeURIComponent(activeOpts.sort_by)}`;
+    }
+    if (activeOpts.min_rows !== undefined && activeOpts.min_rows !== null) {
+      url += `&min_rows=${activeOpts.min_rows}`;
     }
 
     try {

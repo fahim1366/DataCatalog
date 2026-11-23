@@ -29,35 +29,45 @@ class DockerPreflightResult:
     image_ready: bool = False
 
 
+_cached_docker_preflight: Optional[DockerPreflightResult] = None
+
+
 def check_docker_daemon() -> DockerPreflightResult:
     """
     Performs pre-flight verification of Docker daemon availability and postgres:16 image presence.
     Returns structured diagnostics without crashing if Docker daemon is not active.
     """
+    global _cached_docker_preflight
+    if _cached_docker_preflight is not None:
+        return _cached_docker_preflight
+
     try:
         import docker
 
         client = docker.from_env(timeout=2)
         if not client.ping():
-            return DockerPreflightResult(
+            _cached_docker_preflight = DockerPreflightResult(
                 is_available=False,
                 message="Docker daemon responded negatively to ping probe.",
             )
+            return _cached_docker_preflight
 
         # Check if postgres:16 image is available locally
         images = [tag for img in client.images.list() if img.tags for tag in img.tags]
         has_pg16 = any("postgres:16" in tag for tag in images)
 
-        return DockerPreflightResult(
+        _cached_docker_preflight = DockerPreflightResult(
             is_available=True,
             message="Docker daemon is active and responsive.",
             image_ready=has_pg16,
         )
+        return _cached_docker_preflight
     except Exception as exc:
-        return DockerPreflightResult(
+        _cached_docker_preflight = DockerPreflightResult(
             is_available=False,
             message=f"Docker daemon is not available: {str(exc)}",
         )
+        return _cached_docker_preflight
 
 
 async def get_test_postgres_engine() -> AsyncEngine:

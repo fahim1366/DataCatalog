@@ -10,7 +10,7 @@ from fastapi.responses import PlainTextResponse
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.src.api.dependencies.rbac import (
@@ -90,13 +90,18 @@ async def require_reports_permission(
 )
 async def get_completeness_report(
     connection_ids: Optional[List[uuid.UUID]] = Query(None, description="Filter by database connection IDs"),
+    exclude_low_row_tables: bool = Query(False, description="Exclude low-row/empty tables (< 10 rows)"),
     user_ctx: UserContext = Depends(require_reports_permission),
     db: AsyncSession = Depends(get_db_session),
 ) -> CompletenessReport:
     """
     Returns aggregated metadata completeness metrics across all registered databases or filtered ones.
     """
-    return await report_service.get_metadata_completeness(db, connection_ids=connection_ids)
+    return await report_service.get_metadata_completeness(
+        db,
+        connection_ids=connection_ids,
+        exclude_low_row_tables=exclude_low_row_tables,
+    )
 
 
 @router.get(
@@ -111,13 +116,18 @@ async def get_completeness_report(
 )
 async def get_classification_distribution_report(
     connection_ids: Optional[List[uuid.UUID]] = Query(None, description="Filter by database connection IDs"),
+    exclude_low_row_tables: bool = Query(False, description="Exclude low-row/empty tables (< 10 rows)"),
     user_ctx: UserContext = Depends(require_reports_permission),
     db: AsyncSession = Depends(get_db_session),
 ) -> ClassificationReport:
     """
     Returns security classification and PII distribution metrics across all catalog columns or filtered ones.
     """
-    return await report_service.get_classification_distribution(db, connection_ids=connection_ids)
+    return await report_service.get_classification_distribution(
+        db,
+        connection_ids=connection_ids,
+        exclude_low_row_tables=exclude_low_row_tables,
+    )
 
 
 @router.post(
@@ -147,6 +157,7 @@ async def refresh_reporting_views(
 async def export_reports(
     format: str = Query("json", pattern="^(json|csv|xlsx)$"),
     connection_ids: Optional[List[uuid.UUID]] = Query(None, description="Filter by database connection IDs"),
+    exclude_low_row_tables: bool = Query(False, description="Exclude low-row/empty tables (< 10 rows)"),
     user_ctx: UserContext = Depends(require_reports_permission),
     db: AsyncSession = Depends(get_db_session),
 ):
@@ -154,8 +165,16 @@ async def export_reports(
     Exports executive reporting summary and enterprise data dictionary in XLSX, CSV (UTF-8 BOM), or JSON.
     Guarded by EXPORT_REPORTS permission.
     """
-    completeness = await report_service.get_metadata_completeness(db, connection_ids=connection_ids)
-    classification = await report_service.get_classification_distribution(db, connection_ids=connection_ids)
+    completeness = await report_service.get_metadata_completeness(
+        db,
+        connection_ids=connection_ids,
+        exclude_low_row_tables=exclude_low_row_tables,
+    )
+    classification = await report_service.get_classification_distribution(
+        db,
+        connection_ids=connection_ids,
+        exclude_low_row_tables=exclude_low_row_tables,
+    )
 
     # 1. Fetch Data Dictionary Tables
     table_stmt = (
@@ -177,6 +196,8 @@ async def export_reports(
     )
     if connection_ids:
         table_stmt = table_stmt.where(DatabaseConnection.id.in_(connection_ids))
+    if exclude_low_row_tables:
+        table_stmt = table_stmt.where(func.coalesce(CatalogTable.row_count_estimate, 0) >= 10)
     table_stmt = table_stmt.order_by(
         DatabaseConnection.database_name.asc(),
         DatabaseSchema.name.asc(),
@@ -213,6 +234,8 @@ async def export_reports(
     )
     if connection_ids:
         col_stmt = col_stmt.where(DatabaseConnection.id.in_(connection_ids))
+    if exclude_low_row_tables:
+        col_stmt = col_stmt.where(func.coalesce(CatalogTable.row_count_estimate, 0) >= 10)
     col_stmt = col_stmt.order_by(
         DatabaseConnection.database_name.asc(),
         DatabaseSchema.name.asc(),
@@ -583,6 +606,7 @@ async def export_reports(
 async def get_report_preview(
     connection_ids: Optional[List[uuid.UUID]] = Query(None, description="Filter by database connection IDs"),
     limit: int = Query(100, ge=1, le=500),
+    exclude_low_row_tables: bool = Query(False, description="Exclude low-row/empty tables (< 10 rows)"),
     user_ctx: UserContext = Depends(require_reports_permission),
     db: AsyncSession = Depends(get_db_session),
 ):
@@ -608,6 +632,8 @@ async def get_report_preview(
     )
     if connection_ids:
         stmt = stmt.where(DatabaseConnection.id.in_(connection_ids))
+    if exclude_low_row_tables:
+        stmt = stmt.where(func.coalesce(CatalogTable.row_count_estimate, 0) >= 10)
     stmt = stmt.order_by(
         DatabaseConnection.database_name.asc(),
         DatabaseSchema.name.asc(),

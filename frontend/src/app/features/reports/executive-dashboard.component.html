@@ -9,6 +9,15 @@
         </p>
       </div>
       <div class="header-actions">
+        <label class="filter-low-row-checkbox-label">
+          <input
+            type="checkbox"
+            [checked]="excludeLowRowTables()"
+            (change)="toggleExcludeLowRowTables()"
+            data-testid="exclude-low-row-checkbox"
+          />
+          <span>حذف جداول خالی و تستی (کمتر از ۱۰ رکورد) از گزارش</span>
+        </label>
         <button
           *hasPermission="'EXPORT_REPORTS'"
           type="button"

@@ -40,6 +40,35 @@
   display: flex;
   align-items: center;
   gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.filter-low-row-checkbox-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: #334155;
+  background-color: #f8fafc;
+  border: 1px solid #cbd5e1;
+  padding: 0.5rem 0.75rem;
+  border-radius: 6px;
+  cursor: pointer;
+  user-select: none;
+  transition: all 0.2s ease;
+}
+
+.filter-low-row-checkbox-label:hover {
+  background-color: #f1f5f9;
+  border-color: #94a3b8;
+}
+
+.filter-low-row-checkbox-label input[type="checkbox"] {
+  cursor: pointer;
+  accent-color: #2563eb;
+  width: 1rem;
+  height: 1rem;
 }
 
 .btn-export {

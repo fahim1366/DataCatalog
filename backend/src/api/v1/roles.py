@@ -155,7 +155,7 @@ async def get_permissions_registry(
                 },
                 {
                     "action": "EDIT_DESCRIPTION",
-                    "name": "ویرایش توضیحات و تایید هوش مصنوعی",
+                    "name": "ویرایش و تایید توضیحات",
                     "description": "ویرایش توضیحات فاقد مقدار و تایید پیشنهادهای تولیدشده هوش مصنوعی",
                 },
             ],

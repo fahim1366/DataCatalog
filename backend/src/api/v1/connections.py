@@ -809,6 +809,20 @@ async def trigger_connection_sync(
     )
     db.add(job)
     await db.flush()
+
+    await record_audit_event(
+        session=db,
+        actor_username=user_ctx.user.username,
+        actor_id=user_ctx.user_id,
+        action="TRIGGER_MANUAL_SYNC",
+        entity_type=EntityType.DATABASE,
+        entity_id=connection_id,
+        diff_jsonb={"job_id": str(job.id), "status": SyncJobStatus.QUEUED.value},
+        flush=True,
+    )
+    # Commit transaction BEFORE dispatching so the SyncJob row is 100% committed
+    # and immediately visible to concurrent worker/in-process background tasks.
+    await db.commit()
     await db.refresh(job)
 
     if has_active_celery_worker():
@@ -841,18 +855,6 @@ async def trigger_connection_sync(
                 job_id=job.id,
             )
         )
-
-    await record_audit_event(
-        session=db,
-        actor_username=user_ctx.user.username,
-        actor_id=user_ctx.user_id,
-        action="TRIGGER_MANUAL_SYNC",
-        entity_type=EntityType.DATABASE,
-        entity_id=connection_id,
-        diff_jsonb={"job_id": str(job.id), "status": SyncJobStatus.QUEUED.value},
-        flush=True,
-    )
-    await db.flush()
 
     return SyncJobResponse.model_validate(job)
 

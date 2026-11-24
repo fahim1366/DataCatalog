@@ -1477,7 +1477,11 @@ from backend.src.schemas.sync_jobs import (
     SyncJobListResponse,
     SyncJobResponse,
 )
-from backend.src.core.celery_app import QUEUE_PRIORITY, is_broker_available
+from backend.src.core.celery_app import (
+    QUEUE_PRIORITY,
+    has_active_celery_worker,
+    is_broker_available,
+)
 from backend.src.services.workers.circuit_breaker import circuit_breaker_manager
 from backend.src.services.workers.tasks import (
     execute_metadata_sync,
@@ -2230,21 +2234,23 @@ async def trigger_connection_sync(
         schedule_id=schedule.id if schedule else None,
         status=SyncJobStatus.QUEUED.value,
         triggered_by=SyncTriggerType.MANUAL.value,
+        priority=10,
     )
     db.add(job)
     await db.flush()
     await db.refresh(job)
 
-    if is_broker_available():
+    if has_active_celery_worker():
         try:
             manual_metadata_sync_task.apply_async(
                 args=[str(connection_id), str(job.id)],
                 queue=QUEUE_PRIORITY,
+                priority=9,
                 retry=False,
             )
         except Exception as exc:
             logger.warning(
-                "Could not dispatch Celery task (%s). Falling back to in-process execution via BackgroundTasks.",
+                "Could not dispatch Celery task (%s). Falling back to in-process execution via asyncio.create_task.",
                 exc,
             )
             asyncio.create_task(
@@ -2255,7 +2261,7 @@ async def trigger_connection_sync(
             )
     else:
         logger.info(
-            "Celery broker not reachable. Executing metadata sync in-process via asyncio.create_task for connection %s.",
+            "Celery worker not online. Executing metadata sync in-process via asyncio.create_task for connection %s.",
             connection_id,
         )
         asyncio.create_task(
@@ -5229,7 +5235,7 @@ import asyncio
 import base64
 import json
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 import uuid
 
@@ -5239,15 +5245,24 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from backend.src.api.dependencies.rbac import UserContext, get_current_user
-from backend.src.core.celery_app import QUEUE_PRIORITY, is_broker_available
+from backend.src.core.celery_app import (
+    QUEUE_PRIORITY,
+    celery_app,
+    has_active_celery_worker,
+    is_broker_available,
+)
 from backend.src.core.database import get_db_session
-from backend.src.models.connections import DatabaseConnection
+from backend.src.models.connections import DatabaseConnection, SyncSchedule
 from backend.src.models.rbac import EntityType
 from backend.src.models.sync_jobs import SyncJob, SyncJobStatus, SyncTriggerType
 from backend.src.schemas.sync_jobs import (
+    BatchExpediteRequest,
+    BatchExpediteResponse,
     SyncJobDetailResponse,
     SyncJobListResponse,
+    SyncJobQueueItem,
     SyncJobResponse,
+    SyncQueueStatusResponse,
 )
 from backend.src.services.audit.audit_service import record_audit_event
 from backend.src.services.workers.tasks import execute_metadata_sync, manual_metadata_sync_task
@@ -5337,6 +5352,196 @@ async def list_sync_jobs(
 
 
 @router.get(
+    "/queue",
+    response_model=SyncQueueStatusResponse,
+    summary="Get live sync queue and running execution state",
+)
+async def get_sync_queue(
+    user_ctx: UserContext = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+) -> SyncQueueStatusResponse:
+    """
+    Returns live synchronization queue and active running jobs ordered by priority DESC, created_at ASC.
+    Calculates queue_position and estimated_wait_seconds based on recent historical average job duration.
+    """
+    worker_online = has_active_celery_worker()
+
+    # Calculate average duration of recent SUCCESS sync jobs (default 15s)
+    avg_stmt = select(func.avg(SyncJob.duration_ms)).where(
+        SyncJob.status == SyncJobStatus.SUCCESS.value,
+        SyncJob.duration_ms.is_not(None),
+        SyncJob.duration_ms > 0,
+    )
+    avg_res = await db.execute(avg_stmt)
+    avg_duration_ms = avg_res.scalar()
+    avg_seconds = max(1, round(float(avg_duration_ms) / 1000.0)) if avg_duration_ms and avg_duration_ms > 0 else 15
+
+    # Query running jobs
+    running_stmt = (
+        select(SyncJob)
+        .options(selectinload(SyncJob.connection))
+        .where(SyncJob.status == SyncJobStatus.RUNNING.value)
+        .order_by(SyncJob.started_at.desc(), SyncJob.created_at.desc())
+    )
+    running_res = await db.execute(running_stmt)
+    running_rows = list(running_res.scalars().all())
+    running_jobs = [
+        SyncJobQueueItem(
+            **SyncJobResponse.model_validate(job).model_dump(),
+            connection_name=job.connection.name if job.connection else None,
+            queue_position=None,
+            estimated_wait_seconds=None,
+        )
+        for job in running_rows
+    ]
+
+    # Query queued jobs ordered by priority DESC, created_at ASC
+    queued_stmt = (
+        select(SyncJob)
+        .options(selectinload(SyncJob.connection))
+        .where(SyncJob.status == SyncJobStatus.QUEUED.value)
+        .order_by(SyncJob.priority.desc(), SyncJob.created_at.asc())
+    )
+    queued_res = await db.execute(queued_stmt)
+    queued_rows = list(queued_res.scalars().all())
+    queued_jobs = [
+        SyncJobQueueItem(
+            **SyncJobResponse.model_validate(job).model_dump(),
+            connection_name=job.connection.name if job.connection else None,
+            queue_position=idx,
+            estimated_wait_seconds=idx * avg_seconds,
+        )
+        for idx, job in enumerate(queued_rows, start=1)
+    ]
+
+    return SyncQueueStatusResponse(
+        worker_online=worker_online,
+        running_jobs=running_jobs,
+        queued_jobs=queued_jobs,
+    )
+
+
+@router.post(
+    "/batch-expedite",
+    response_model=BatchExpediteResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Batch expedite synchronization for multiple connections out-of-order",
+)
+async def batch_expedite_sync(
+    payload: BatchExpediteRequest,
+    user_ctx: UserContext = Depends(require_manage_schedules),
+    db: AsyncSession = Depends(get_db_session),
+) -> BatchExpediteResponse:
+    """
+    Accepts connection_ids to trigger immediate out-of-order synchronization for multiple selected databases at once.
+    Promotes already-queued jobs to priority=10 or enqueues new ones.
+    """
+    dispatched_jobs = []
+    worker_online = has_active_celery_worker()
+
+    for conn_id in payload.connection_ids:
+        # Check connection exists
+        conn_stmt = select(DatabaseConnection).where(DatabaseConnection.id == conn_id)
+        conn = (await db.execute(conn_stmt)).scalar_one_or_none()
+        if not conn:
+            continue
+
+        # Check if already queued or running
+        active_stmt = select(SyncJob).where(
+            SyncJob.connection_id == conn_id,
+            SyncJob.status.in_([SyncJobStatus.QUEUED.value, SyncJobStatus.RUNNING.value]),
+        )
+        active_job = (await db.execute(active_stmt)).scalar_one_or_none()
+
+        if active_job:
+            if active_job.status == SyncJobStatus.QUEUED.value:
+                active_job.priority = 10
+                active_job.triggered_by = SyncTriggerType.MANUAL.value
+                await db.flush()
+
+                if worker_online:
+                    try:
+                        manual_metadata_sync_task.apply_async(
+                            args=[str(conn_id), str(active_job.id)],
+                            queue=QUEUE_PRIORITY,
+                            priority=9,
+                            retry=False,
+                        )
+                    except Exception:
+                        asyncio.create_task(
+                            execute_metadata_sync(connection_id=conn_id, job_id=active_job.id)
+                        )
+                else:
+                    asyncio.create_task(
+                        execute_metadata_sync(connection_id=conn_id, job_id=active_job.id)
+                    )
+
+                await record_audit_event(
+                    session=db,
+                    actor_username=user_ctx.user.username,
+                    actor_id=user_ctx.user.id,
+                    action="EXPEDITE_SYNC_JOB",
+                    entity_type=EntityType.DATABASE,
+                    entity_id=conn_id,
+                    diff_jsonb={"job_id": str(active_job.id), "priority": 10, "status": active_job.status},
+                    flush=True,
+                )
+                dispatched_jobs.append(SyncJobResponse.model_validate(active_job))
+            else:
+                dispatched_jobs.append(SyncJobResponse.model_validate(active_job))
+        else:
+            sched_stmt = select(SyncSchedule).where(SyncSchedule.connection_id == conn_id)
+            sched = (await db.execute(sched_stmt)).scalar_one_or_none()
+            new_job = SyncJob(
+                id=uuid.uuid4(),
+                connection_id=conn_id,
+                schedule_id=sched.id if sched else None,
+                status=SyncJobStatus.QUEUED.value,
+                triggered_by=SyncTriggerType.MANUAL.value,
+                priority=10,
+            )
+            db.add(new_job)
+            await db.flush()
+            await db.refresh(new_job)
+
+            if worker_online:
+                try:
+                    manual_metadata_sync_task.apply_async(
+                        args=[str(conn_id), str(new_job.id)],
+                        queue=QUEUE_PRIORITY,
+                        priority=9,
+                        retry=False,
+                    )
+                except Exception:
+                    asyncio.create_task(
+                        execute_metadata_sync(connection_id=conn_id, job_id=new_job.id)
+                    )
+            else:
+                asyncio.create_task(
+                    execute_metadata_sync(connection_id=conn_id, job_id=new_job.id)
+                )
+
+            await record_audit_event(
+                session=db,
+                actor_username=user_ctx.user.username,
+                actor_id=user_ctx.user.id,
+                action="EXPEDITE_SYNC_JOB",
+                entity_type=EntityType.DATABASE,
+                entity_id=conn_id,
+                diff_jsonb={"job_id": str(new_job.id), "priority": 10, "status": SyncJobStatus.QUEUED.value},
+                flush=True,
+            )
+            dispatched_jobs.append(SyncJobResponse.model_validate(new_job))
+
+    await db.flush()
+    return BatchExpediteResponse(
+        jobs=dispatched_jobs,
+        message=f"{len(dispatched_jobs)} ظ¾ط§غŒع¯ط§ظ‡â€Œط¯ط§ط¯ظ‡ ط¨ط±ط§غŒ ظ‡ظ…ع¯ط§ظ…â€Œط³ط§ط²غŒ ظپظˆط±غŒ ط®ط§ط±ط¬ ط§ط² ظ†ظˆط¨طھ ط§ط±ط³ط§ظ„ ط´ط¯ظ†ط¯.",
+        total_dispatched=len(dispatched_jobs),
+    )
+
+
+@router.get(
     "/{job_id}",
     response_model=SyncJobDetailResponse,
     summary="Get detailed sync job diagnostics",
@@ -5420,7 +5625,7 @@ async def retry_sync_job(
     await db.flush()
     await db.refresh(retry_job)
 
-    if is_broker_available():
+    if has_active_celery_worker():
         try:
             manual_metadata_sync_task.apply_async(
                 args=[str(retry_job.connection_id), str(retry_job.id)],
@@ -5440,7 +5645,7 @@ async def retry_sync_job(
             )
     else:
         logger.info(
-            "Celery broker not reachable. Executing retry sync in-process via asyncio.create_task for connection %s.",
+            "Celery worker not online. Executing retry sync in-process via asyncio.create_task for connection %s.",
             retry_job.connection_id,
         )
         asyncio.create_task(
@@ -5463,6 +5668,151 @@ async def retry_sync_job(
     await db.flush()
 
     return SyncJobResponse.model_validate(retry_job)
+
+
+@router.post(
+    "/{job_id}/expedite",
+    response_model=SyncJobResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Expedite a queued sync job out of order",
+)
+async def expedite_sync_job(
+    job_id: uuid.UUID,
+    user_ctx: UserContext = Depends(require_manage_schedules),
+    db: AsyncSession = Depends(get_db_session),
+) -> SyncJobResponse:
+    """
+    Promotes a QUEUED job to priority = 10 (triggered_by = MANUAL), dispatches it immediately
+    (or executes directly via asyncio.create_task if no worker is active),
+    emits an EXPEDITE_SYNC_JOB AuditLog event, and returns the updated SyncJobResponse.
+    """
+    stmt = select(SyncJob).where(SyncJob.id == job_id)
+    res = await db.execute(stmt)
+    job = res.scalar_one_or_none()
+    if job is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"SyncJob '{job_id}' not found.",
+        )
+    if job.status != SyncJobStatus.QUEUED.value:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"طھظ†ظ‡ط§ ع©ط§ط±ظ‡ط§غŒ ط¯ط± طµظپ ط§ظ†طھط¸ط§ط± (QUEUED) ط§ظ…ع©ط§ظ† ط§ط¬ط±ط§غŒ ظپظˆط±غŒ ط¯ط§ط±ظ†ط¯. ظˆط¶ط¹غŒطھ ظپط¹ظ„غŒ: {job.status}",
+        )
+
+    job.priority = 10
+    job.triggered_by = SyncTriggerType.MANUAL.value
+    await db.flush()
+
+    if has_active_celery_worker():
+        try:
+            manual_metadata_sync_task.apply_async(
+                args=[str(job.connection_id), str(job.id)],
+                queue=QUEUE_PRIORITY,
+                priority=9,
+                retry=False,
+            )
+        except Exception as exc:
+            logger.warning(
+                "Could not dispatch Celery task (%s). Falling back to in-process execution via asyncio.create_task.",
+                exc,
+            )
+            asyncio.create_task(
+                execute_metadata_sync(
+                    connection_id=job.connection_id,
+                    job_id=job.id,
+                )
+            )
+    else:
+        logger.info(
+            "Celery worker not online. Executing expedited sync in-process via asyncio.create_task for connection %s.",
+            job.connection_id,
+        )
+        asyncio.create_task(
+            execute_metadata_sync(
+                connection_id=job.connection_id,
+                job_id=job.id,
+            )
+        )
+
+    await record_audit_event(
+        session=db,
+        actor_username=user_ctx.user.username,
+        actor_id=user_ctx.user.id,
+        action="EXPEDITE_SYNC_JOB",
+        entity_type=EntityType.DATABASE,
+        entity_id=job.connection_id,
+        diff_jsonb={"job_id": str(job.id), "priority": 10, "status": job.status},
+        flush=True,
+    )
+    await db.flush()
+    await db.refresh(job)
+
+    return SyncJobResponse.model_validate(job)
+
+
+@router.post(
+    "/{job_id}/cancel",
+    response_model=SyncJobResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Cancel a queued or running sync job",
+)
+async def cancel_sync_job(
+    job_id: uuid.UUID,
+    user_ctx: UserContext = Depends(require_manage_schedules),
+    db: AsyncSession = Depends(get_db_session),
+) -> SyncJobResponse:
+    """
+    Cancels a QUEUED (or stuck) job by setting status = 'CANCELLED',
+    completed_at = now(), error_message = 'ظ„ط؛ظˆ ط´ط¯ظ‡ طھظˆط³ط· ع©ط§ط±ط¨ط±', revoking any Celery task if present,
+    emitting a CANCEL_SYNC_JOB AuditLog event, and releasing the concurrency lock so new syncs can run.
+    """
+    stmt = select(SyncJob).where(SyncJob.id == job_id)
+    res = await db.execute(stmt)
+    job = res.scalar_one_or_none()
+    if job is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"SyncJob '{job_id}' not found.",
+        )
+    if job.status in [
+        SyncJobStatus.SUCCESS.value,
+        SyncJobStatus.FAILED.value,
+        SyncJobStatus.PARTIAL_FAILURE.value,
+        SyncJobStatus.CANCELLED.value,
+    ]:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"ط§غŒظ† ع©ط§ط± ظ‡ظ…ع¯ط§ظ…â€Œط³ط§ط²غŒ ظ‚ط¨ظ„ط§ظ‹ ط¨ظ‡ ظ¾ط§غŒط§ظ† ط±ط³غŒط¯ظ‡ ط§ط³طھ غŒط§ ظ„ط؛ظˆ ط´ط¯ظ‡ ط§ط³طھ (ظˆط¶ط¹غŒطھ: {job.status}).",
+        )
+
+    now = datetime.now(timezone.utc)
+    job.status = SyncJobStatus.CANCELLED.value
+    job.completed_at = now
+    job.error_message = "ظ„ط؛ظˆ ط´ط¯ظ‡ طھظˆط³ط· ع©ط§ط±ط¨ط±"
+    if job.started_at:
+        job.duration_ms = int((now - job.started_at).total_seconds() * 1000)
+
+    try:
+        celery_app.control.revoke(str(job.id), terminate=True)
+    except Exception as exc:
+        logger.debug("Failed or skipped Celery task revoke for job %s: %s", job.id, exc)
+
+    await record_audit_event(
+        session=db,
+        actor_username=user_ctx.user.username,
+        actor_id=user_ctx.user.id,
+        action="CANCEL_SYNC_JOB",
+        entity_type=EntityType.DATABASE,
+        entity_id=job.connection_id,
+        diff_jsonb={"job_id": str(job.id), "status": SyncJobStatus.CANCELLED.value},
+        flush=True,
+    )
+    await db.flush()
+    await db.refresh(job)
+
+    return SyncJobResponse.model_validate(job)
+
 
 === FILE: D:\datacatalog\backend\src\api\v1\tables.py ===
 from __future__ import annotations
@@ -8147,6 +8497,23 @@ def is_broker_available(broker_url: str = settings.CELERY_BROKER_URL) -> bool:
         return False
 
 
+def has_active_celery_worker(timeout: float = 0.3) -> bool:
+    """
+    Checks whether the Celery broker is reachable and at least one worker process is actively responding.
+    Returns False quickly if Redis broker is down or no worker processes are active.
+    """
+    if not is_broker_available():
+        return False
+    try:
+        inspect = celery_app.control.inspect(timeout=timeout)
+        pings = inspect.ping() if inspect else None
+        return bool(pings and len(pings) > 0)
+    except Exception as exc:
+        logger.debug("Active worker inspection failed: %s", exc)
+        return False
+
+
+
 === FILE: D:\datacatalog\backend\src\core\config.py ===
 from typing import Optional
 from pydantic import model_validator
@@ -9753,6 +10120,7 @@ class SyncJobStatus(str, enum.Enum):
     SUCCESS = "SUCCESS"
     PARTIAL_FAILURE = "PARTIAL_FAILURE"
     FAILED = "FAILED"
+    CANCELLED = "CANCELLED"
 
 
 class SyncTriggerType(str, enum.Enum):
@@ -9811,6 +10179,9 @@ class SyncJob(Base):
     error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     error_trace_jsonb: Mapped[dict] = mapped_column(
         JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb")
+    )
+    priority: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default=text("0")
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
@@ -10665,6 +11036,7 @@ class SyncJobStatusEnum(str, enum.Enum):
     SUCCESS = "SUCCESS"
     PARTIAL_FAILURE = "PARTIAL_FAILURE"
     FAILED = "FAILED"
+    CANCELLED = "CANCELLED"
 
 
 class SyncTriggerTypeEnum(str, enum.Enum):
@@ -10707,6 +11079,7 @@ class SyncJobResponse(BaseModel):
     columns_scanned: int = 0
     changes_detected: int = 0
     error_message: Optional[str] = None
+    priority: int = 0
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
@@ -10734,6 +11107,33 @@ class CircuitBreakerStatusResponse(BaseModel):
     cooldown_until: Optional[datetime] = None
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class SyncJobQueueItem(SyncJobResponse):
+    connection_name: Optional[str] = None
+    queue_position: Optional[int] = None
+    estimated_wait_seconds: Optional[int] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class SyncQueueStatusResponse(BaseModel):
+    worker_online: bool
+    running_jobs: List[SyncJobQueueItem]
+    queued_jobs: List[SyncJobQueueItem]
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class BatchExpediteRequest(BaseModel):
+    connection_ids: List[uuid.UUID]
+
+
+class BatchExpediteResponse(BaseModel):
+    jobs: List[SyncJobResponse]
+    message: str
+    total_dispatched: int
+
 
 === FILE: D:\datacatalog\backend\src\schemas\versioning.py ===
 from __future__ import annotations
@@ -10812,13 +11212,17 @@ from backend.src.schemas.reports import (
     ReportRefreshResponse,
 )
 from backend.src.schemas.sync_jobs import (
+    BatchExpediteRequest,
+    BatchExpediteResponse,
     CircuitBreakerStatusResponse,
     CircuitStateEnum,
     ConnectionDiagnosticTestResponse,
     SyncJobDetailResponse,
     SyncJobListResponse,
+    SyncJobQueueItem,
     SyncJobResponse,
     SyncJobStatusEnum,
+    SyncQueueStatusResponse,
     SyncTriggerTypeEnum,
 )
 from backend.src.schemas.drift import (
@@ -10868,9 +11272,13 @@ __all__ = [
     "ConnectionDiagnosticTestResponse",
     "SyncJobDetailResponse",
     "SyncJobListResponse",
+    "SyncJobQueueItem",
     "SyncJobResponse",
     "SyncJobStatusEnum",
+    "SyncQueueStatusResponse",
     "SyncTriggerTypeEnum",
+    "BatchExpediteRequest",
+    "BatchExpediteResponse",
     "ColumnDriftDetail",
     "ColumnDriftResolutionRequest",
     "DescriptionDriftDetailResponse",
@@ -17276,6 +17684,10 @@ async def execute_metadata_sync(
         if not job:
             return {"success": False, "error": f"SyncJob {job_uuid} not found."}
 
+        if job.status == SyncJobStatus.CANCELLED.value:
+            logger.info("SyncJob %s was cancelled before execution. Halting task.", job_uuid)
+            return {"success": False, "status": job.status, "message": "Job was cancelled before execution."}
+
         # Transition to RUNNING
         job.status = SyncJobStatus.RUNNING.value
         job.started_at = datetime.now(timezone.utc)
@@ -18743,6 +19155,33 @@ def upgrade() -> None:
 def downgrade() -> None:
     op.execute('ALTER TABLE catalog_columns DROP COLUMN IF EXISTS "collation"')
     op.execute('ALTER TABLE database_connections DROP COLUMN IF EXISTS "collation"')
+
+=== FILE: D:\datacatalog\backend\alembic\versions\008_sync_job_priority_and_cancel.py ===
+"""Add priority and CANCELLED status to sync_jobs
+
+Revision ID: 008_sync_job_priority_and_cancel
+Revises: 007_add_collation_fields
+Create Date: 2026-11-24
+"""
+from typing import Sequence, Union
+from alembic import op
+import sqlalchemy as sa
+
+revision: str = '008_sync_job_priority_and_cancel'
+down_revision: Union[str, None] = '007_add_collation_fields'
+branch_labels: Union[str, Sequence[str], None] = None
+depends_on: Union[str, Sequence[str], None] = None
+
+
+def upgrade() -> None:
+    op.add_column(
+        'sync_jobs',
+        sa.Column('priority', sa.Integer(), nullable=False, server_default=sa.text('0'))
+    )
+
+
+def downgrade() -> None:
+    op.execute('ALTER TABLE sync_jobs DROP COLUMN IF EXISTS "priority"')
 
 === FILE: D:\datacatalog\backend\scripts\seed_demo_data.py ===
 #!/usr/bin/env python3
@@ -20655,7 +21094,7 @@ import { Injectable, inject } from '@angular/core';
 import { HttpClient, HttpParams } from '@angular/common/http';
 import { Observable } from 'rxjs';
 
-export type SyncJobStatus = 'QUEUED' | 'RUNNING' | 'SUCCESS' | 'PARTIAL_FAILURE' | 'FAILED';
+export type SyncJobStatus = 'QUEUED' | 'RUNNING' | 'SUCCESS' | 'PARTIAL_FAILURE' | 'FAILED' | 'CANCELLED';
 export type SyncTriggerType = 'SCHEDULE' | 'MANUAL' | 'RETRY';
 export type CircuitState = 'CLOSED' | 'OPEN' | 'HALF_OPEN';
 
@@ -20685,7 +21124,26 @@ export interface SyncJobResponse {
   columns_scanned: number;
   changes_detected: number;
   error_message?: string | null;
+  priority?: number;
   created_at: string;
+}
+
+export interface SyncJobQueueItem extends SyncJobResponse {
+  connection_name?: string | null;
+  queue_position?: number | null;
+  estimated_wait_seconds?: number | null;
+}
+
+export interface SyncQueueStatusResponse {
+  worker_online: boolean;
+  running_jobs: SyncJobQueueItem[];
+  queued_jobs: SyncJobQueueItem[];
+}
+
+export interface BatchExpediteResponse {
+  jobs: SyncJobResponse[];
+  message: string;
+  total_dispatched: number;
 }
 
 export interface SyncJobDetailResponse extends SyncJobResponse {
@@ -20796,6 +21254,43 @@ export class SyncJobService {
     return this.http.post<SyncJobResponse>(
       `${this.syncJobsUrl}/${jobId}/retry`,
       {}
+    );
+  }
+
+  /**
+   * Retrieves the live sync queue status, worker state, and running/queued jobs.
+   */
+  getQueueStatus(): Observable<SyncQueueStatusResponse> {
+    return this.http.get<SyncQueueStatusResponse>(`${this.syncJobsUrl}/queue`);
+  }
+
+  /**
+   * Promotes a queued job to priority 10 and executes it immediately out of order.
+   */
+  expediteSyncJob(jobId: string): Observable<SyncJobResponse> {
+    return this.http.post<SyncJobResponse>(
+      `${this.syncJobsUrl}/${jobId}/expedite`,
+      {}
+    );
+  }
+
+  /**
+   * Cancels a queued or running sync job and releases the connection concurrency lock.
+   */
+  cancelSyncJob(jobId: string): Observable<SyncJobResponse> {
+    return this.http.post<SyncJobResponse>(
+      `${this.syncJobsUrl}/${jobId}/cancel`,
+      {}
+    );
+  }
+
+  /**
+   * Triggers immediate out-of-order synchronization for multiple selected databases.
+   */
+  batchExpediteSync(connectionIds: string[]): Observable<BatchExpediteResponse> {
+    return this.http.post<BatchExpediteResponse>(
+      `${this.syncJobsUrl}/batch-expedite`,
+      { connection_ids: connectionIds }
     );
   }
 
@@ -45599,6 +46094,12 @@ export class SyncJobDiagnosticModalComponent implements OnChanges {
   color: #475569;
 }
 
+.badge-status-cancelled {
+  background: #f1f5f9;
+  color: #64748b;
+  border: 1px dashed #cbd5e1;
+}
+
 .trigger-label {
   font-size: 0.8rem;
   color: #475569;
@@ -45711,6 +46212,648 @@ export class SyncJobDiagnosticModalComponent implements OnChanges {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
 }
 
+/* Expedite Action Buttons */
+.btn-expedite {
+  background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+  color: #ffffff;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  box-shadow: 0 2px 6px rgba(217, 119, 6, 0.25);
+  font-family: inherit;
+}
+
+.btn-expedite:hover {
+  background: linear-gradient(135deg, #d97706 0%, #b45309 100%);
+  box-shadow: 0 4px 10px rgba(217, 119, 6, 0.35);
+}
+
+.btn-table-expedite {
+  background: #fffbeb;
+  color: #b45309;
+  border-color: #fde68a;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.btn-table-expedite:hover:not(:disabled) {
+  background: #fef3c7;
+}
+
+.btn-table-cancel {
+  background: #f8fafc;
+  color: #64748b;
+  border-color: #e2e8f0;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.btn-table-cancel:hover:not(:disabled) {
+  background: #fee2e2;
+  color: #b91c1c;
+  border-color: #fecaca;
+}
+
+/* ========================================================
+   Live Sync Queue & Running Jobs Card
+   ======================================================== */
+.queue-card {
+  background: #ffffff;
+  border-radius: 12px;
+  border: 1px solid #e2e8f0;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.queue-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 16px;
+  padding: 16px 20px;
+  background: #f8fafc;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.queue-title-wrap {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.queue-icon-badge {
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%);
+  color: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.15rem;
+}
+
+.queue-card-title {
+  margin: 0;
+  font-size: 1.08rem;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.queue-card-subtitle {
+  margin: 3px 0 0 0;
+  font-size: 0.8rem;
+  color: #64748b;
+}
+
+.queue-header-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.worker-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 12px;
+  border-radius: 20px;
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
+.worker-active {
+  background: #ecfdf5;
+  color: #065f46;
+  border: 1px solid #a7f3d0;
+}
+
+.worker-direct {
+  background: #fffbeb;
+  color: #92400e;
+  border: 1px solid #fde68a;
+}
+
+.status-pulse {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.pulse-green {
+  background: #22c55e;
+  box-shadow: 0 0 0 2px rgba(34, 197, 94, 0.25);
+  animation: pulse 1.5s infinite;
+}
+
+.pulse-amber {
+  background: #f59e0b;
+  box-shadow: 0 0 0 2px rgba(245, 158, 11, 0.25);
+  animation: pulse 1.5s infinite;
+}
+
+.queue-counters {
+  display: flex;
+  gap: 8px;
+}
+
+.counter-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.counter-running {
+  background: #eff6ff;
+  color: #1d4ed8;
+  border: 1px solid #bfdbfe;
+}
+
+.counter-queued {
+  background: #f8fafc;
+  color: #475569;
+  border: 1px solid #e2e8f0;
+}
+
+.queue-card-body {
+  padding: 18px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.queue-empty-state {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 24px;
+  color: #64748b;
+  background: #f8fafc;
+  border-radius: 8px;
+  border: 1px dashed #cbd5e1;
+}
+
+.empty-icon {
+  font-size: 1.3rem;
+  color: #10b981;
+}
+
+.empty-text {
+  font-size: 0.88rem;
+}
+
+.queue-section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.section-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.85rem;
+  font-weight: 700;
+}
+
+.running-label {
+  color: #1d4ed8;
+}
+
+.queued-label {
+  color: #475569;
+}
+
+.queue-items-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.queue-job-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  border-radius: 8px;
+  border: 1px solid #e2e8f0;
+  background: #ffffff;
+  transition: all 0.2s;
+  gap: 14px;
+}
+
+.item-running {
+  border-right: 4px solid #3b82f6;
+  background: #f8fafc;
+}
+
+.item-queued {
+  border-right: 4px solid #cbd5e1;
+}
+
+.item-promoted {
+  border-right: 4px solid #f59e0b;
+  background: #fffdf5;
+}
+
+.queue-position-badge {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: #f1f5f9;
+  border-radius: 6px;
+  padding: 6px 12px;
+  min-width: 68px;
+  border: 1px solid #e2e8f0;
+}
+
+.pos-num {
+  font-size: 0.88rem;
+  font-weight: 800;
+  color: #0f172a;
+}
+
+.pos-total {
+  font-size: 0.72rem;
+  color: #64748b;
+}
+
+.job-item-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.job-conn-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.job-db-icon {
+  font-size: 1.05rem;
+}
+
+.job-conn-name {
+  font-size: 0.92rem;
+  color: #0f172a;
+}
+
+.priority-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-size: 0.74rem;
+  font-weight: 700;
+}
+
+.priority-high {
+  background: #fef3c7;
+  color: #92400e;
+  border: 1px solid #fde68a;
+}
+
+.priority-normal {
+  background: #f1f5f9;
+  color: #64748b;
+}
+
+.job-meta-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  font-size: 0.78rem;
+  color: #64748b;
+}
+
+.eta-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: #d97706;
+  font-weight: 600;
+  background: #fffbeb;
+  padding: 2px 7px;
+  border-radius: 4px;
+  border: 1px solid #fde68a;
+}
+
+.job-id {
+  color: #475569;
+}
+
+.job-item-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.btn-action {
+  padding: 6px 12px;
+  border-radius: 6px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  border: 1px solid transparent;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-family: inherit;
+  transition: all 0.2s;
+}
+
+.btn-expedite-sm {
+  background: #fffbeb;
+  color: #b45309;
+  border-color: #fde68a;
+}
+
+.btn-expedite-sm:hover:not(:disabled) {
+  background: #fef3c7;
+  border-color: #f59e0b;
+}
+
+.btn-cancel-sm {
+  background: #ffffff;
+  color: #b91c1c;
+  border-color: #fecaca;
+}
+
+.btn-cancel-sm:hover:not(:disabled) {
+  background: #fef2f2;
+}
+
+/* ========================================================
+   Batch Expedite Modal Styles
+   ======================================================== */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.5);
+  backdrop-filter: blur(3px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1050;
+  padding: 20px;
+}
+
+.modal-card {
+  background: #ffffff;
+  border-radius: 14px;
+  width: 100%;
+  max-width: 620px;
+  max-height: 85vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+  overflow: hidden;
+  animation: modalFadeIn 0.2s ease-out;
+}
+
+@keyframes modalFadeIn {
+  from { opacity: 0; transform: scale(0.96); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  padding: 18px 22px;
+  background: #f8fafc;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.modal-title-wrap {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.modal-bolt-icon {
+  width: 38px;
+  height: 38px;
+  border-radius: 10px;
+  background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+  color: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.1rem;
+}
+
+.modal-header h3 {
+  margin: 0;
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.modal-subtitle {
+  margin: 4px 0 0 0;
+  font-size: 0.8rem;
+  color: #64748b;
+}
+
+.btn-modal-close {
+  background: transparent;
+  border: none;
+  font-size: 1.1rem;
+  color: #94a3b8;
+  cursor: pointer;
+  padding: 4px;
+}
+
+.btn-modal-close:hover {
+  color: #0f172a;
+}
+
+.modal-body {
+  padding: 18px 22px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.modal-search-bar {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.search-input-wrap {
+  position: relative;
+  flex: 1;
+}
+
+.search-icon {
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: #94a3b8;
+  font-size: 0.9rem;
+}
+
+.modal-search-input {
+  width: 100%;
+  padding: 7px 34px 7px 12px;
+  border-radius: 7px;
+  border: 1px solid #cbd5e1;
+  font-size: 0.85rem;
+  font-family: inherit;
+}
+
+.connection-selection-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 320px;
+  overflow-y: auto;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 8px;
+}
+
+.connection-item-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: 6px;
+  border: 1px solid #f1f5f9;
+  background: #ffffff;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.connection-item-row:hover {
+  background: #f8fafc;
+  border-color: #e2e8f0;
+}
+
+.connection-item-row.selected {
+  background: #fffbeb;
+  border-color: #fde68a;
+}
+
+.conn-checkbox {
+  width: 17px;
+  height: 17px;
+  cursor: pointer;
+}
+
+.conn-info {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.conn-name-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.conn-title {
+  font-size: 0.9rem;
+  color: #0f172a;
+}
+
+.badge-engine {
+  background: #f1f5f9;
+  color: #475569;
+  font-size: 0.72rem;
+  padding: 1px 6px;
+  border-radius: 4px;
+}
+
+.conn-sub-row {
+  display: flex;
+  gap: 14px;
+  font-size: 0.76rem;
+  color: #64748b;
+}
+
+.modal-loading,
+.modal-empty {
+  text-align: center;
+  padding: 30px;
+  color: #94a3b8;
+  font-size: 0.88rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.modal-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 14px 22px;
+  background: #f8fafc;
+  border-top: 1px solid #e2e8f0;
+}
+
+.selected-summary {
+  font-size: 0.85rem;
+  color: #334155;
+}
+
+.modal-footer-actions {
+  display: flex;
+  gap: 10px;
+}
+
+.btn-expedite-submit {
+  background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+  color: #ffffff;
+  border: none;
+  border-radius: 6px;
+  padding: 8px 16px;
+  font-size: 0.85rem;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  cursor: pointer;
+  font-family: inherit;
+  transition: all 0.2s;
+}
+
+.btn-expedite-submit:hover:not(:disabled) {
+  background: linear-gradient(135deg, #d97706 0%, #b45309 100%);
+}
+
+.btn-expedite-submit:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+
 === FILE: D:\datacatalog\frontend\src\app\features\sync-monitor\sync-monitor.component.html ===
 <div class="sync-monitor-page" dir="rtl">
   <!-- Header Title & Polling Controls -->
@@ -45727,6 +46870,16 @@ export class SyncJobDiagnosticModalComponent implements OnChanges {
     </div>
 
     <div class="header-actions">
+      <!-- Batch Expedite Out-of-order Button -->
+      <button
+        type="button"
+        class="btn btn-expedite"
+        (click)="openBatchExpediteModal()"
+      >
+        <i class="pi pi-bolt"></i>
+        <span>ظ‡ظ…ع¯ط§ظ…â€Œط³ط§ط²غŒ ظپظˆط±غŒ ط®ط§ط±ط¬ ط§ط² ظ†ظˆط¨طھ</span>
+      </button>
+
       <!-- Polling Toggle Button -->
       <button
         type="button"
@@ -45767,6 +46920,171 @@ export class SyncJobDiagnosticModalComponent implements OnChanges {
     </div>
   }
 
+  <!-- Live Sync Queue & Running Jobs Card -->
+  <section class="queue-card" aria-label="طµظپ ظ‡ظ…ع¯ط§ظ…â€Œط³ط§ط²غŒ ط²ظ†ط¯ظ‡ ظˆ ع©ط§ط±ظ‡ط§غŒ ط¯ط± ط­ط§ظ„ ط§ط¬ط±ط§">
+    <div class="queue-card-header">
+      <div class="queue-title-wrap">
+        <div class="queue-icon-badge">
+          <i class="pi pi-sync pi-spin"></i>
+        </div>
+        <div>
+          <h3 class="queue-card-title">طµظپ ظ‡ظ…ع¯ط§ظ…â€Œط³ط§ط²غŒ ط²ظ†ط¯ظ‡ ظˆ ع©ط§ط±ظ‡ط§غŒ ط¯ط± ط­ط§ظ„ ط§ط¬ط±ط§</h3>
+          <p class="queue-card-subtitle">
+            ظˆط¶ط¹غŒطھ ظ¾ط±ط¯ط§ط²ط´ع¯ط±ظ‡ط§طŒ ط§ظˆظ„ظˆغŒطھâ€Œط¨ظ†ط¯غŒ ط®ط§ط±ط¬ ط§ط² ظ†ظˆط¨طھ ظˆ طھط®ظ…غŒظ† ط²ظ…ط§ظ† ط´ط±ظˆط¹ ع©ط§ط±ظ‡ط§
+          </p>
+        </div>
+      </div>
+
+      <div class="queue-header-meta">
+        <!-- Worker status badge -->
+        @if (queueStatus()?.worker_online) {
+          <span class="worker-badge worker-active" title="ظ¾ط±ط¯ط§ط²ط´ع¯ط±ظ‡ط§غŒ طھظˆط²غŒط¹â€Œط´ط¯ظ‡ Celery ظ…طھطµظ„ ظˆ ظپط¹ط§ظ„ ظ‡ط³طھظ†ط¯">
+            <span class="status-pulse pulse-green"></span>
+            <i class="pi pi-server"></i>
+            <span>ط³ط±ظˆغŒط³ ظ¾ط±ط¯ط§ط²ط´ع¯ط±: ظپط¹ط§ظ„ (Celery Worker)</span>
+          </span>
+        } @else {
+          <span class="worker-badge worker-direct" title="ظ‡غŒع† ط³ط±ظˆغŒط³ ظˆط±ع©ط± Celery ظپط¹ط§ظ„ ظ†غŒط³طھط› ع©ط§ط±ظ‡ط§ ظ…ط³طھظ‚غŒظ…ط§ظ‹ ط¯ط±ظˆظ† ط³ط±ظˆط± ظˆط¨ ط§ط¬ط±ط§ ظ…غŒâ€Œط´ظˆظ†ط¯">
+            <span class="status-pulse pulse-amber"></span>
+            <i class="pi pi-bolt"></i>
+            <span>ط§ط¬ط±ط§غŒ ظ…ط³طھظ‚غŒظ… ط¯ط±ظˆظ†â€Œظ¾ط±ط¯ط§ط²ط´غŒ (In-Process Fallback)</span>
+          </span>
+        }
+
+        <div class="queue-counters">
+          <span class="counter-pill counter-running">
+            <i class="pi pi-spin pi-spinner"></i>
+            {{ queueStatus()?.running_jobs?.length || 0 }} ط¯ط± ط­ط§ظ„ ط§ط¬ط±ط§
+          </span>
+          <span class="counter-pill counter-queued">
+            <i class="pi pi-list"></i>
+            {{ queueStatus()?.queued_jobs?.length || 0 }} ط¯ط± طµظپ ظ†ظˆط¨طھ
+          </span>
+        </div>
+      </div>
+    </div>
+
+    <div class="queue-card-body">
+      @if (!queueStatus() || (queueStatus()?.running_jobs?.length === 0 && queueStatus()?.queued_jobs?.length === 0)) {
+        <div class="queue-empty-state">
+          <i class="pi pi-check-circle empty-icon"></i>
+          <span class="empty-text">طµظپ ظ¾ط±ط¯ط§ط²ط´ ط®ظ„ظˆطھ ط§ط³طھ â€” ط¯ط± ط­ط§ظ„ ط­ط§ط¶ط± ظ‡غŒع† ع©ط§ط±غŒ ط¯ط± طµظپ ط§ظ†طھط¸ط§ط± غŒط§ ط¯ط± ط­ط§ظ„ ط§ط¬ط±ط§ ظ†غŒط³طھ.</span>
+        </div>
+      } @else {
+        <!-- Running Jobs Section -->
+        @if ((queueStatus()?.running_jobs?.length || 0) > 0) {
+          <div class="queue-section">
+            <div class="section-label running-label">
+              <i class="pi pi-spin pi-spinner"></i>
+              <span>ع©ط§ط±ظ‡ط§غŒ ط¯ط± ط­ط§ظ„ ط§ط¬ط±ط§ (RUNNING)</span>
+            </div>
+
+            <div class="queue-items-grid">
+              @for (job of queueStatus()!.running_jobs; track job.id) {
+                <div class="queue-job-item item-running">
+                  <div class="job-item-main">
+                    <div class="job-conn-row">
+                      <span class="job-db-icon">ًں—„ï¸ڈ</span>
+                      <strong class="job-conn-name">{{ job.connection_name || 'ظ¾ط§غŒع¯ط§ظ‡ ط¯ط§ط¯ظ‡' }}</strong>
+                      <span class="badge badge-status-running">ط¯ط± ط­ط§ظ„ ط§ط¬ط±ط§</span>
+                      @if ((job.priority || 0) >= 10) {
+                        <span class="priority-badge priority-high"><i class="pi pi-bolt"></i> ط§ظˆظ„ظˆغŒطھ ظپظˆط±غŒ</span>
+                      }
+                    </div>
+                    <div class="job-meta-row">
+                      <span class="mono-font job-id" [title]="job.id">ط´ظ†ط§ط³ظ‡: {{ job.id.substring(0, 8) }}...</span>
+                      <span>ط´ط±ظˆط¹: {{ formatPersianDate(job.started_at || job.created_at) }}</span>
+                      <span>ظ…ط­ط±ع©: {{ getTriggerLabel(job.triggered_by) }}</span>
+                    </div>
+                  </div>
+                  <div class="job-item-actions">
+                    <button
+                      type="button"
+                      class="btn-action btn-cancel-sm"
+                      (click)="onCancelJob(job)"
+                      [disabled]="isCancellingJobId() === job.id"
+                      title="ظ„ط؛ظˆ ط§غŒظ† ع©ط§ط±"
+                    >
+                      <i class="pi pi-times"></i>
+                      <span>ظ„ط؛ظˆ</span>
+                    </button>
+                  </div>
+                </div>
+              }
+            </div>
+          </div>
+        }
+
+        <!-- Queued Jobs Section -->
+        @if ((queueStatus()?.queued_jobs?.length || 0) > 0) {
+          <div class="queue-section">
+            <div class="section-label queued-label">
+              <i class="pi pi-clock"></i>
+              <span>طµظپ ع©ط§ط±ظ‡ط§غŒ ط¯ط± ط§ظ†طھط¸ط§ط± (QUEUED) â€” ط§ظˆظ„ظˆغŒطھ ط¨ط§ظ„ط§ ظˆ ط®ط§ط±ط¬ ط§ط² ظ†ظˆط¨طھ ط¯ط± ط§ط¨طھط¯ط§غŒ طµظپ</span>
+            </div>
+
+            <div class="queue-items-grid">
+              @for (job of queueStatus()!.queued_jobs; track job.id) {
+                <div class="queue-job-item item-queued" [class.item-promoted]="(job.priority || 0) >= 10">
+                  <div class="queue-position-badge">
+                    <span class="pos-num">ظ†ظˆط¨طھ {{ job.queue_position }}</span>
+                    <span class="pos-total">ط§ط² {{ queueStatus()!.queued_jobs.length }}</span>
+                  </div>
+
+                  <div class="job-item-main">
+                    <div class="job-conn-row">
+                      <span class="job-db-icon">ًں—„ï¸ڈ</span>
+                      <strong class="job-conn-name">{{ job.connection_name || 'ظ¾ط§غŒع¯ط§ظ‡ ط¯ط§ط¯ظ‡' }}</strong>
+                      <span class="badge badge-status-queued">ط¯ط± طµظپ ط§ظ†طھط¸ط§ط±</span>
+                      @if ((job.priority || 0) >= 10) {
+                        <span class="priority-badge priority-high"><i class="pi pi-bolt"></i> ط§ظˆظ„ظˆغŒطھ ط¨ط§ظ„ط§ (ظپظˆط±غŒ)</span>
+                      } @else {
+                        <span class="priority-badge priority-normal">ظ†ظˆط¨طھ ط¹ط§ط¯غŒ</span>
+                      }
+                    </div>
+
+                    <div class="job-meta-row">
+                      <span class="eta-pill" title="طھط®ظ…غŒظ† ط²ظ…ط§ظ† ط´ط±ظˆط¹ ط¨ط± ط§ط³ط§ط³ ظ…غŒط§ظ†ع¯غŒظ† ط²ظ…ط§ظ† ظ‡ظ…ع¯ط§ظ…â€Œط³ط§ط²غŒâ€Œظ‡ط§غŒ ط§ط®غŒط±">
+                        <i class="pi pi-hourglass"></i>
+                        ط²ظ…ط§ظ† طھظ‚ط±غŒط¨غŒ ط´ط±ظˆط¹: ~{{ job.estimated_wait_seconds }} ط«ط§ظ†غŒظ‡ ط¯غŒع¯ط±
+                      </span>
+                      <span class="mono-font job-id" [title]="job.id">ط´ظ†ط§ط³ظ‡: {{ job.id.substring(0, 8) }}...</span>
+                      <span>ط«ط¨طھ: {{ formatPersianDate(job.created_at) }}</span>
+                    </div>
+                  </div>
+
+                  <div class="job-item-actions">
+                    <button
+                      type="button"
+                      class="btn-action btn-expedite-sm"
+                      (click)="onExpediteJob(job)"
+                      [disabled]="isExpeditingJobId() === job.id || (job.priority || 0) >= 10"
+                      title="ط§ط±طھظ‚ط§ ط¨ظ‡ ط§ظˆظ„ طµظپ ظˆ ط§ط¬ط±ط§غŒ ظپظˆط±غŒ ط®ط§ط±ط¬ ط§ط² ظ†ظˆط¨طھ"
+                    >
+                      <i class="pi pi-bolt"></i>
+                      <span>{{ isExpeditingJobId() === job.id ? 'ط¯ط± ط­ط§ظ„ ط§ط¹ظ…ط§ظ„...' : 'ط§ط¬ط±ط§غŒ ظپظˆط±غŒ (ط®ط§ط±ط¬ ط§ط² ظ†ظˆط¨طھ)' }}</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      class="btn-action btn-cancel-sm"
+                      (click)="onCancelJob(job)"
+                      [disabled]="isCancellingJobId() === job.id"
+                      title="ظ„ط؛ظˆ ط§غŒظ† ع©ط§ط± ط§ط² طµظپ"
+                    >
+                      <i class="pi pi-times"></i>
+                      <span>{{ isCancellingJobId() === job.id ? 'ط¯ط± ط­ط§ظ„ ظ„ط؛ظˆ...' : 'ظ„ط؛ظˆ ط§ط² طµظپ' }}</span>
+                    </button>
+                  </div>
+                </div>
+              }
+            </div>
+          </div>
+        }
+      }
+    </div>
+  </section>
+
   <!-- Filters Toolbar -->
   <div class="toolbar-card">
     <div class="filter-group">
@@ -45782,6 +47100,7 @@ export class SyncJobDiagnosticModalComponent implements OnChanges {
         <option value="SUCCESS">ظ…ظˆظپظ‚ (SUCCESS)</option>
         <option value="PARTIAL_FAILURE">ط´ع©ط³طھ ط¬ط²ط¦غŒ (PARTIAL_FAILURE)</option>
         <option value="FAILED">ط´ع©ط³طھâ€Œط®ظˆط±ط¯ظ‡ (FAILED)</option>
+        <option value="CANCELLED">ظ„ط؛ظˆ ط´ط¯ظ‡ (CANCELLED)</option>
       </select>
     </div>
 
@@ -45861,6 +47180,45 @@ export class SyncJobDiagnosticModalComponent implements OnChanges {
                   }
                 </td>
                 <td class="td-actions">
+                  <!-- Expedite & Cancel for Queued jobs -->
+                  @if (job.status === 'QUEUED') {
+                    <button
+                      type="button"
+                      class="action-btn btn-table-expedite"
+                      (click)="onExpediteJob(job)"
+                      [disabled]="isExpeditingJobId() === job.id || (job.priority || 0) >= 10"
+                      title="ط§ط¬ط±ط§غŒ ظپظˆط±غŒ ط®ط§ط±ط¬ ط§ط² ظ†ظˆط¨طھ"
+                    >
+                      <i class="pi pi-bolt"></i>
+                      <span>ط§ط¬ط±ط§غŒ ظپظˆط±غŒ</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      class="action-btn btn-table-cancel"
+                      (click)="onCancelJob(job)"
+                      [disabled]="isCancellingJobId() === job.id"
+                      title="ظ„ط؛ظˆ ع©ط§ط± ط§ط² طµظپ"
+                    >
+                      <i class="pi pi-times"></i>
+                      <span>ظ„ط؛ظˆ</span>
+                    </button>
+                  }
+
+                  <!-- Cancel for Running jobs -->
+                  @if (job.status === 'RUNNING') {
+                    <button
+                      type="button"
+                      class="action-btn btn-table-cancel"
+                      (click)="onCancelJob(job)"
+                      [disabled]="isCancellingJobId() === job.id"
+                      title="ظ„ط؛ظˆ ط§غŒظ† ع©ط§ط± ط¯ط± ط­ط§ظ„ ط§ط¬ط±ط§"
+                    >
+                      <i class="pi pi-times"></i>
+                      <span>ظ„ط؛ظˆ</span>
+                    </button>
+                  }
+
                   <!-- Diagnostic Detail Button -->
                   <button
                     type="button"
@@ -45901,14 +47259,123 @@ export class SyncJobDiagnosticModalComponent implements OnChanges {
     [(visible)]="showDiagModal"
     [jobId]="selectedJobIdForDiag()"
   ></app-sync-job-diagnostic-modal>
+
+  <!-- Batch Expedite Modal -->
+  @if (showBatchModal()) {
+    <div class="modal-backdrop" (click)="closeBatchExpediteModal()">
+      <div class="modal-card" dir="rtl" (click)="$event.stopPropagation()">
+        <div class="modal-header">
+          <div class="modal-title-wrap">
+            <span class="modal-bolt-icon"><i class="pi pi-bolt"></i></span>
+            <div>
+              <h3>ظ‡ظ…ع¯ط§ظ…â€Œط³ط§ط²غŒ ظپظˆط±غŒ ط®ط§ط±ط¬ ط§ط² ظ†ظˆط¨طھ ظ¾ط§غŒع¯ط§ظ‡â€Œظ‡ط§غŒ ط¯ط§ط¯ظ‡</h3>
+              <p class="modal-subtitle">
+                غŒع© غŒط§ ع†ظ†ط¯ ظ¾ط§غŒع¯ط§ظ‡ ط¯ط§ط¯ظ‡ ط±ط§ ط§ظ†طھط®ط§ط¨ ع©ظ†غŒط¯ طھط§ ط¹ظ…ظ„غŒط§طھ ظ‡ظ…ع¯ط§ظ…â€Œط³ط§ط²غŒ ظ…طھط§ط¯غŒطھط§ ط¨ظ„ط§ظپط§طµظ„ظ‡ ظˆ ط®ط§ط±ط¬ ط§ط² ظ†ظˆط¨طھ ط¹ط§ط¯غŒ ط§ط¬ط±ط§ ط´ظˆط¯.
+              </p>
+            </div>
+          </div>
+          <button type="button" class="btn-modal-close" (click)="closeBatchExpediteModal()">
+            <i class="pi pi-times"></i>
+          </button>
+        </div>
+
+        <div class="modal-body">
+          <!-- Search & Select All Toolbar -->
+          <div class="modal-search-bar">
+            <div class="search-input-wrap">
+              <i class="pi pi-search search-icon"></i>
+              <input
+                type="text"
+                class="form-control modal-search-input"
+                placeholder="ط¬ط³طھط¬ظˆ ط¯ط± ط¹ظ†ظˆط§ظ†طŒ ظ…غŒط²ط¨ط§ظ† غŒط§ ظ†ط§ظ… ظ¾ط§غŒع¯ط§ظ‡ ط¯ط§ط¯ظ‡..."
+                [ngModel]="connectionSearchQuery()"
+                (ngModelChange)="connectionSearchQuery.set($event)"
+              />
+            </div>
+            <button
+              type="button"
+              class="btn btn-outline btn-sm"
+              (click)="toggleSelectAllConnections()"
+            >
+              {{ areAllFilteredSelected() ? 'ظ„ط؛ظˆ ط§ظ†طھط®ط§ط¨ ظ‡ظ…ظ‡' : 'ط§ظ†طھط®ط§ط¨ ظ‡ظ…ظ‡ ظ†طھط§غŒط¬' }}
+            </button>
+          </div>
+
+          <!-- Connection Selection List -->
+          @if (isLoadingConnections()) {
+            <div class="modal-loading">
+              <i class="pi pi-spin pi-spinner"></i>
+              <span>ط¯ط± ط­ط§ظ„ ط¨ط§ط±ع¯ط°ط§ط±غŒ ظ„غŒط³طھ ظ¾ط§غŒع¯ط§ظ‡â€Œظ‡ط§غŒ ط¯ط§ط¯ظ‡...</span>
+            </div>
+          } @else if (filteredConnections().length === 0) {
+            <div class="modal-empty">
+              <span>ظ‡غŒع† ظ¾ط§غŒع¯ط§ظ‡â€Œط¯ط§ط¯ظ‡â€Œط§غŒ ظ…ظ†ط·ط¨ظ‚ ط¨ط§ ط¬ط³طھط¬ظˆ غŒط§ظپطھ ظ†ط´ط¯.</span>
+            </div>
+          } @else {
+            <div class="connection-selection-list">
+              @for (conn of filteredConnections(); track conn.id) {
+                <label class="connection-item-row" [class.selected]="isConnectionSelected(conn.id)">
+                  <input
+                    type="checkbox"
+                    class="conn-checkbox"
+                    [checked]="isConnectionSelected(conn.id)"
+                    (change)="toggleConnectionSelection(conn.id)"
+                  />
+                  <div class="conn-info">
+                    <div class="conn-name-row">
+                      <strong class="conn-title">{{ conn.name }}</strong>
+                      <span class="badge badge-engine">{{ conn.engine_type }}</span>
+                    </div>
+                    <div class="conn-sub-row">
+                      <span>ظ…غŒط²ط¨ط§ظ†: {{ conn.host }}:{{ conn.port }}</span>
+                      <span>ظ†ط§ظ… ظ¾ط§غŒع¯ط§ظ‡: {{ conn.database_name }}</span>
+                    </div>
+                  </div>
+                </label>
+              }
+            </div>
+          }
+        </div>
+
+        <div class="modal-footer">
+          <div class="selected-summary">
+            <span>طھط¹ط¯ط§ط¯ ط§ظ†طھط®ط§ط¨ ط´ط¯ظ‡: <strong>{{ selectedConnectionIds().length }}</strong> ظ¾ط§غŒع¯ط§ظ‡ ط¯ط§ط¯ظ‡</span>
+          </div>
+          <div class="modal-footer-actions">
+            <button
+              type="button"
+              class="btn btn-outline"
+              (click)="closeBatchExpediteModal()"
+              [disabled]="isBatchSubmitting()"
+            >
+              ط§ظ†طµط±ط§ظپ
+            </button>
+            <button
+              type="button"
+              class="btn btn-expedite-submit"
+              (click)="onBatchExpediteSubmit()"
+              [disabled]="selectedConnectionIds().length === 0 || isBatchSubmitting()"
+            >
+              <i class="pi pi-bolt"></i>
+              <span>
+                {{ isBatchSubmitting() ? 'ط¯ط± ط­ط§ظ„ ط§ط±ط³ط§ظ„...' : 'ط´ط±ظˆط¹ ظ‡ظ…ع¯ط§ظ…â€Œط³ط§ط²غŒ ظپظˆط±غŒ (' + selectedConnectionIds().length + ' ظ¾ط§غŒع¯ط§ظ‡ ط¯ط§ط¯ظ‡)' }}
+              </span>
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  }
 </div>
 
 === FILE: D:\datacatalog\frontend\src\app\features\sync-monitor\sync-monitor.component.ts ===
 import {
   ChangeDetectionStrategy,
   Component,
+  DestroyRef,
   OnDestroy,
   OnInit,
+  computed,
   inject,
   signal,
 } from "@angular/core";
@@ -45918,10 +47385,14 @@ import { Subject, Subscription, timer } from "rxjs";
 import { switchMap, takeUntil } from "rxjs/operators";
 import {
   SyncJobListResponse,
+  SyncJobQueueItem,
   SyncJobResponse,
   SyncJobService,
   SyncJobStatus,
+  SyncQueueStatusResponse,
 } from "../../core/services/sync-job.service";
+import { ConnectionService } from "../connections/services/connection.service";
+import { DatabaseConnection } from "../connections/models/connection.models";
 import { SyncJobDiagnosticModalComponent } from "./sync-job-diagnostic-modal.component";
 
 @Component({
@@ -45934,6 +47405,8 @@ import { SyncJobDiagnosticModalComponent } from "./sync-job-diagnostic-modal.com
 })
 export class SyncMonitorComponent implements OnInit, OnDestroy {
   private readonly syncJobService = inject(SyncJobService);
+  private readonly connectionService = inject(ConnectionService);
+  private readonly destroyRef = inject(DestroyRef);
   private readonly destroy$ = new Subject<void>();
   private pollingSub: Subscription | null = null;
 
@@ -45946,9 +47419,35 @@ export class SyncMonitorComponent implements OnInit, OnDestroy {
   readonly successMessage = signal<string | null>(null);
   readonly retryingJobId = signal<string | null>(null);
 
+  // Live Queue & Out-of-order execution states
+  readonly queueStatus = signal<SyncQueueStatusResponse | null>(null);
+  readonly isExpeditingJobId = signal<string | null>(null);
+  readonly isCancellingJobId = signal<string | null>(null);
+
+  // Batch Expedite Modal state
+  readonly showBatchModal = signal<boolean>(false);
+  readonly availableConnections = signal<DatabaseConnection[]>([]);
+  readonly selectedConnectionIds = signal<string[]>([]);
+  readonly connectionSearchQuery = signal<string>("");
+  readonly isLoadingConnections = signal<boolean>(false);
+  readonly isBatchSubmitting = signal<boolean>(false);
+
   // Diagnostic Modal
   readonly selectedJobIdForDiag = signal<string | null>(null);
   readonly showDiagModal = signal<boolean>(false);
+
+  readonly filteredConnections = computed(() => {
+    const q = this.connectionSearchQuery().trim().toLowerCase();
+    const conns = this.availableConnections();
+    if (!q) return conns;
+    return conns.filter(
+      (c) =>
+        c.name.toLowerCase().includes(q) ||
+        c.database_name.toLowerCase().includes(q) ||
+        c.host.toLowerCase().includes(q) ||
+        c.engine_type.toLowerCase().includes(q),
+    );
+  });
 
   private readonly persianDateFormatter = new Intl.DateTimeFormat("fa-IR", {
     year: "numeric",
@@ -45958,6 +47457,12 @@ export class SyncMonitorComponent implements OnInit, OnDestroy {
     minute: "2-digit",
     second: "2-digit",
   });
+
+  constructor() {
+    this.destroyRef.onDestroy(() => {
+      this.stopPolling();
+    });
+  }
 
   ngOnInit(): void {
     this.startPolling();
@@ -45973,11 +47478,13 @@ export class SyncMonitorComponent implements OnInit, OnDestroy {
     this.stopPolling();
     this.isPollingActive.set(true);
     this.fetchJobsOnce();
+    this.fetchQueueOnce();
 
     this.pollingSub = timer(3000, 3000)
       .pipe(
         takeUntil(this.destroy$),
         switchMap(() => {
+          this.fetchQueueOnce();
           const status = this.selectedStatus();
           return this.syncJobService.getSyncJobs(
             status === "ALL" ? undefined : status,
@@ -46025,8 +47532,19 @@ export class SyncMonitorComponent implements OnInit, OnDestroy {
     this.fetchJobsOnce();
   }
 
+  fetchQueueOnce(): void {
+    if (!this.syncJobService.getQueueStatus) return;
+    this.syncJobService.getQueueStatus().subscribe({
+      next: (q) => {
+        this.queueStatus.set(q);
+      },
+      error: () => {},
+    });
+  }
+
   fetchJobsOnce(): void {
     this.isLoading.set(true);
+    this.fetchQueueOnce();
     const status = this.selectedStatus();
     this.syncJobService
       .getSyncJobs(
@@ -46073,6 +47591,142 @@ export class SyncMonitorComponent implements OnInit, OnDestroy {
     });
   }
 
+  onExpediteJob(job: SyncJobResponse | SyncJobQueueItem): void {
+    this.isExpeditingJobId.set(job.id);
+    this.errorMessage.set(null);
+    this.successMessage.set(null);
+
+    this.syncJobService.expediteSyncJob(job.id).subscribe({
+      next: () => {
+        this.isExpeditingJobId.set(null);
+        this.successMessage.set(
+          `ط¬ط§ط¨ ${job.id.substring(0, 8)} ط¨ط§ ظ…ظˆظپظ‚غŒطھ ظˆ ط¨ط§ظ„ط§طھط±غŒظ† ط§ظˆظ„ظˆغŒطھ ط¨ظ‡ ط§ظˆظ„ طµظپ ظ…ظ†طھظ‚ظ„ ظˆ ط§ط¬ط±ط§ ط´ط¯.`,
+        );
+        this.fetchJobsOnce();
+        setTimeout(() => this.successMessage.set(null), 5000);
+      },
+      error: (err: unknown) => {
+        this.isExpeditingJobId.set(null);
+        const msg =
+          err instanceof Error ? err.message : "ط®ط·ط§ ط¯ط± ط§ط¬ط±ط§غŒ ظپظˆط±غŒ ط¬ط§ط¨";
+        this.errorMessage.set(msg);
+        setTimeout(() => this.errorMessage.set(null), 5000);
+      },
+    });
+  }
+
+  onCancelJob(job: SyncJobResponse | SyncJobQueueItem): void {
+    this.isCancellingJobId.set(job.id);
+    this.errorMessage.set(null);
+    this.successMessage.set(null);
+
+    this.syncJobService.cancelSyncJob(job.id).subscribe({
+      next: () => {
+        this.isCancellingJobId.set(null);
+        this.successMessage.set(
+          `ط¬ط§ط¨ ${job.id.substring(0, 8)} ط¨ط§ ظ…ظˆظپظ‚غŒطھ ظ„ط؛ظˆ ط´ط¯ ظˆ ظ‚ظپظ„ ظ‡ظ…ع¯ط§ظ…â€Œط³ط§ط²غŒ ط¢ط²ط§ط¯ ع¯ط±ط¯غŒط¯.`,
+        );
+        this.fetchJobsOnce();
+        setTimeout(() => this.successMessage.set(null), 5000);
+      },
+      error: (err: unknown) => {
+        this.isCancellingJobId.set(null);
+        const msg =
+          err instanceof Error ? err.message : "ط®ط·ط§ ط¯ط± ظ„ط؛ظˆ ط¬ط§ط¨ ظ‡ظ…ع¯ط§ظ…â€Œط³ط§ط²غŒ";
+        this.errorMessage.set(msg);
+        setTimeout(() => this.errorMessage.set(null), 5000);
+      },
+    });
+  }
+
+  openBatchExpediteModal(): void {
+    this.showBatchModal.set(true);
+    this.selectedConnectionIds.set([]);
+    this.connectionSearchQuery.set("");
+    this.loadAvailableConnections();
+  }
+
+  closeBatchExpediteModal(): void {
+    this.showBatchModal.set(false);
+  }
+
+  loadAvailableConnections(): void {
+    this.isLoadingConnections.set(true);
+    this.connectionService.getConnections(true).subscribe({
+      next: (conns) => {
+        this.availableConnections.set(conns || []);
+        this.isLoadingConnections.set(false);
+      },
+      error: () => {
+        this.isLoadingConnections.set(false);
+      },
+    });
+  }
+
+  isConnectionSelected(id: string): boolean {
+    return this.selectedConnectionIds().includes(id);
+  }
+
+  toggleConnectionSelection(id: string): void {
+    const current = this.selectedConnectionIds();
+    if (current.includes(id)) {
+      this.selectedConnectionIds.set(current.filter((item) => item !== id));
+    } else {
+      this.selectedConnectionIds.set([...current, id]);
+    }
+  }
+
+  areAllFilteredSelected(): boolean {
+    const filtered = this.filteredConnections();
+    if (filtered.length === 0) return false;
+    const current = this.selectedConnectionIds();
+    return filtered.every((c) => current.includes(c.id));
+  }
+
+  toggleSelectAllConnections(): void {
+    const filtered = this.filteredConnections();
+    if (this.areAllFilteredSelected()) {
+      const filteredIds = new Set(filtered.map((c) => c.id));
+      this.selectedConnectionIds.set(
+        this.selectedConnectionIds().filter((id) => !filteredIds.has(id)),
+      );
+    } else {
+      const combined = new Set([
+        ...this.selectedConnectionIds(),
+        ...filtered.map((c) => c.id),
+      ]);
+      this.selectedConnectionIds.set(Array.from(combined));
+    }
+  }
+
+  onBatchExpediteSubmit(): void {
+    const ids = this.selectedConnectionIds();
+    if (ids.length === 0) return;
+
+    this.isBatchSubmitting.set(true);
+    this.errorMessage.set(null);
+    this.successMessage.set(null);
+
+    this.syncJobService.batchExpediteSync(ids).subscribe({
+      next: (res) => {
+        this.isBatchSubmitting.set(false);
+        this.showBatchModal.set(false);
+        this.successMessage.set(res.message);
+        this.fetchJobsOnce();
+        setTimeout(() => this.successMessage.set(null), 6000);
+      },
+      error: (err: unknown) => {
+        this.isBatchSubmitting.set(false);
+        const msg =
+          err instanceof Error
+            ? err.message
+            : "ط®ط·ط§ ط¯ط± ط§ط±ط³ط§ظ„ ظ‡ظ…ع¯ط§ظ…â€Œط³ط§ط²غŒ ط¯ط³طھظ‡â€Œط§غŒ ط®ط§ط±ط¬ ط§ط² ظ†ظˆط¨طھ";
+        this.errorMessage.set(msg);
+        setTimeout(() => this.errorMessage.set(null), 6000);
+      },
+    });
+  }
+
   openDiagnostics(jobId: string): void {
     this.selectedJobIdForDiag.set(jobId);
     this.showDiagModal.set(true);
@@ -46097,6 +47751,8 @@ export class SyncMonitorComponent implements OnInit, OnDestroy {
         return "badge-status-failed";
       case "RUNNING":
         return "badge-status-running";
+      case "CANCELLED":
+        return "badge-status-cancelled";
       case "QUEUED":
       default:
         return "badge-status-queued";
@@ -46113,6 +47769,8 @@ export class SyncMonitorComponent implements OnInit, OnDestroy {
         return "ط´ع©ط³طھâ€Œط®ظˆط±ط¯ظ‡ (FAILED)";
       case "RUNNING":
         return "ط¯ط± ط­ط§ظ„ ط§ط¬ط±ط§ (RUNNING)";
+      case "CANCELLED":
+        return "ظ„ط؛ظˆ ط´ط¯ظ‡ (CANCELLED)";
       case "QUEUED":
         return "ط¯ط± طµظپ ط§ظ†طھط¸ط§ط± (QUEUED)";
       default:
@@ -46133,6 +47791,7 @@ export class SyncMonitorComponent implements OnInit, OnDestroy {
     }
   }
 }
+
 
 === FILE: D:\datacatalog\frontend\src\app\features\taxonomy\services\category.service.ts ===
 import { Injectable, inject } from '@angular/core';

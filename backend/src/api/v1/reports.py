@@ -54,27 +54,18 @@ async def require_reports_permission(
     if user_ctx.is_superadmin:
         return user_ctx
 
-    # 1. Check explicit DENY for EXPORT_REPORTS
-    deny_stmt = select(1).where(
+    perm_stmt = select(PermissionRule.effect).where(
         user_rule_matches(user_ctx),
         PermissionRule.action == PermissionAction.EXPORT_REPORTS,
-        PermissionRule.effect == PermissionEffect.DENY,
     )
-    deny_result = await db.execute(deny_stmt)
-    if deny_result.scalar_one_or_none() is not None:
+    res = await db.execute(perm_stmt)
+    effects = set(res.scalars().all())
+    if PermissionEffect.DENY in effects or PermissionEffect.DENY.value in effects:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Forbidden: User explicitly denied reporting access.",
         )
-
-    # 2. Check explicit ALLOW for EXPORT_REPORTS
-    allow_stmt = select(1).where(
-        user_rule_matches(user_ctx),
-        PermissionRule.action == PermissionAction.EXPORT_REPORTS,
-        PermissionRule.effect == PermissionEffect.ALLOW,
-    )
-    allow_result = await db.execute(allow_stmt)
-    if allow_result.scalar_one_or_none() is None:
+    if PermissionEffect.ALLOW not in effects and PermissionEffect.ALLOW.value not in effects:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Forbidden: User lacks EXPORT_REPORTS permission.",

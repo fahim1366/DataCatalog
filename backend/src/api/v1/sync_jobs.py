@@ -38,6 +38,9 @@ from backend.src.services.workers.tasks import execute_metadata_sync, manual_met
 
 logger = logging.getLogger(__name__)
 
+# In-memory tracking of jobs being auto-recovered to prevent duplicate concurrent triggers
+_recovering_job_ids: set[uuid.UUID] = set()
+
 router = APIRouter(prefix="/sync-jobs", tags=["Synchronization"])
 
 
@@ -173,6 +176,28 @@ async def get_sync_queue(
     )
     queued_res = await db.execute(queued_stmt)
     queued_rows = list(queued_res.scalars().all())
+
+    # Auto-recover stale jobs waiting more than 10s if worker_online is False
+    now = datetime.now(timezone.utc)
+    if not worker_online:
+        for job in queued_rows:
+            job_created_at = job.created_at if job.created_at.tzinfo else job.created_at.replace(tzinfo=timezone.utc)
+            waiting_seconds = (now - job_created_at).total_seconds()
+            if waiting_seconds > 10 and job.id not in _recovering_job_ids:
+                _recovering_job_ids.add(job.id)
+                logger.info(
+                    "Auto-recovering stale QUEUED sync job %s (waiting %.1fs without online worker) via in-process task",
+                    job.id,
+                    waiting_seconds,
+                )
+                task = asyncio.create_task(
+                    execute_metadata_sync(
+                        connection_id=job.connection_id,
+                        job_id=job.id,
+                    )
+                )
+                task.add_done_callback(lambda _t, jid=job.id: _recovering_job_ids.discard(jid))
+
     queued_jobs = [
         SyncJobQueueItem(
             **SyncJobResponse.model_validate(job).model_dump(),
@@ -207,6 +232,7 @@ async def batch_expedite_sync(
     """
     dispatched_jobs = []
     worker_online = has_active_celery_worker()
+    tasks_to_dispatch = []
 
     for conn_id in payload.connection_ids:
         # Check connection exists
@@ -228,22 +254,7 @@ async def batch_expedite_sync(
                 active_job.triggered_by = SyncTriggerType.MANUAL.value
                 await db.flush()
 
-                if worker_online:
-                    try:
-                        manual_metadata_sync_task.apply_async(
-                            args=[str(conn_id), str(active_job.id)],
-                            queue=QUEUE_PRIORITY,
-                            priority=9,
-                            retry=False,
-                        )
-                    except Exception:
-                        asyncio.create_task(
-                            execute_metadata_sync(connection_id=conn_id, job_id=active_job.id)
-                        )
-                else:
-                    asyncio.create_task(
-                        execute_metadata_sync(connection_id=conn_id, job_id=active_job.id)
-                    )
+                tasks_to_dispatch.append((conn_id, active_job.id))
 
                 await record_audit_event(
                     session=db,
@@ -273,22 +284,7 @@ async def batch_expedite_sync(
             await db.flush()
             await db.refresh(new_job)
 
-            if worker_online:
-                try:
-                    manual_metadata_sync_task.apply_async(
-                        args=[str(conn_id), str(new_job.id)],
-                        queue=QUEUE_PRIORITY,
-                        priority=9,
-                        retry=False,
-                    )
-                except Exception:
-                    asyncio.create_task(
-                        execute_metadata_sync(connection_id=conn_id, job_id=new_job.id)
-                    )
-            else:
-                asyncio.create_task(
-                    execute_metadata_sync(connection_id=conn_id, job_id=new_job.id)
-                )
+            tasks_to_dispatch.append((conn_id, new_job.id))
 
             await record_audit_event(
                 session=db,
@@ -302,7 +298,28 @@ async def batch_expedite_sync(
             )
             dispatched_jobs.append(SyncJobResponse.model_validate(new_job))
 
-    await db.flush()
+    # Commit all SyncJob changes BEFORE dispatching background tasks
+    await db.commit()
+
+    # Dispatch tasks now that DB rows are guaranteed visible to background workers
+    for c_id, j_id in tasks_to_dispatch:
+        if worker_online:
+            try:
+                manual_metadata_sync_task.apply_async(
+                    args=[str(c_id), str(j_id)],
+                    queue=QUEUE_PRIORITY,
+                    priority=9,
+                    retry=False,
+                )
+            except Exception:
+                asyncio.create_task(
+                    execute_metadata_sync(connection_id=c_id, job_id=j_id)
+                )
+        else:
+            asyncio.create_task(
+                execute_metadata_sync(connection_id=c_id, job_id=j_id)
+            )
+
     return BatchExpediteResponse(
         jobs=dispatched_jobs,
         message=f"{len(dispatched_jobs)} پایگاه‌داده برای همگام‌سازی فوری خارج از نوبت ارسال شدند.",
@@ -389,9 +406,23 @@ async def retry_sync_job(
         schedule_id=old_job.schedule_id,
         status=SyncJobStatus.QUEUED.value,
         triggered_by=SyncTriggerType.RETRY.value,
+        priority=10,
     )
     db.add(retry_job)
     await db.flush()
+
+    await record_audit_event(
+        session=db,
+        actor_username=user_ctx.user.username,
+        actor_id=user_ctx.user.id,
+        action="RETRY_SYNC_JOB",
+        entity_type=EntityType.DATABASE,
+        entity_id=old_job.connection_id,
+        diff_jsonb={"original_job_id": str(job_id), "retry_job_id": str(retry_job.id)},
+        flush=True,
+    )
+    # Commit transaction BEFORE dispatching so the retry SyncJob row is 100% committed
+    await db.commit()
     await db.refresh(retry_job)
 
     if has_active_celery_worker():
@@ -423,18 +454,6 @@ async def retry_sync_job(
                 job_id=retry_job.id,
             )
         )
-
-    await record_audit_event(
-        session=db,
-        actor_username=user_ctx.user.username,
-        actor_id=user_ctx.user.id,
-        action="RETRY_SYNC_JOB",
-        entity_type=EntityType.DATABASE,
-        entity_id=old_job.connection_id,
-        diff_jsonb={"original_job_id": str(job_id), "retry_job_id": str(retry_job.id)},
-        flush=True,
-    )
-    await db.flush()
 
     return SyncJobResponse.model_validate(retry_job)
 
@@ -473,6 +492,20 @@ async def expedite_sync_job(
     job.triggered_by = SyncTriggerType.MANUAL.value
     await db.flush()
 
+    await record_audit_event(
+        session=db,
+        actor_username=user_ctx.user.username,
+        actor_id=user_ctx.user.id,
+        action="EXPEDITE_SYNC_JOB",
+        entity_type=EntityType.DATABASE,
+        entity_id=job.connection_id,
+        diff_jsonb={"job_id": str(job.id), "priority": 10, "status": job.status},
+        flush=True,
+    )
+    # Commit transaction BEFORE dispatching so the priority update is 100% committed
+    await db.commit()
+    await db.refresh(job)
+
     if has_active_celery_worker():
         try:
             manual_metadata_sync_task.apply_async(
@@ -503,19 +536,6 @@ async def expedite_sync_job(
                 job_id=job.id,
             )
         )
-
-    await record_audit_event(
-        session=db,
-        actor_username=user_ctx.user.username,
-        actor_id=user_ctx.user.id,
-        action="EXPEDITE_SYNC_JOB",
-        entity_type=EntityType.DATABASE,
-        entity_id=job.connection_id,
-        diff_jsonb={"job_id": str(job.id), "priority": 10, "status": job.status},
-        flush=True,
-    )
-    await db.flush()
-    await db.refresh(job)
 
     return SyncJobResponse.model_validate(job)
 
@@ -577,7 +597,7 @@ async def cancel_sync_job(
         diff_jsonb={"job_id": str(job.id), "status": SyncJobStatus.CANCELLED.value},
         flush=True,
     )
-    await db.flush()
+    await db.commit()
     await db.refresh(job)
 
     return SyncJobResponse.model_validate(job)

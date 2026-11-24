@@ -111,6 +111,7 @@ async def get_test_postgres_engine() -> AsyncEngine:
         pool_pre_ping=True,
         pool_size=5,
         max_overflow=10,
+        connect_args={"server_settings": {"synchronous_commit": "off"}},
     )
 
     # Pre-load required enterprise extensions in real PostgreSQL

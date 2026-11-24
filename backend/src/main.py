@@ -1,16 +1,20 @@
 from __future__ import annotations
 
+import logging
 from contextlib import asynccontextmanager
 from typing import AsyncGenerator
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import text
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import Response
 
 from backend.src.api.v1 import api_v1_router
 from backend.src.core.config import settings
-from backend.src.core.database import check_database_health, dispose_engine
+from backend.src.core.database import check_database_health, dispose_engine, engine
+
+logger = logging.getLogger(__name__)
 
 
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
@@ -26,6 +30,15 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """Application lifespan context manager for startup pre-flight and graceful shutdown."""
+    # Ensure idempotent schema safety for sync_jobs table (e.g. priority column)
+    try:
+        async with engine.begin() as conn:
+            await conn.execute(
+                text("ALTER TABLE sync_jobs ADD COLUMN IF NOT EXISTS priority INTEGER NOT NULL DEFAULT 0;")
+            )
+            logger.info("Idempotent schema check passed: priority column ensured on sync_jobs.")
+    except Exception as exc:
+        logger.warning("Could not execute startup schema check on sync_jobs: %s", exc)
     yield
     await dispose_engine()
 

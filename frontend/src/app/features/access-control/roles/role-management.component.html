@@ -242,9 +242,11 @@
           @if (isCreateMode()) {
             تعریف نقش سازمانی جدید
           } @else if (isEditMode()) {
-            ویرایش نقش: {{ selectedRole()?.description || selectedRole()?.name }}
+            ویرایش نقش
+            <!-- : {{ selectedRole()?.description || selectedRole()?.name }} -->
           } @else {
-            اطلاعات نقش: {{ selectedRole()?.description || selectedRole()?.name }}
+            اطلاعات نقش
+            <!-- : {{ selectedRole()?.description || selectedRole()?.name }} -->
           }
         </h3>
 
@@ -373,8 +375,8 @@
                           <div class="perm-info">
                             <div class="perm-header">
                               <span class="perm-name font-bold">{{ p.name }}</span>
-                              <span class="perm-code-tag">{{ p.action }}</span>
-                              <span class="perm-module-tag">{{ p.moduleName }}</span>
+                              <!-- <span class="perm-code-tag">{{ p.action }}</span>
+                              <span class="perm-module-tag">{{ p.moduleName }}</span> -->
                             </div>
                             <span class="perm-desc">{{ p.description }}</span>
                           </div>

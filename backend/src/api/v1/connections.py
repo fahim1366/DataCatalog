@@ -48,7 +48,11 @@ from backend.src.schemas.sync_jobs import (
     SyncJobListResponse,
     SyncJobResponse,
 )
-from backend.src.core.celery_app import QUEUE_PRIORITY, is_broker_available
+from backend.src.core.celery_app import (
+    QUEUE_PRIORITY,
+    has_active_celery_worker,
+    is_broker_available,
+)
 from backend.src.services.workers.circuit_breaker import circuit_breaker_manager
 from backend.src.services.workers.tasks import (
     execute_metadata_sync,
@@ -801,21 +805,23 @@ async def trigger_connection_sync(
         schedule_id=schedule.id if schedule else None,
         status=SyncJobStatus.QUEUED.value,
         triggered_by=SyncTriggerType.MANUAL.value,
+        priority=10,
     )
     db.add(job)
     await db.flush()
     await db.refresh(job)
 
-    if is_broker_available():
+    if has_active_celery_worker():
         try:
             manual_metadata_sync_task.apply_async(
                 args=[str(connection_id), str(job.id)],
                 queue=QUEUE_PRIORITY,
+                priority=9,
                 retry=False,
             )
         except Exception as exc:
             logger.warning(
-                "Could not dispatch Celery task (%s). Falling back to in-process execution via BackgroundTasks.",
+                "Could not dispatch Celery task (%s). Falling back to in-process execution via asyncio.create_task.",
                 exc,
             )
             asyncio.create_task(
@@ -826,7 +832,7 @@ async def trigger_connection_sync(
             )
     else:
         logger.info(
-            "Celery broker not reachable. Executing metadata sync in-process via asyncio.create_task for connection %s.",
+            "Celery worker not online. Executing metadata sync in-process via asyncio.create_task for connection %s.",
             connection_id,
         )
         asyncio.create_task(

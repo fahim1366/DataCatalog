@@ -70,3 +70,20 @@ def is_broker_available(broker_url: str = settings.CELERY_BROKER_URL) -> bool:
     except Exception:
         return False
 
+
+def has_active_celery_worker(timeout: float = 0.3) -> bool:
+    """
+    Checks whether the Celery broker is reachable and at least one worker process is actively responding.
+    Returns False quickly if Redis broker is down or no worker processes are active.
+    """
+    if not is_broker_available():
+        return False
+    try:
+        inspect = celery_app.control.inspect(timeout=timeout)
+        pings = inspect.ping() if inspect else None
+        return bool(pings and len(pings) > 0)
+    except Exception as exc:
+        logger.debug("Active worker inspection failed: %s", exc)
+        return False
+
+

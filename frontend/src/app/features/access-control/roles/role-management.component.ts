@@ -5,12 +5,12 @@ import {
   computed,
   inject,
   signal,
-} from '@angular/core';
-import { CommonModule } from '@angular/common';
-import { FormsModule } from '@angular/forms';
-import { RouterModule } from '@angular/router';
-import { HasPermissionDirective } from '../../../core/directives/has-permission.directive';
-import { RoleManagementService } from '../services/role-management.service';
+} from "@angular/core";
+
+import { FormsModule } from "@angular/forms";
+import { RouterModule } from "@angular/router";
+import { HasPermissionDirective } from "../../../core/directives/has-permission.directive";
+import { RoleManagementService } from "../services/role-management.service";
 import {
   PermissionDefinition,
   PermissionModule,
@@ -18,7 +18,7 @@ import {
   RoleItem,
   RoleUpdateDto,
   RoleUserItem,
-} from '../models/access-control.models';
+} from "../models/access-control.models";
 
 export interface FlatPermissionItem {
   moduleKey: string;
@@ -29,11 +29,11 @@ export interface FlatPermissionItem {
 }
 
 @Component({
-  selector: 'app-role-management',
+  selector: "app-role-management",
   standalone: true,
-  imports: [CommonModule, FormsModule, RouterModule, HasPermissionDirective],
-  templateUrl: './role-management.component.html',
-  styleUrls: ['./role-management.component.css'],
+  imports: [FormsModule, RouterModule, HasPermissionDirective],
+  templateUrl: "./role-management.component.html",
+  styleUrls: ["./role-management.component.css"],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class RoleManagementComponent implements OnInit {
@@ -46,9 +46,9 @@ export class RoleManagementComponent implements OnInit {
   availablePageSizes = [5, 10, 20, 50];
 
   // Column search filters & Unified search
-  searchTerm = signal<string>('');
-  filterPersianName = signal<string>('');
-  filterEnglishName = signal<string>('');
+  searchTerm = signal<string>("");
+  filterPersianName = signal<string>("");
+  filterEnglishName = signal<string>("");
 
   isLoading = signal<boolean>(false);
   isSaving = signal<boolean>(false);
@@ -59,19 +59,21 @@ export class RoleManagementComponent implements OnInit {
   selectedRole = signal<RoleItem | null>(null);
   isCreateMode = signal<boolean>(false);
   isEditMode = signal<boolean>(false);
-  isFormEditable = computed<boolean>(() => this.isCreateMode() || this.isEditMode());
+  isFormEditable = computed<boolean>(
+    () => this.isCreateMode() || this.isEditMode(),
+  );
 
   // Form Fields (English system name & Persian display title)
-  formEnglishName = signal<string>('');
-  formPersianName = signal<string>('');
+  formEnglishName = signal<string>("");
+  formPersianName = signal<string>("");
 
   // Sub-tabs in detail panel: 'permissions' | 'users'
-  activeSubTab = signal<'permissions' | 'users'>('permissions');
+  activeSubTab = signal<"permissions" | "users">("permissions");
 
   // Permissions registry & current role permissions
   permissionModules = signal<PermissionModule[]>([]);
   roleSelectedActions = signal<Set<string>>(new Set());
-  permissionFilterQuery = signal<string>('');
+  permissionFilterQuery = signal<string>("");
 
   // Users assigned to selected role
   roleUsers = signal<RoleUserItem[]>([]);
@@ -87,7 +89,8 @@ export class RoleManagementComponent implements OnInit {
     return list.filter((r) => {
       const pName = (r.description || r.name).toLowerCase();
       const eName = r.name.toLowerCase();
-      if (search && !pName.includes(search) && !eName.includes(search)) return false;
+      if (search && !pName.includes(search) && !eName.includes(search))
+        return false;
       if (faFilter && !pName.includes(faFilter)) return false;
       if (enFilter && !eName.includes(enFilter)) return false;
       return true;
@@ -111,7 +114,10 @@ export class RoleManagementComponent implements OnInit {
   });
 
   pageDisplayEnd = computed<number>(() => {
-    return Math.min(this.currentPage() * this.pageSize(), this.filteredRoles().length);
+    return Math.min(
+      this.currentPage() * this.pageSize(),
+      this.filteredRoles().length,
+    );
   });
 
   // Flat list of permissions for table
@@ -169,7 +175,7 @@ export class RoleManagementComponent implements OnInit {
       },
       error: (err) => {
         this.isLoading.set(false);
-        this.showError(err?.error?.detail || 'خطا در فراخوانی لیست نقش‌ها.');
+        this.showError(err?.error?.detail || "خطا در فراخوانی لیست نقش‌ها.");
       },
     });
   }
@@ -232,11 +238,11 @@ export class RoleManagementComponent implements OnInit {
     this.isCreateMode.set(true);
     this.isEditMode.set(false);
     this.selectedRole.set(null);
-    this.formEnglishName.set('');
-    this.formPersianName.set('');
+    this.formEnglishName.set("");
+    this.formPersianName.set("");
     this.roleSelectedActions.set(new Set());
     this.roleUsers.set([]);
-    this.activeSubTab.set('permissions');
+    this.activeSubTab.set("permissions");
   }
 
   cancelDetailEdit(): void {
@@ -271,7 +277,7 @@ export class RoleManagementComponent implements OnInit {
     this.currentPage.set(1);
   }
 
-  switchSubTab(tab: 'permissions' | 'users'): void {
+  switchSubTab(tab: "permissions" | "users"): void {
     this.activeSubTab.set(tab);
   }
 
@@ -300,17 +306,21 @@ export class RoleManagementComponent implements OnInit {
     const persianName = this.formPersianName().trim();
 
     if (!englishName || !persianName) {
-      this.showError('لطفاً هم نام انگلیسی (کد سیستمی) و هم نام فارسی نقش را وارد نمایید.');
+      this.showError(
+        "لطفاً هم نام انگلیسی (کد سیستمی) و هم نام فارسی نقش را وارد نمایید.",
+      );
       return;
     }
 
     this.isSaving.set(true);
 
-    const permissionPayload = Array.from(this.roleSelectedActions()).map((act) => ({
-      resource_type: 'GLOBAL',
-      action: act,
-      effect: 'ALLOW',
-    }));
+    const permissionPayload = Array.from(this.roleSelectedActions()).map(
+      (act) => ({
+        resource_type: "GLOBAL",
+        action: act,
+        effect: "ALLOW",
+      }),
+    );
 
     if (this.isCreateMode()) {
       const createDto: RoleCreateDto = {
@@ -320,26 +330,32 @@ export class RoleManagementComponent implements OnInit {
 
       this.roleService.createRole(createDto).subscribe({
         next: (created) => {
-          this.roleService.updateRolePermissions(created.id, permissionPayload).subscribe({
-            next: () => {
-              this.isSaving.set(false);
-              this.isEditMode.set(false);
-              this.showSuccess(`نقش سازمانی «${persianName}» با موفقیت ثبت شد.`);
-              this.loadRoles();
-              this.selectRole(created);
-            },
-            error: () => {
-              this.isSaving.set(false);
-              this.isEditMode.set(false);
-              this.showSuccess(`نقش ثبت شد، اما در ذخیره مجوزها خطایی رخ داد.`);
-              this.loadRoles();
-              this.selectRole(created);
-            },
-          });
+          this.roleService
+            .updateRolePermissions(created.id, permissionPayload)
+            .subscribe({
+              next: () => {
+                this.isSaving.set(false);
+                this.isEditMode.set(false);
+                this.showSuccess(
+                  `نقش سازمانی «${persianName}» با موفقیت ثبت شد.`,
+                );
+                this.loadRoles();
+                this.selectRole(created);
+              },
+              error: () => {
+                this.isSaving.set(false);
+                this.isEditMode.set(false);
+                this.showSuccess(
+                  `نقش ثبت شد، اما در ذخیره مجوزها خطایی رخ داد.`,
+                );
+                this.loadRoles();
+                this.selectRole(created);
+              },
+            });
         },
         error: (err) => {
           this.isSaving.set(false);
-          this.showError(err?.error?.detail || 'خطا در ثبت نقش جدید.');
+          this.showError(err?.error?.detail || "خطا در ثبت نقش جدید.");
         },
       });
     } else {
@@ -356,24 +372,30 @@ export class RoleManagementComponent implements OnInit {
 
       this.roleService.updateRole(role.id, updateDto).subscribe({
         next: (updated) => {
-          this.roleService.updateRolePermissions(updated.id, permissionPayload).subscribe({
-            next: () => {
-              this.isSaving.set(false);
-              this.isEditMode.set(false);
-              this.showSuccess(`اطلاعات و مجوزهای نقش «${persianName}» با موفقیت به‌روزرسانی شد.`);
-              this.loadRoles();
-            },
-            error: () => {
-              this.isSaving.set(false);
-              this.isEditMode.set(false);
-              this.showError('اطلاعات نقش ذخیره شد اما در ذخیره مجوزها خطایی رخ داد.');
-              this.loadRoles();
-            },
-          });
+          this.roleService
+            .updateRolePermissions(updated.id, permissionPayload)
+            .subscribe({
+              next: () => {
+                this.isSaving.set(false);
+                this.isEditMode.set(false);
+                this.showSuccess(
+                  `اطلاعات و مجوزهای نقش «${persianName}» با موفقیت به‌روزرسانی شد.`,
+                );
+                this.loadRoles();
+              },
+              error: () => {
+                this.isSaving.set(false);
+                this.isEditMode.set(false);
+                this.showError(
+                  "اطلاعات نقش ذخیره شد اما در ذخیره مجوزها خطایی رخ داد.",
+                );
+                this.loadRoles();
+              },
+            });
         },
         error: (err) => {
           this.isSaving.set(false);
-          this.showError(err?.error?.detail || 'خطا در ویرایش اطلاعات نقش.');
+          this.showError(err?.error?.detail || "خطا در ویرایش اطلاعات نقش.");
         },
       });
     }
@@ -385,7 +407,7 @@ export class RoleManagementComponent implements OnInit {
   requestDeleteRole(role: RoleItem, event?: Event): void {
     if (event) event.stopPropagation();
     if (role.is_system_role) {
-      this.showError('نقش‌های سیستمی و پیش‌فرض سامانه قابل حذف نمی‌باشند.');
+      this.showError("نقش‌های سیستمی و پیش‌فرض سامانه قابل حذف نمی‌باشند.");
       return;
     }
     this.roleToDelete.set(role);
@@ -402,7 +424,9 @@ export class RoleManagementComponent implements OnInit {
     this.roleService.deleteRole(role.id).subscribe({
       next: () => {
         this.roleToDelete.set(null);
-        this.showSuccess(`نقش «${role.description || role.name}» با موفقیت حذف گردید.`);
+        this.showSuccess(
+          `نقش «${role.description || role.name}» با موفقیت حذف گردید.`,
+        );
         if (this.selectedRole()?.id === role.id) {
           this.selectedRole.set(null);
         }
@@ -410,7 +434,7 @@ export class RoleManagementComponent implements OnInit {
       },
       error: (err) => {
         this.roleToDelete.set(null);
-        this.showError(err?.error?.detail || 'خطا در حذف نقش سازمانی.');
+        this.showError(err?.error?.detail || "خطا در حذف نقش سازمانی.");
       },
     });
   }

@@ -30,6 +30,7 @@ class SyncJobStatus(str, enum.Enum):
     SUCCESS = "SUCCESS"
     PARTIAL_FAILURE = "PARTIAL_FAILURE"
     FAILED = "FAILED"
+    CANCELLED = "CANCELLED"
 
 
 class SyncTriggerType(str, enum.Enum):
@@ -88,6 +89,9 @@ class SyncJob(Base):
     error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     error_trace_jsonb: Mapped[dict] = mapped_column(
         JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb")
+    )
+    priority: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default=text("0")
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),

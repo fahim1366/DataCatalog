@@ -38,13 +38,17 @@ from backend.src.schemas.reports import (
     ReportRefreshResponse,
 )
 from backend.src.schemas.sync_jobs import (
+    BatchExpediteRequest,
+    BatchExpediteResponse,
     CircuitBreakerStatusResponse,
     CircuitStateEnum,
     ConnectionDiagnosticTestResponse,
     SyncJobDetailResponse,
     SyncJobListResponse,
+    SyncJobQueueItem,
     SyncJobResponse,
     SyncJobStatusEnum,
+    SyncQueueStatusResponse,
     SyncTriggerTypeEnum,
 )
 from backend.src.schemas.drift import (
@@ -94,9 +98,13 @@ __all__ = [
     "ConnectionDiagnosticTestResponse",
     "SyncJobDetailResponse",
     "SyncJobListResponse",
+    "SyncJobQueueItem",
     "SyncJobResponse",
     "SyncJobStatusEnum",
+    "SyncQueueStatusResponse",
     "SyncTriggerTypeEnum",
+    "BatchExpediteRequest",
+    "BatchExpediteResponse",
     "ColumnDriftDetail",
     "ColumnDriftResolutionRequest",
     "DescriptionDriftDetailResponse",

@@ -151,10 +151,14 @@ describe('Executive Governance Reporting Dashboard (T044: Apache ECharts Executi
       expect(options['series']).toBeDefined();
       const series = (options['series'] as any)[0];
       expect(series.type).toBe('gauge');
+      expect(series.center).toEqual(['50%', '52%']);
+      expect(series.radius).toBe('82%');
+      expect(series.title.offsetCenter).toEqual([0, '42%']);
+      expect(series.detail.offsetCenter).toEqual([0, '12%']);
       expect(series.min).toBe(0);
       expect(series.max).toBe(100);
       expect(series.data[0].value).toBe(84.5);
-      expect(series.data[0].name).toBe('Completeness');
+      expect(series.data[0].name).toBe('نرخ تکمیل');
     });
 
     it('should update chart options dynamically when score input changes', () => {
@@ -184,7 +188,7 @@ describe('Executive Governance Reporting Dashboard (T044: Apache ECharts Executi
       expect(component).toBeTruthy();
     });
 
-    it('should compute sunburst chart options mapping classification breakdown data', () => {
+    it('should compute donut chart options mapping classification breakdown data', () => {
       fixture.componentRef.setInput('report', mockClassificationReport);
       fixture.detectChanges();
 
@@ -192,7 +196,10 @@ describe('Executive Governance Reporting Dashboard (T044: Apache ECharts Executi
       expect(options).toBeDefined();
       expect(options['series']).toBeDefined();
       const series = (options['series'] as any)[0];
-      expect(series.type).toBe('sunburst');
+      expect(series.type).toBe('pie');
+      expect(series.radius).toEqual(['48%', '72%']);
+      expect(series.center).toEqual(['50%', '46%']);
+      expect(series.avoidLabelOverlap).toBe(true);
       expect(series.data.length).toBe(4);
       expect(series.data[0].name).toBe('PUBLIC');
       expect(series.data[0].value).toBe(25000);

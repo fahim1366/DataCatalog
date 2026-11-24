@@ -5,23 +5,25 @@ import {
   input,
   output,
   signal,
-} from '@angular/core';
-import { CommonModule } from '@angular/common';
-import { FormsModule } from '@angular/forms';
-import { TagChipComponent } from '../tag-chip/tag-chip.component';
-import { TagItem } from '../../models/catalog.models';
+} from "@angular/core";
+
+import { FormsModule } from "@angular/forms";
+import { TagChipComponent } from "../tag-chip/tag-chip.component";
+import { TagItem } from "../../models/catalog.models";
 
 @Component({
-  selector: 'app-inline-desc-editor',
+  selector: "app-inline-desc-editor",
   standalone: true,
-  imports: [CommonModule, FormsModule, TagChipComponent],
-  templateUrl: './inline-desc-editor.component.html',
-  styleUrls: ['./inline-desc-editor.component.css'],
+  imports: [FormsModule, TagChipComponent],
+  templateUrl: "./inline-desc-editor.component.html",
+  styleUrls: ["./inline-desc-editor.component.css"],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class InlineDescEditorComponent {
   readonly description = input<string | null | undefined>(null);
-  readonly placeholder = input<string>('No description provided. Click to add.');
+  readonly placeholder = input<string>(
+    "No description provided. Click to add.",
+  );
   readonly canEdit = input<boolean>(true);
   readonly canManageTags = input<boolean>(false);
   readonly tags = input<TagItem[]>([]);
@@ -29,8 +31,8 @@ export class InlineDescEditorComponent {
   readonly errorMessage = input<string | null>(null);
 
   readonly isEditing = signal<boolean>(false);
-  readonly currentDescription = signal<string>('');
-  readonly editValue = signal<string>('');
+  readonly currentDescription = signal<string>("");
+  readonly editValue = signal<string>("");
 
   readonly saved = output<string>();
   readonly cancelled = output<void>();
@@ -39,7 +41,7 @@ export class InlineDescEditorComponent {
   constructor() {
     effect(() => {
       const desc = this.description();
-      this.currentDescription.set(desc ?? '');
+      this.currentDescription.set(desc ?? "");
     });
   }
 

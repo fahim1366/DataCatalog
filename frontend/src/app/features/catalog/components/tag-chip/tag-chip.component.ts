@@ -3,16 +3,16 @@ import {
   Component,
   input,
   output,
-} from '@angular/core';
-import { CommonModule } from '@angular/common';
-import { TagItem } from '../../models/catalog.models';
+} from "@angular/core";
+
+import { TagItem } from "../../models/catalog.models";
 
 @Component({
-  selector: 'app-tag-chip',
+  selector: "app-tag-chip",
   standalone: true,
-  imports: [CommonModule],
-  templateUrl: './tag-chip.component.html',
-  styleUrls: ['./tag-chip.component.css'],
+  imports: [],
+  templateUrl: "./tag-chip.component.html",
+  styleUrls: ["./tag-chip.component.css"],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class TagChipComponent {
@@ -26,4 +26,3 @@ export class TagChipComponent {
     this.removed.emit(this.tag());
   }
 }
-

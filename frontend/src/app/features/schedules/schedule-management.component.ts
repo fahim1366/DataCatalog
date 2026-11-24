@@ -9,7 +9,10 @@ import {
 import { CommonModule } from '@angular/common';
 import { FormsModule, ReactiveFormsModule, FormBuilder, Validators } from '@angular/forms';
 import { HttpClient } from '@angular/common/http';
+import { forkJoin } from 'rxjs';
 import { cronValidator } from '../connections/validators/cron.validator';
+import { DatabaseConnection } from '../connections/models/connection.models';
+import { CategoryTreeNode } from '../catalog/models/catalog.models';
 
 export interface DatabaseNodeItem {
   id: string;
@@ -17,14 +20,21 @@ export interface DatabaseNodeItem {
   engine_type: string;
   database_name: string;
   category_name?: string;
+  host?: string;
+  port?: number;
+  owner?: string | null;
+  is_active?: boolean;
 }
 
-export interface CategoryHierarchyNode {
+export interface DbTreeCategoryNode {
   id: string;
   name: string;
-  parent_id?: string | null;
-  databases: DatabaseNodeItem[];
-  children: CategoryHierarchyNode[];
+  description?: string | null;
+  connections: DatabaseConnection[];
+  children: DbTreeCategoryNode[];
+  hasMatchingDescendants: boolean;
+  totalDatabasesCount: number;
+  isUncategorized?: boolean;
 }
 
 export interface SyncScheduleData {
@@ -64,40 +74,199 @@ export class ScheduleManagementComponent implements OnInit {
   readonly isSavingSchedule = signal<boolean>(false);
   readonly isTriggeringSync = signal<boolean>(false);
 
-  // Tree data
-  readonly rawCategoryTree = signal<CategoryHierarchyNode[]>([]);
-  readonly treeSearchTerm = signal<string>('');
-  readonly expandedCategoryIds = signal<Set<string>>(new Set());
+  // Backend state for categories & connections
+  readonly rawCategories = signal<CategoryTreeNode[]>([]);
+  readonly connections = signal<DatabaseConnection[]>([]);
 
-  // Filtered Tree Computed
-  readonly filteredTree = computed(() => {
-    const term = this.treeSearchTerm().trim().toLowerCase();
-    const tree = this.rawCategoryTree();
-    if (!term) return tree;
+  // Multi-criteria tree filtering (matching DbUserMonitorComponent and CatalogExplorerComponent)
+  readonly filterConnectionName = signal<string>('');
+  readonly filterDatabaseName = signal<string>('');
+  readonly filterHost = signal<string>('');
+  readonly filterOwner = signal<string>('');
+  readonly filterEngineType = signal<string>('');
 
-    const filterNode = (node: CategoryHierarchyNode): CategoryHierarchyNode | null => {
-      const nodeMatches = node.name.toLowerCase().includes(term);
-      const filteredDbs = (node.databases || []).filter(
-        (db) =>
-          db.name.toLowerCase().includes(term) ||
-          db.database_name.toLowerCase().includes(term) ||
-          db.engine_type.toLowerCase().includes(term)
-      );
-      const filteredChildren = (node.children || [])
-        .map((child) => filterNode(child))
-        .filter((child): child is CategoryHierarchyNode => child !== null);
+  // Tree expansion state
+  readonly expandedCategoryIds = signal<Set<string>>(new Set<string>());
 
-      if (nodeMatches || filteredDbs.length > 0 || filteredChildren.length > 0) {
-        return {
-          ...node,
-          databases: nodeMatches ? node.databases : filteredDbs,
-          children: filteredChildren,
-        };
+  // Check whether any tree filter is active
+  readonly hasActiveTreeFilters = computed<boolean>(() => {
+    return Boolean(
+      this.filterConnectionName().trim() ||
+      this.filterDatabaseName().trim() ||
+      this.filterHost().trim() ||
+      this.filterOwner().trim() ||
+      this.filterEngineType()
+    );
+  });
+
+  // Predicate to verify if a connection matches all active multi-criteria filters
+  matchesConnection(conn: DatabaseConnection): boolean {
+    const nameQ = this.filterConnectionName().trim().toLowerCase();
+    if (nameQ && !conn.name.toLowerCase().includes(nameQ)) {
+      return false;
+    }
+
+    const dbNameQ = this.filterDatabaseName().trim().toLowerCase();
+    if (dbNameQ && !conn.database_name.toLowerCase().includes(dbNameQ)) {
+      return false;
+    }
+
+    const hostQ = this.filterHost().trim().toLowerCase();
+    if (hostQ && !conn.host.toLowerCase().includes(hostQ)) {
+      return false;
+    }
+
+    const ownerQ = this.filterOwner().trim().toLowerCase();
+    if (ownerQ && (!conn.owner || !conn.owner.toLowerCase().includes(ownerQ))) {
+      return false;
+    }
+
+    const engine = this.filterEngineType();
+    if (engine && conn.engine_type.toUpperCase() !== engine.toUpperCase()) {
+      return false;
+    }
+
+    return true;
+  }
+
+  // Hierarchical Category -> Subcategories -> Databases Tree
+  readonly displayTree = computed<DbTreeCategoryNode[]>(() => {
+    const rawCategories = this.rawCategories();
+    const allConns = this.connections();
+    const activeFilters = this.hasActiveTreeFilters();
+    const connMap = new Map<string, DatabaseConnection>(allConns.map((c) => [c.id, c]));
+
+    const buildCategoryNode = (cat: CategoryTreeNode): DbTreeCategoryNode => {
+      const assigned: DatabaseConnection[] = [];
+      const seenIds = new Set<string>();
+
+      if (cat.databases) {
+        for (const dbInfo of cat.databases) {
+          const c = connMap.get(dbInfo.id);
+          if (c && !seenIds.has(c.id)) {
+            seenIds.add(c.id);
+            assigned.push(c);
+          }
+        }
       }
-      return null;
+
+      for (const c of allConns) {
+        if (c.category_id === cat.id && !seenIds.has(c.id)) {
+          seenIds.add(c.id);
+          assigned.push(c);
+        }
+      }
+
+      const matchingConnections = activeFilters
+        ? assigned.filter((c) => this.matchesConnection(c))
+        : assigned;
+
+      const matchingChildren: DbTreeCategoryNode[] = [];
+      for (const child of cat.children || []) {
+        const childNode = buildCategoryNode(child);
+        if (!activeFilters || childNode.hasMatchingDescendants || childNode.connections.length > 0) {
+          matchingChildren.push(childNode);
+        }
+      }
+
+      const hasMatch =
+        matchingConnections.length > 0 ||
+        matchingChildren.some((child) => child.hasMatchingDescendants || child.connections.length > 0);
+
+      const totalDbs =
+        assigned.length +
+        matchingChildren.reduce((acc, child) => acc + child.totalDatabasesCount, 0);
+
+      return {
+        id: cat.id,
+        name: cat.name,
+        description: cat.description,
+        connections: matchingConnections,
+        children: matchingChildren,
+        hasMatchingDescendants: hasMatch,
+        totalDatabasesCount: totalDbs,
+      };
     };
 
-    return tree.map((n) => filterNode(n)).filter((n): n is CategoryHierarchyNode => n !== null);
+    const tree: DbTreeCategoryNode[] = [];
+    for (const cat of rawCategories) {
+      const node = buildCategoryNode(cat);
+      if (!activeFilters || node.hasMatchingDescendants || node.connections.length > 0) {
+        tree.push(node);
+      }
+    }
+
+    return tree;
+  });
+
+  // Automatic «پایگاه‌های داده دسته‌بندی‌نشده» branch for uncategorized databases
+  readonly uncategorizedNode = computed<DbTreeCategoryNode | null>(() => {
+    const rawCategories = this.rawCategories();
+    const allConns = this.connections();
+    const activeFilters = this.hasActiveTreeFilters();
+
+    const assignedIds = new Set<string>();
+    const collectAssignedIds = (nodes: CategoryTreeNode[]) => {
+      for (const cat of nodes) {
+        if (cat.databases) {
+          for (const db of cat.databases) {
+            assignedIds.add(db.id);
+          }
+        }
+        if (cat.children) {
+          collectAssignedIds(cat.children);
+        }
+      }
+    };
+    collectAssignedIds(rawCategories);
+
+    for (const c of allConns) {
+      if (c.category_id) {
+        assignedIds.add(c.id);
+      }
+    }
+
+    const uncatConns = allConns.filter((c) => !assignedIds.has(c.id));
+    if (uncatConns.length === 0) return null;
+
+    const matchingUncat = activeFilters
+      ? uncatConns.filter((c) => this.matchesConnection(c))
+      : uncatConns;
+
+    if (activeFilters && matchingUncat.length === 0) {
+      return null;
+    }
+
+    return {
+      id: 'uncategorized',
+      name: 'پایگاه‌های داده دسته‌بندی‌نشده',
+      description: 'پایگاه‌های داده‌ای که به هیچ دسته‌بندی موضوعی منتسب نشده‌اند',
+      connections: matchingUncat,
+      children: [],
+      hasMatchingDescendants: matchingUncat.length > 0,
+      totalDatabasesCount: uncatConns.length,
+      isUncategorized: true,
+    };
+  });
+
+  // Total matching databases count across visible tree
+  readonly totalFilteredDatabasesCount = computed<number>(() => {
+    const tree = this.displayTree();
+    const uncat = this.uncategorizedNode();
+    let sum = 0;
+    const countConns = (node: DbTreeCategoryNode) => {
+      sum += node.connections.length;
+      for (const ch of node.children) {
+        countConns(ch);
+      }
+    };
+    for (const root of tree) {
+      countConns(root);
+    }
+    if (uncat) {
+      sum += uncat.connections.length;
+    }
+    return sum;
   });
 
   // Selected Database & Schedule
@@ -124,9 +293,17 @@ export class ScheduleManagementComponent implements OnInit {
     is_enabled: [true],
   });
 
+  readonly currentCronExpression = signal<string>('');
+
+  constructor() {
+    this.scheduleForm.controls.cron_expression.valueChanges.subscribe((val) => {
+      this.currentCronExpression.set(val || '');
+    });
+  }
+
   // Human readable live Persian preview of cron
   readonly cronHumanPreview = computed<string>(() => {
-    const expr = this.scheduleForm.controls.cron_expression.value?.trim();
+    const expr = (this.currentCronExpression().trim() || this.scheduleForm.controls.cron_expression.value?.trim()) || '';
     if (!expr) return 'عبارت زمان‌بندی را وارد نمایید.';
 
     const matched = this.cronPresets.find((p) => p.expression === expr);
@@ -159,49 +336,75 @@ export class ScheduleManagementComponent implements OnInit {
 
   loadCategoryTree(): void {
     this.isLoadingTree.set(true);
-    this.http.get<CategoryHierarchyNode[]>('/api/v1/categories/tree').subscribe({
-      next: (data) => {
-        this.rawCategoryTree.set(data || []);
+    forkJoin({
+      categories: this.http.get<CategoryTreeNode[]>('/api/v1/categories/tree'),
+      connections: this.http.get<DatabaseConnection[]>('/api/v1/connections'),
+    }).subscribe({
+      next: ({ categories, connections }) => {
+        this.rawCategories.set(categories || []);
+        this.connections.set(connections || []);
         this.isLoadingTree.set(false);
 
-        // Auto-expand root categories and select first available database
-        const rootIds = new Set<string>();
-        let firstDb: DatabaseNodeItem | null = null;
+        // Auto-expand all top-level categories and uncategorized branch initially
+        const initialExpanded = new Set<string>();
+        (categories || []).forEach((c) => initialExpanded.add(c.id));
+        initialExpanded.add('uncategorized');
+        this.expandedCategoryIds.set(initialExpanded);
 
-        const findFirst = (nodes: CategoryHierarchyNode[]) => {
-          for (const n of nodes) {
-            rootIds.add(n.id);
-            if (!firstDb && n.databases && n.databases.length > 0) {
-              firstDb = { ...n.databases[0], category_name: n.name };
-            }
-            if (n.children) {
-              findFirst(n.children);
-            }
-          }
-        };
-
-        findFirst(data || []);
-        this.expandedCategoryIds.set(rootIds);
-
-        if (firstDb) {
-          this.selectDatabase(firstDb);
+        // Auto-select first connection if any
+        if (connections && connections.length > 0) {
+          const firstConn = connections[0];
+          const cat = (categories || []).find((c) => c.id === firstConn.category_id);
+          this.selectConnection(firstConn, cat?.name);
         }
       },
       error: () => {
         this.isLoadingTree.set(false);
-        this.showToast('خطا در دریافت ساختار درختی پایگاه‌های داده', 'error');
+        this.showToast('خطا در دریافت ساختار پایگاه‌های داده', 'error');
       },
     });
   }
 
-  toggleCategory(id: string): void {
-    const current = new Set(this.expandedCategoryIds());
-    if (current.has(id)) {
-      current.delete(id);
-    } else {
-      current.add(id);
+  isCategoryExpanded(node: DbTreeCategoryNode): boolean {
+    if (this.hasActiveTreeFilters()) {
+      return node.hasMatchingDescendants || node.connections.length > 0;
     }
-    this.expandedCategoryIds.set(current);
+    return this.expandedCategoryIds().has(node.id);
+  }
+
+  toggleCategory(node: DbTreeCategoryNode, event?: Event): void {
+    if (event) event.stopPropagation();
+    const currentlyExpanded = this.isCategoryExpanded(node);
+    const next = new Set(this.expandedCategoryIds());
+    if (currentlyExpanded) {
+      next.delete(node.id);
+    } else {
+      next.add(node.id);
+    }
+    this.expandedCategoryIds.set(next);
+  }
+
+  clearTreeFilters(): void {
+    this.filterConnectionName.set('');
+    this.filterDatabaseName.set('');
+    this.filterHost.set('');
+    this.filterOwner.set('');
+    this.filterEngineType.set('');
+  }
+
+  selectConnection(conn: DatabaseConnection, categoryName?: string): void {
+    const dbItem: DatabaseNodeItem = {
+      id: conn.id,
+      name: conn.name,
+      engine_type: conn.engine_type,
+      database_name: conn.database_name,
+      category_name: categoryName || 'بدون دسته',
+      host: conn.host,
+      port: conn.port,
+      owner: conn.owner,
+      is_active: conn.is_active,
+    };
+    this.selectDatabase(dbItem);
   }
 
   selectDatabase(db: DatabaseNodeItem): void {
@@ -210,10 +413,12 @@ export class ScheduleManagementComponent implements OnInit {
     this.http.get<SyncScheduleData>(`/api/v1/connections/${db.id}/schedule`).subscribe({
       next: (schedule) => {
         this.currentSchedule.set(schedule);
+        const cron = schedule.cron_expression || '0 2 * * *';
         this.scheduleForm.patchValue({
-          cron_expression: schedule.cron_expression || '0 2 * * *',
+          cron_expression: cron,
           is_enabled: schedule.is_enabled ?? true,
         });
+        this.currentCronExpression.set(cron);
         this.isLoadingSchedule.set(false);
       },
       error: () => {
@@ -227,6 +432,7 @@ export class ScheduleManagementComponent implements OnInit {
     this.scheduleForm.patchValue({
       cron_expression: preset.expression,
     });
+    this.currentCronExpression.set(preset.expression);
     this.scheduleForm.controls.cron_expression.markAsDirty();
   }
 

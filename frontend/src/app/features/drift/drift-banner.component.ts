@@ -1,25 +1,23 @@
 import {
   ChangeDetectionStrategy,
   Component,
-  EventEmitter,
-  Input,
-  Output,
-} from '@angular/core';
-import { CommonModule } from '@angular/common';
+  output,
+  input,
+} from "@angular/core";
 
 @Component({
-  selector: 'app-drift-banner',
+  selector: "app-drift-banner",
   standalone: true,
-  imports: [CommonModule],
-  templateUrl: './drift-banner.component.html',
-  styleUrls: ['./drift-banner.component.css'],
+  imports: [],
+  templateUrl: "./drift-banner.component.html",
+  styleUrls: ["./drift-banner.component.css"],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class DriftBannerComponent {
-  @Input() tableId: string | null = null;
-  @Input() tableName: string = '';
-  @Input() driftDetected: boolean = false;
-  @Output() openResolution = new EventEmitter<void>();
+  readonly tableId = input<string | null>(null);
+  readonly tableName = input<string>("");
+  readonly driftDetected = input<boolean>(false);
+  readonly openResolution = output<void>();
 
   onResolveClick(): void {
     this.openResolution.emit();

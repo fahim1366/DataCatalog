@@ -1,4 +1,4 @@
-@if (visible) {
+@if (visible()) {
   <div class="modal-backdrop" (click)="close()">
     <div class="modal-dialog" (click)="$event.stopPropagation()" dir="rtl">
       <!-- Modal Header -->
@@ -8,7 +8,9 @@
             <span class="header-icon">⚖️</span>
             <h3>حل تعارض و یکپارچه‌سازی توضیحات (Drift Resolution)</h3>
           </div>
-          <span class="table-name-badge mono-font">جدول: {{ driftData()?.table_name }}</span>
+          <span class="table-name-badge mono-font"
+            >جدول: {{ driftData()?.table_name }}</span
+          >
         </div>
         <button class="btn-close" (click)="close()" aria-label="بستن">✕</button>
       </div>
@@ -28,20 +30,28 @@
         } @else if (driftData(); as drift) {
           <!-- Side-by-Side Comparison -->
           <div class="comparison-section">
-            <h4 class="section-title">مقایسه دوطرفه متن توضیحات جدول (Side-by-Side Diff)</h4>
+            <h4 class="section-title">
+              مقایسه دوطرفه متن توضیحات جدول (Side-by-Side Diff)
+            </h4>
 
             <div class="diff-grid">
               <!-- Approved Description -->
               <div class="diff-card approved-card">
                 <div class="diff-card-header">
-                  <span class="diff-label">توضیحات مصوب حاکمیتی (Approved)</span>
+                  <span class="diff-label"
+                    >توضیحات مصوب حاکمیتی (Approved)</span
+                  >
                   <span class="badge badge-approved">تأییدشده قبلی</span>
                 </div>
                 <div class="diff-card-body">
                   @if (drift.table_approved_description) {
-                    <p class="diff-text">{{ drift.table_approved_description }}</p>
+                    <p class="diff-text">
+                      {{ drift.table_approved_description }}
+                    </p>
                   } @else {
-                    <p class="diff-text text-muted">(توضیحات مصوبی برای این جدول ثبت نشده است)</p>
+                    <p class="diff-text text-muted">
+                      (توضیحات مصوبی برای این جدول ثبت نشده است)
+                    </p>
                   }
                 </div>
               </div>
@@ -49,14 +59,20 @@
               <!-- Source DB Description -->
               <div class="diff-card source-card">
                 <div class="diff-card-header">
-                  <span class="diff-label">توضیحات پایگاه‌داده مبدأ (Source Comment)</span>
+                  <span class="diff-label"
+                    >توضیحات پایگاه‌داده مبدأ (Source Comment)</span
+                  >
                   <span class="badge badge-source">استخراج‌شده از دیتابیس</span>
                 </div>
                 <div class="diff-card-body">
                   @if (drift.table_source_description) {
-                    <p class="diff-text">{{ drift.table_source_description }}</p>
+                    <p class="diff-text">
+                      {{ drift.table_source_description }}
+                    </p>
                   } @else {
-                    <p class="diff-text text-muted">(پایگاه داده مبدأ فاقد کامنت است)</p>
+                    <p class="diff-text text-muted">
+                      (پایگاه داده مبدأ فاقد کامنت است)
+                    </p>
                   }
                 </div>
               </div>
@@ -65,11 +81,16 @@
 
           <!-- 3 Resolution Actions -->
           <div class="actions-section">
-            <h4 class="section-title">انتخاب نحوه حل تعارض (Resolution Strategy):</h4>
+            <h4 class="section-title">
+              انتخاب نحوه حل تعارض (Resolution Strategy):
+            </h4>
 
             <div class="radio-options-list">
               <!-- Option 1: RETAIN_APPROVED -->
-              <label class="drift-radio-option" [class.selected]="selectedAction() === 'RETAIN_APPROVED'">
+              <label
+                class="drift-radio-option"
+                [class.selected]="selectedAction() === 'RETAIN_APPROVED'"
+              >
                 <input
                   type="radio"
                   name="driftAction"
@@ -79,12 +100,18 @@
                 />
                 <div class="option-content">
                   <strong>۱. حفظ توضیحات تأییدشده (Retain Approved)</strong>
-                  <span class="option-desc">توضیحات مصوب فعلی حفظ شده و کامنت‌های مبدأ نادیده گرفته می‌شوند.</span>
+                  <span class="option-desc"
+                    >توضیحات مصوب فعلی حفظ شده و کامنت‌های مبدأ نادیده گرفته
+                    می‌شوند.</span
+                  >
                 </div>
               </label>
 
               <!-- Option 2: OVERWRITE_WITH_SOURCE -->
-              <label class="drift-radio-option" [class.selected]="selectedAction() === 'OVERWRITE_WITH_SOURCE'">
+              <label
+                class="drift-radio-option"
+                [class.selected]="selectedAction() === 'OVERWRITE_WITH_SOURCE'"
+              >
                 <input
                   type="radio"
                   name="driftAction"
@@ -93,13 +120,22 @@
                   (change)="selectedAction.set('OVERWRITE_WITH_SOURCE')"
                 />
                 <div class="option-content">
-                  <strong>۲. اعمال توضیحات پایگاه‌داده مبدأ (Overwrite with Source)</strong>
-                  <span class="option-desc">متن توضیحات پایگاه‌داده مبدأ جایگزین توضیحات مصوب حاکمیتی می‌شود.</span>
+                  <strong
+                    >۲. اعمال توضیحات پایگاه‌داده مبدأ (Overwrite with
+                    Source)</strong
+                  >
+                  <span class="option-desc"
+                    >متن توضیحات پایگاه‌داده مبدأ جایگزین توضیحات مصوب حاکمیتی
+                    می‌شود.</span
+                  >
                 </div>
               </label>
 
               <!-- Option 3: CUSTOM_MERGE -->
-              <label class="drift-radio-option" [class.selected]="selectedAction() === 'CUSTOM_MERGE'">
+              <label
+                class="drift-radio-option"
+                [class.selected]="selectedAction() === 'CUSTOM_MERGE'"
+              >
                 <input
                   type="radio"
                   name="driftAction"
@@ -109,15 +145,20 @@
                 />
                 <div class="option-content">
                   <strong>۳. مقایسه و ویرایش دستی (Custom Merge)</strong>
-                  <span class="option-desc">ویرایش و تلفیق دستی متن نهایی توسط راهبر داده (Curation Editor).</span>
+                  <span class="option-desc"
+                    >ویرایش و تلفیق دستی متن نهایی توسط راهبر داده (Curation
+                    Editor).</span
+                  >
                 </div>
               </label>
             </div>
 
             <!-- Custom Merge Editor -->
-            @if (selectedAction() === 'CUSTOM_MERGE') {
+            @if (selectedAction() === "CUSTOM_MERGE") {
               <div class="custom-editor-box">
-                <label class="editor-label">متن تلفیقی نهایی (Final Merged Description):</label>
+                <label class="editor-label"
+                  >متن تلفیقی نهایی (Final Merged Description):</label
+                >
                 <textarea
                   class="custom-textarea"
                   rows="4"
@@ -132,20 +173,24 @@
           <!-- Column Drifts Breakdown (if any) -->
           @if (drift.column_drifts && drift.column_drifts.length > 0) {
             <div class="columns-drift-section">
-              <h4 class="section-title">مغایرت‌های شناسایی‌شده در ستون‌های این جدول:</h4>
+              <h4 class="section-title">
+                مغایرت‌های شناسایی‌شده در ستون‌های این جدول:
+              </h4>
               <div class="columns-drift-list">
                 @for (col of drift.column_drifts; track col.column_id) {
                   @if (col.drift_detected) {
                     <div class="col-drift-item">
-                      <div class="col-name mono-font">📌 ستون: {{ col.column_name }}</div>
+                      <div class="col-name mono-font">
+                        📌 ستون: {{ col.column_name }}
+                      </div>
                       <div class="col-diff-row">
                         <div class="col-diff-col">
                           <small class="col-label">مصوب:</small>
-                          <span>{{ col.approved_description || '—' }}</span>
+                          <span>{{ col.approved_description || "—" }}</span>
                         </div>
                         <div class="col-diff-col">
                           <small class="col-label">مبدأ:</small>
-                          <span>{{ col.source_description || '—' }}</span>
+                          <span>{{ col.source_description || "—" }}</span>
                         </div>
                       </div>
                     </div>
@@ -159,7 +204,9 @@
 
       <!-- Modal Footer -->
       <div class="modal-footer">
-        <button type="button" class="btn btn-secondary" (click)="close()">انصراف</button>
+        <button type="button" class="btn btn-secondary" (click)="close()">
+          انصراف
+        </button>
         <button
           type="button"
           class="btn btn-primary btn-submit-resolution"

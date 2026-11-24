@@ -212,6 +212,113 @@ describe('Phase 6 Core Services (T079)', () => {
       req.flush(mockRetriedJob);
     });
 
+    it('should get live queue status via GET /api/v1/sync-jobs/queue', () => {
+      const mockQueue = {
+        worker_online: true,
+        running_jobs: [],
+        queued_jobs: [
+          {
+            id: jobId,
+            connection_id: connectionId,
+            connection_name: 'Core_Postgres',
+            status: 'QUEUED' as const,
+            triggered_by: 'MANUAL' as const,
+            tables_scanned: 0,
+            tables_created: 0,
+            tables_updated: 0,
+            tables_deleted: 0,
+            columns_scanned: 0,
+            changes_detected: 0,
+            priority: 10,
+            queue_position: 1,
+            estimated_wait_seconds: 15,
+            created_at: '2026-11-16T12:00:00Z',
+          },
+        ],
+      };
+
+      syncJobService.getQueueStatus().subscribe((res) => {
+        expect(res.worker_online).toBe(true);
+        expect(res.queued_jobs.length).toBe(1);
+        expect(res.queued_jobs[0].queue_position).toBe(1);
+        expect(res.queued_jobs[0].estimated_wait_seconds).toBe(15);
+      });
+
+      const req = httpMock.expectOne('/api/v1/sync-jobs/queue');
+      expect(req.request.method).toBe('GET');
+      req.flush(mockQueue);
+    });
+
+    it('should expedite a queued sync job via POST /api/v1/sync-jobs/:id/expedite', () => {
+      const mockExpeditedJob: SyncJobResponse = {
+        id: jobId,
+        connection_id: connectionId,
+        status: 'QUEUED',
+        triggered_by: 'MANUAL',
+        priority: 10,
+        tables_scanned: 0,
+        tables_created: 0,
+        tables_updated: 0,
+        tables_deleted: 0,
+        columns_scanned: 0,
+        changes_detected: 0,
+        created_at: '2026-11-16T12:00:00Z',
+      };
+
+      syncJobService.expediteSyncJob(jobId).subscribe((res) => {
+        expect(res.priority).toBe(10);
+        expect(res.status).toBe('QUEUED');
+      });
+
+      const req = httpMock.expectOne(`/api/v1/sync-jobs/${jobId}/expedite`);
+      expect(req.request.method).toBe('POST');
+      req.flush(mockExpeditedJob);
+    });
+
+    it('should cancel a sync job via POST /api/v1/sync-jobs/:id/cancel', () => {
+      const mockCancelledJob: SyncJobResponse = {
+        id: jobId,
+        connection_id: connectionId,
+        status: 'CANCELLED',
+        triggered_by: 'MANUAL',
+        tables_scanned: 0,
+        tables_created: 0,
+        tables_updated: 0,
+        tables_deleted: 0,
+        columns_scanned: 0,
+        changes_detected: 0,
+        error_message: 'لغو شده توسط کاربر',
+        created_at: '2026-11-16T12:00:00Z',
+      };
+
+      syncJobService.cancelSyncJob(jobId).subscribe((res) => {
+        expect(res.status).toBe('CANCELLED');
+        expect(res.error_message).toBe('لغو شده توسط کاربر');
+      });
+
+      const req = httpMock.expectOne(`/api/v1/sync-jobs/${jobId}/cancel`);
+      expect(req.request.method).toBe('POST');
+      req.flush(mockCancelledJob);
+    });
+
+    it('should batch expedite sync jobs via POST /api/v1/sync-jobs/batch-expedite', () => {
+      const mockBatchResponse = {
+        jobs: [],
+        message: '2 پایگاه‌داده برای همگام‌سازی فوری ارسال شدند.',
+        total_dispatched: 2,
+      };
+
+      syncJobService.batchExpediteSync([connectionId]).subscribe((res) => {
+        expect(res.total_dispatched).toBe(2);
+        expect(res.message).toContain('ارسال شدند');
+      });
+
+      const req = httpMock.expectOne('/api/v1/sync-jobs/batch-expedite');
+      expect(req.request.method).toBe('POST');
+      expect(req.request.body).toEqual({ connection_ids: [connectionId] });
+      req.flush(mockBatchResponse);
+    });
+
     it('should get connection sync execution history via GET /api/v1/connections/:id/jobs', () => {
       const mockList: SyncJobListResponse = {
         items: [],

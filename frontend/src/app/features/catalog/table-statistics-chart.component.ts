@@ -1,28 +1,28 @@
 import {
   ChangeDetectionStrategy,
   Component,
-  Input,
   OnChanges,
   SimpleChanges,
   computed,
   inject,
   signal,
-} from '@angular/core';
-import { CommonModule } from '@angular/common';
-import { NgxEchartsDirective, provideEchartsCore } from 'ngx-echarts';
-import * as echarts from 'echarts/core';
-import { LineChart } from 'echarts/charts';
-import { CanvasRenderer } from 'echarts/renderers';
+  input,
+} from "@angular/core";
+
+import { NgxEchartsDirective, provideEchartsCore } from "ngx-echarts";
+import * as echarts from "echarts/core";
+import { LineChart } from "echarts/charts";
+import { CanvasRenderer } from "echarts/renderers";
 import {
   GridComponent,
   LegendComponent,
   TitleComponent,
   TooltipComponent,
-} from 'echarts/components';
+} from "echarts/components";
 import {
   TableStatisticPoint,
   TableStatsService,
-} from '../../core/services/table-stats.service';
+} from "../../core/services/table-stats.service";
 
 echarts.use([
   LineChart,
@@ -34,16 +34,18 @@ echarts.use([
 ]);
 
 @Component({
-  selector: 'app-table-statistics-chart',
+  selector: "app-table-statistics-chart",
   standalone: true,
-  imports: [CommonModule, NgxEchartsDirective],
+  imports: [NgxEchartsDirective],
   providers: [provideEchartsCore({ echarts })],
   template: `
     <div class="stats-chart-card" dir="rtl">
       <div class="chart-header">
         <div class="chart-title-group">
           <span class="chart-icon">📈</span>
-          <h3 class="chart-title">روند رشد و حجم فیزیکی داده (Data Growth & Volume)</h3>
+          <h3 class="chart-title">
+            روند رشد و حجم فیزیکی داده (Data Growth & Volume)
+          </h3>
         </div>
         @if (dataPoints().length > 0) {
           <span class="points-badge mono-font">
@@ -77,7 +79,13 @@ echarts.use([
         border: 1px solid #e2e8f0;
         border-radius: 8px;
         padding: 16px;
-        font-family: 'Vazirmatn', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        font-family:
+          "Vazirmatn",
+          -apple-system,
+          BlinkMacSystemFont,
+          "Segoe UI",
+          Roboto,
+          sans-serif;
       }
       .chart-header {
         display: flex;
@@ -133,10 +141,13 @@ echarts.use([
         animation: spin 0.8s linear infinite;
       }
       @keyframes spin {
-        to { transform: rotate(360deg); }
+        to {
+          transform: rotate(360deg);
+        }
       }
       .mono-font {
-        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+        font-family:
+          ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
       }
     `,
   ],
@@ -145,22 +156,23 @@ echarts.use([
 export class TableStatisticsChartComponent implements OnChanges {
   private readonly statsService = inject(TableStatsService);
 
-  @Input() tableId: string | null = null;
+  readonly tableId = input<string | null>(null);
 
   readonly isLoading = signal<boolean>(false);
   readonly errorMessage = signal<string | null>(null);
   readonly dataPoints = signal<TableStatisticPoint[]>([]);
 
-  private readonly persianDateFormatter = new Intl.DateTimeFormat('fa-IR', {
-    month: 'short',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
+  private readonly persianDateFormatter = new Intl.DateTimeFormat("fa-IR", {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
   });
 
   ngOnChanges(changes: SimpleChanges): void {
-    if (changes['tableId'] && this.tableId) {
-      this.loadStatistics(this.tableId);
+    const tableId = this.tableId();
+    if (changes["tableId"] && tableId) {
+      this.loadStatistics(tableId);
     }
   }
 
@@ -176,7 +188,10 @@ export class TableStatisticsChartComponent implements OnChanges {
         this.isLoading.set(false);
       },
       error: (err: unknown) => {
-        const msg = err instanceof Error ? err.message : 'خطا در بارگذاری تاریخچه آمار جدول';
+        const msg =
+          err instanceof Error
+            ? err.message
+            : "خطا در بارگذاری تاریخچه آمار جدول";
         this.errorMessage.set(msg);
         this.isLoading.set(false);
       },
@@ -194,81 +209,84 @@ export class TableStatisticsChartComponent implements OnChanges {
     });
 
     const rowCounts = points.map((p) => p.row_count_estimate);
-    const sizesMB = points.map((p) => Number((p.size_bytes / (1024 * 1024)).toFixed(2)));
+    const sizesMB = points.map((p) =>
+      Number((p.size_bytes / (1024 * 1024)).toFixed(2)),
+    );
 
     return {
       textStyle: {
-        fontFamily: 'Vazirmatn, -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, sans-serif',
+        fontFamily:
+          "Vazirmatn, -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, sans-serif",
       },
       tooltip: {
-        trigger: 'axis',
+        trigger: "axis",
         textStyle: {
-          fontFamily: 'Vazirmatn, sans-serif',
+          fontFamily: "Vazirmatn, sans-serif",
         },
       },
       legend: {
-        data: ['تعداد رکوردها (Rows)', 'حجم داده (MB)'],
+        data: ["تعداد رکوردها (Rows)", "حجم داده (MB)"],
         top: 0,
         textStyle: {
-          fontFamily: 'Vazirmatn, sans-serif',
+          fontFamily: "Vazirmatn, sans-serif",
         },
       },
       grid: {
-        left: '4%',
-        right: '4%',
-        bottom: '8%',
-        top: '18%',
+        left: "4%",
+        right: "4%",
+        bottom: "8%",
+        top: "18%",
         containLabel: true,
       },
       xAxis: {
-        type: 'category',
+        type: "category",
         boundaryGap: false,
         data: xLabels,
         axisLabel: {
-          fontFamily: 'Vazirmatn, sans-serif',
+          fontFamily: "Vazirmatn, sans-serif",
           rotate: xLabels.length > 8 ? 30 : 0,
         },
       },
       yAxis: [
         {
-          type: 'value',
-          name: 'تعداد رکوردها (Rows)',
-          position: 'right',
+          type: "value",
+          name: "تعداد رکوردها (Rows)",
+          position: "right",
           axisLabel: {
-            fontFamily: 'Vazirmatn, sans-serif',
+            fontFamily: "Vazirmatn, sans-serif",
           },
         },
         {
-          type: 'value',
-          name: 'حجم (مگابایت)',
-          position: 'left',
+          type: "value",
+          name: "حجم (مگابایت)",
+          position: "left",
           axisLabel: {
-            fontFamily: 'Vazirmatn, sans-serif',
+            fontFamily: "Vazirmatn, sans-serif",
           },
         },
       ],
       series: [
         {
-          name: 'تعداد رکوردها (Rows)',
-          type: 'line',
+          name: "تعداد رکوردها (Rows)",
+          type: "line",
           yAxisIndex: 0,
           data: rowCounts,
           smooth: true,
-          itemStyle: { color: '#2563eb' },
+          itemStyle: { color: "#2563eb" },
           areaStyle: {
             color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
-              { offset: 0, color: 'rgba(37, 99, 235, 0.25)' },
-              { offset: 1, color: 'rgba(37, 99, 235, 0.02)' },
+              { offset: 0, color: "rgba(37, 99, 235, 0.25)" },
+              { offset: 1, color: "rgba(37, 99, 235, 0.02)" },
             ]),
           },
         },
         {
-          name: 'حجم داده (MB)',
-          type: 'line',
+          name: "حجم داده (MB)",
+          type: "line",
           yAxisIndex: 1,
           data: sizesMB,
           smooth: true,
-          itemStyle: { color: '#16a34a' },
+          itemStyle: { color: "#16a34a" },
         },
       ],
     };

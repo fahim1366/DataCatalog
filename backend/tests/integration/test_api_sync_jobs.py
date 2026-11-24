@@ -382,3 +382,303 @@ async def test_sync_fallback_in_process_when_celery_broker_offline(
     finally:
         app.dependency_overrides.pop(get_db_session, None)
 
+
+@pytest.mark.asyncio
+async def test_get_sync_queue_visibility_and_eta(
+    test_db_session: AsyncSession, admin_auth_data: dict, sample_jobs_fixture: tuple
+):
+    conn, schedule, jobs = sample_jobs_fixture
+
+    # Clean up any existing active jobs for a deterministic queue state
+    stmt_active = select(SyncJob).where(
+        SyncJob.status.in_([SyncJobStatus.QUEUED.value, SyncJobStatus.RUNNING.value])
+    )
+    res_active = await test_db_session.execute(stmt_active)
+    for aj in res_active.scalars().all():
+        aj.status = SyncJobStatus.CANCELLED.value
+    await test_db_session.commit()
+
+    now = datetime.now(timezone.utc)
+    # Add a successful job with duration_ms = 20000 to establish historical average (20s)
+    success_job = SyncJob(
+        id=uuid.uuid4(),
+        connection_id=conn.id,
+        schedule_id=schedule.id,
+        status=SyncJobStatus.SUCCESS.value,
+        triggered_by=SyncTriggerType.SCHEDULE.value,
+        started_at=now,
+        completed_at=now,
+        duration_ms=20000,
+        tables_scanned=10,
+        created_at=now,
+    )
+    test_db_session.add(success_job)
+
+    # 1. Add a running job
+    running_job = SyncJob(
+        id=uuid.uuid4(),
+        connection_id=conn.id,
+        schedule_id=schedule.id,
+        status=SyncJobStatus.RUNNING.value,
+        triggered_by=SyncTriggerType.SCHEDULE.value,
+        started_at=now,
+        created_at=now,
+    )
+    test_db_session.add(running_job)
+
+    # 2. Add queued job with default priority (0)
+    queued_job_normal = SyncJob(
+        id=uuid.uuid4(),
+        connection_id=conn.id,
+        schedule_id=schedule.id,
+        status=SyncJobStatus.QUEUED.value,
+        triggered_by=SyncTriggerType.SCHEDULE.value,
+        priority=0,
+        created_at=now,
+    )
+    test_db_session.add(queued_job_normal)
+
+    # 3. Add queued job with high priority (10)
+    queued_job_expedited = SyncJob(
+        id=uuid.uuid4(),
+        connection_id=conn.id,
+        schedule_id=schedule.id,
+        status=SyncJobStatus.QUEUED.value,
+        triggered_by=SyncTriggerType.MANUAL.value,
+        priority=10,
+        created_at=now,
+    )
+    test_db_session.add(queued_job_expedited)
+    await test_db_session.commit()
+
+    async def override_db():
+        yield test_db_session
+
+    app.dependency_overrides[get_db_session] = override_db
+    transport = ASGITransport(app=app)
+    try:
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            resp = await client.get(
+                "/api/v1/sync-jobs/queue",
+                headers=admin_auth_data["headers"],
+            )
+            assert resp.status_code == 200
+            data = resp.json()
+            assert "worker_online" in data
+            assert isinstance(data["worker_online"], bool)
+
+            # Check running jobs
+            assert len(data["running_jobs"]) >= 1
+            running_ids = [j["id"] for j in data["running_jobs"]]
+            assert str(running_job.id) in running_ids
+
+            # Check queued jobs: expedited (priority 10) must be first (position 1)
+            queued_ids = [j["id"] for j in data["queued_jobs"]]
+            assert str(queued_job_expedited.id) in queued_ids
+            assert str(queued_job_normal.id) in queued_ids
+
+            expedited_idx = queued_ids.index(str(queued_job_expedited.id))
+            normal_idx = queued_ids.index(str(queued_job_normal.id))
+            assert expedited_idx < normal_idx  # Higher priority comes first!
+
+            expedited_item = data["queued_jobs"][expedited_idx]
+            normal_item = data["queued_jobs"][normal_idx]
+
+            assert expedited_item["queue_position"] == expedited_idx + 1
+            assert normal_item["queue_position"] == normal_idx + 1
+            assert expedited_item["estimated_wait_seconds"] is not None
+            assert normal_item["estimated_wait_seconds"] is not None
+            assert expedited_item["estimated_wait_seconds"] < normal_item["estimated_wait_seconds"]
+    finally:
+        app.dependency_overrides.pop(get_db_session, None)
+
+
+@pytest.mark.asyncio
+async def test_expedite_sync_job_out_of_order(
+    test_db_session: AsyncSession, admin_auth_data: dict, sample_jobs_fixture: tuple, monkeypatch
+):
+    from unittest.mock import AsyncMock
+    from backend.src.models.audit import AuditLog
+
+    conn, schedule, _ = sample_jobs_fixture
+
+    now = datetime.now(timezone.utc)
+    queued_job = SyncJob(
+        id=uuid.uuid4(),
+        connection_id=conn.id,
+        schedule_id=schedule.id,
+        status=SyncJobStatus.QUEUED.value,
+        triggered_by=SyncTriggerType.SCHEDULE.value,
+        priority=0,
+        created_at=now,
+    )
+    test_db_session.add(queued_job)
+    await test_db_session.commit()
+
+    fallback_mock = AsyncMock(return_value={"success": True})
+    monkeypatch.setattr("backend.src.api.v1.sync_jobs.execute_metadata_sync", fallback_mock)
+
+    async def override_db():
+        yield test_db_session
+
+    app.dependency_overrides[get_db_session] = override_db
+    transport = ASGITransport(app=app)
+    try:
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            resp = await client.post(
+                f"/api/v1/sync-jobs/{queued_job.id}/expedite",
+                headers=admin_auth_data["headers"],
+            )
+            assert resp.status_code == 200
+            data = resp.json()
+            assert data["id"] == str(queued_job.id)
+            assert data["priority"] == 10
+            assert data["triggered_by"] == "MANUAL"
+
+            # Verify audit log
+            audit_stmt = select(AuditLog).where(
+                AuditLog.action == "EXPEDITE_SYNC_JOB",
+                AuditLog.entity_id == conn.id,
+            )
+            audit_res = await test_db_session.execute(audit_stmt)
+            audit_entries = list(audit_res.scalars().all())
+            assert len(audit_entries) >= 1
+            assert any(entry.diff_jsonb.get("priority") == 10 for entry in audit_entries)
+
+            # Try to expedite a non-queued job (should fail with 400)
+            queued_job.status = SyncJobStatus.SUCCESS.value
+            await test_db_session.commit()
+
+            resp_bad = await client.post(
+                f"/api/v1/sync-jobs/{queued_job.id}/expedite",
+                headers=admin_auth_data["headers"],
+            )
+            assert resp_bad.status_code == 400
+    finally:
+        app.dependency_overrides.pop(get_db_session, None)
+
+
+@pytest.mark.asyncio
+async def test_cancel_sync_job_and_release_lock(
+    test_db_session: AsyncSession, admin_auth_data: dict, sample_jobs_fixture: tuple
+):
+    from backend.src.models.audit import AuditLog
+
+    conn, schedule, _ = sample_jobs_fixture
+
+    # Clean active jobs on conn
+    stmt_active = select(SyncJob).where(
+        SyncJob.connection_id == conn.id,
+        SyncJob.status.in_([SyncJobStatus.QUEUED.value, SyncJobStatus.RUNNING.value]),
+    )
+    for j in (await test_db_session.execute(stmt_active)).scalars().all():
+        j.status = SyncJobStatus.CANCELLED.value
+    await test_db_session.commit()
+
+    now = datetime.now(timezone.utc)
+    queued_job = SyncJob(
+        id=uuid.uuid4(),
+        connection_id=conn.id,
+        schedule_id=schedule.id,
+        status=SyncJobStatus.QUEUED.value,
+        triggered_by=SyncTriggerType.MANUAL.value,
+        created_at=now,
+    )
+    test_db_session.add(queued_job)
+    await test_db_session.commit()
+
+    async def override_db():
+        yield test_db_session
+
+    app.dependency_overrides[get_db_session] = override_db
+    transport = ASGITransport(app=app)
+    try:
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            # 1. While queued, another manual sync request should be rejected by concurrency guard (409)
+            resp_conflict = await client.post(
+                f"/api/v1/connections/{conn.id}/sync",
+                headers=admin_auth_data["headers"],
+            )
+            assert resp_conflict.status_code == 409
+
+            # 2. Cancel the queued job
+            resp_cancel = await client.post(
+                f"/api/v1/sync-jobs/{queued_job.id}/cancel",
+                headers=admin_auth_data["headers"],
+            )
+            assert resp_cancel.status_code == 200
+            data = resp_cancel.json()
+            assert data["id"] == str(queued_job.id)
+            assert data["status"] == "CANCELLED"
+            assert data["error_message"] == "لغو شده توسط کاربر"
+            assert data["completed_at"] is not None
+
+            # Verify audit log
+            audit_stmt = select(AuditLog).where(
+                AuditLog.action == "CANCEL_SYNC_JOB",
+                AuditLog.entity_id == conn.id,
+            )
+            audit_res = await test_db_session.execute(audit_stmt)
+            audit_entries = list(audit_res.scalars().all())
+            assert len(audit_entries) >= 1
+            assert any(entry.diff_jsonb.get("status") == "CANCELLED" for entry in audit_entries)
+
+            # 3. Concurrency lock is now released: another sync can run!
+            resp_new_sync = await client.post(
+                f"/api/v1/connections/{conn.id}/sync",
+                headers=admin_auth_data["headers"],
+            )
+            assert resp_new_sync.status_code == 202
+
+            # 4. Attempting to cancel already CANCELLED job should return 400
+            resp_repeat_cancel = await client.post(
+                f"/api/v1/sync-jobs/{queued_job.id}/cancel",
+                headers=admin_auth_data["headers"],
+            )
+            assert resp_repeat_cancel.status_code == 400
+    finally:
+        app.dependency_overrides.pop(get_db_session, None)
+
+
+@pytest.mark.asyncio
+async def test_batch_expedite_sync(
+    test_db_session: AsyncSession, admin_auth_data: dict, sample_jobs_fixture: tuple, monkeypatch
+):
+    from unittest.mock import AsyncMock
+
+    conn, schedule, _ = sample_jobs_fixture
+
+    fallback_mock = AsyncMock(return_value={"success": True})
+    monkeypatch.setattr("backend.src.api.v1.sync_jobs.execute_metadata_sync", fallback_mock)
+
+    # Clean active jobs on conn
+    stmt_active = select(SyncJob).where(
+        SyncJob.connection_id == conn.id,
+        SyncJob.status.in_([SyncJobStatus.QUEUED.value, SyncJobStatus.RUNNING.value]),
+    )
+    for j in (await test_db_session.execute(stmt_active)).scalars().all():
+        j.status = SyncJobStatus.CANCELLED.value
+    await test_db_session.commit()
+
+    async def override_db():
+        yield test_db_session
+
+    app.dependency_overrides[get_db_session] = override_db
+    transport = ASGITransport(app=app)
+    try:
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            resp = await client.post(
+                "/api/v1/sync-jobs/batch-expedite",
+                headers=admin_auth_data["headers"],
+                json={"connection_ids": [str(conn.id)]},
+            )
+            assert resp.status_code == 200
+            data = resp.json()
+            assert data["total_dispatched"] == 1
+            assert len(data["jobs"]) == 1
+            assert data["jobs"][0]["priority"] == 10
+            assert data["jobs"][0]["triggered_by"] == "MANUAL"
+    finally:
+        app.dependency_overrides.pop(get_db_session, None)
+
+

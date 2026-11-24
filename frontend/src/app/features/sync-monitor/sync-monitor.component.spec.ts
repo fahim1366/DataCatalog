@@ -5,6 +5,7 @@ import { of } from 'rxjs';
 import { By } from '@angular/platform-browser';
 import { SyncMonitorComponent } from './sync-monitor.component';
 import { SyncJobService, SyncJobListResponse, SyncJobResponse } from '../../core/services/sync-job.service';
+import { ConnectionService } from '../connections/services/connection.service';
 
 const mockJobs: SyncJobResponse[] = [
   {
@@ -89,6 +90,7 @@ describe('SyncMonitorComponent (T081)', () => {
       imports: [SyncMonitorComponent],
       providers: [
         SyncJobService,
+        ConnectionService,
         provideHttpClient(),
         provideHttpClientTesting(),
       ],
@@ -96,6 +98,13 @@ describe('SyncMonitorComponent (T081)', () => {
 
     syncJobService = TestBed.inject(SyncJobService);
     vi.spyOn(syncJobService, 'getSyncJobs').mockReturnValue(of(mockListResponse));
+    vi.spyOn(syncJobService, 'getQueueStatus').mockReturnValue(
+      of({
+        worker_online: true,
+        running_jobs: [],
+        queued_jobs: [],
+      })
+    );
 
     fixture = TestBed.createComponent(SyncMonitorComponent);
     component = fixture.componentInstance;
@@ -183,5 +192,112 @@ describe('SyncMonitorComponent (T081)', () => {
 
     component.onRetryJob(mockJobs[2]); // FAILED job
     expect(retrySpy).toHaveBeenCalledWith(mockJobs[2].id);
+  });
+
+  it('should trigger expedite for queued job when expedite button is clicked', () => {
+    fixture.detectChanges();
+    const queuedJob: SyncJobResponse = {
+      id: '66666666-6666-6666-6666-666666666666',
+      connection_id: 'c1111111-1111-1111-1111-111111111111',
+      status: 'QUEUED',
+      triggered_by: 'MANUAL',
+      priority: 0,
+      tables_scanned: 0,
+      tables_created: 0,
+      tables_updated: 0,
+      tables_deleted: 0,
+      columns_scanned: 0,
+      changes_detected: 0,
+      created_at: '2026-11-16T10:25:00Z',
+    };
+
+    const expediteSpy = vi.spyOn(syncJobService, 'expediteSyncJob').mockReturnValue(
+      of({
+        ...queuedJob,
+        priority: 10,
+      })
+    );
+
+    component.onExpediteJob(queuedJob);
+    expect(expediteSpy).toHaveBeenCalledWith(queuedJob.id);
+  });
+
+  it('should trigger cancel for job when cancel button is clicked', () => {
+    fixture.detectChanges();
+    const cancelSpy = vi.spyOn(syncJobService, 'cancelSyncJob').mockReturnValue(
+      of({
+        id: mockJobs[3].id,
+        connection_id: mockJobs[3].connection_id,
+        status: 'CANCELLED',
+        triggered_by: mockJobs[3].triggered_by,
+        tables_scanned: 0,
+        tables_created: 0,
+        tables_updated: 0,
+        tables_deleted: 0,
+        columns_scanned: 0,
+        changes_detected: 0,
+        error_message: 'لغو شده توسط کاربر',
+        created_at: mockJobs[3].created_at,
+      })
+    );
+
+    component.onCancelJob(mockJobs[3]);
+    expect(cancelSpy).toHaveBeenCalledWith(mockJobs[3].id);
+  });
+
+  it('should open and handle batch expedite modal with connection selection and submit', () => {
+    const connService = TestBed.inject(ConnectionService);
+    const mockConnections = [
+      {
+        id: 'conn-1',
+        name: 'Database One',
+        engine_type: 'POSTGRESQL',
+        host: '10.0.0.1',
+        port: 5432,
+        database_name: 'db_one',
+        owner: 'admin',
+        is_active: true,
+        created_at: '2026-11-16T10:00:00Z',
+      },
+      {
+        id: 'conn-2',
+        name: 'Database Two',
+        engine_type: 'POSTGRESQL',
+        host: '10.0.0.2',
+        port: 5432,
+        database_name: 'db_two',
+        owner: 'admin',
+        is_active: true,
+        created_at: '2026-11-16T10:00:00Z',
+      },
+    ];
+
+    vi.spyOn(connService, 'getConnections').mockReturnValue(of(mockConnections as any));
+    const batchSpy = vi.spyOn(syncJobService, 'batchExpediteSync').mockReturnValue(
+      of({
+        jobs: [],
+        message: '2 پایگاه‌داده با موفقیت برای همگام‌سازی خارج از نوبت ارسال شدند.',
+        total_dispatched: 2,
+      })
+    );
+
+    component.openBatchExpediteModal();
+    expect(component.showBatchModal()).toBe(true);
+    expect(component.availableConnections().length).toBe(2);
+
+    // Toggle select conn-1
+    component.toggleConnectionSelection('conn-1');
+    expect(component.isConnectionSelected('conn-1')).toBe(true);
+    expect(component.isConnectionSelected('conn-2')).toBe(false);
+
+    // Toggle select all
+    component.toggleSelectAllConnections();
+    expect(component.isConnectionSelected('conn-1')).toBe(true);
+    expect(component.isConnectionSelected('conn-2')).toBe(true);
+
+    // Submit batch expedite
+    component.onBatchExpediteSubmit();
+    expect(batchSpy).toHaveBeenCalledWith(['conn-1', 'conn-2']);
+    expect(component.showBatchModal()).toBe(false);
   });
 });

@@ -66,8 +66,8 @@ describe('ConnectionDiagnosticDialogComponent (T080)', () => {
 
     fixture = TestBed.createComponent(ConnectionDiagnosticDialogComponent);
     component = fixture.componentInstance;
-    component.connection = mockConnection;
-    component.visible = true;
+    fixture.componentRef.setInput('connection', mockConnection);
+    fixture.componentRef.setInput('visible', true);
     fixture.detectChanges();
     await fixture.whenStable();
   });

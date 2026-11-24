@@ -1,26 +1,44 @@
-import { ChangeDetectionStrategy, Component, computed, input } from '@angular/core';
-import { CommonModule } from '@angular/common';
-import { NgxEchartsDirective, provideEchartsCore } from 'ngx-echarts';
-import * as echarts from 'echarts/core';
-import { SunburstChart } from 'echarts/charts';
-import { CanvasRenderer } from 'echarts/renderers';
-import { LegendComponent, TitleComponent, TooltipComponent } from 'echarts/components';
-import { ClassificationReport } from './models/report.models';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  computed,
+  input,
+} from "@angular/core";
 
-echarts.use([SunburstChart, CanvasRenderer, TitleComponent, TooltipComponent, LegendComponent]);
+import { NgxEchartsDirective, provideEchartsCore } from "ngx-echarts";
+import * as echarts from "echarts/core";
+import { PieChart, SunburstChart } from "echarts/charts";
+import { CanvasRenderer } from "echarts/renderers";
+import {
+  LegendComponent,
+  TitleComponent,
+  TooltipComponent,
+} from "echarts/components";
+import { ClassificationReport } from "./models/report.models";
+
+echarts.use([
+  PieChart,
+  SunburstChart,
+  CanvasRenderer,
+  TitleComponent,
+  TooltipComponent,
+  LegendComponent,
+]);
 
 @Component({
-  selector: 'app-classification-sunburst',
+  selector: "app-classification-sunburst",
   standalone: true,
-  imports: [CommonModule, NgxEchartsDirective],
+  imports: [NgxEchartsDirective],
   providers: [provideEchartsCore({ echarts })],
   template: `
     <div class="sunburst-card">
       <div class="sunburst-header">
         <h3 class="sunburst-title">{{ title() }}</h3>
-        <span class="total-badge" *ngIf="report() as r">
-          {{ r.total_classified_columns.toLocaleString() }} ستون طبقه‌بندی شده
-        </span>
+        @if (report(); as r) {
+          <span class="total-badge">
+            {{ r.total_classified_columns.toLocaleString() }} ستون طبقه‌بندی شده
+          </span>
+        }
       </div>
       <div class="chart-wrapper" dir="ltr">
         <div echarts [options]="chartOptions()" class="chart-container"></div>
@@ -40,7 +58,7 @@ echarts.use([SunburstChart, CanvasRenderer, TitleComponent, TooltipComponent, Le
         height: 100%;
         box-sizing: border-box;
         direction: rtl;
-        font-family: var(--font-family-sans, 'Vazirmatn', sans-serif);
+        font-family: var(--font-family-sans, "Vazirmatn", sans-serif);
       }
       .sunburst-header {
         display: flex;
@@ -78,91 +96,60 @@ echarts.use([SunburstChart, CanvasRenderer, TitleComponent, TooltipComponent, Le
 })
 export class ClassificationSunburstComponent {
   readonly report = input<ClassificationReport | null>(null);
-  readonly title = input<string>('توزیع محرمانگی و داده‌های حساس');
+  readonly title = input<string>("توزیع محرمانگی و داده‌های حساس");
 
   readonly chartOptions = computed<echarts.EChartsCoreOption>(() => {
     const rep = this.report();
     const items = rep?.breakdown ?? [];
 
     const colorMap: Record<string, string> = {
-      PUBLIC: '#10b981',
-      INTERNAL: '#3b82f6',
-      CONFIDENTIAL: '#f59e0b',
-      RESTRICTED: '#ef4444',
+      PUBLIC: "#10b981",
+      INTERNAL: "#3b82f6",
+      CONFIDENTIAL: "#f59e0b",
+      RESTRICTED: "#ef4444",
     };
 
-    const sunburstData = items.map((item) => ({
+    const pieData = items.map((item) => ({
       name: item.classification_level,
       value: item.column_count,
       itemStyle: {
-        color: colorMap[item.classification_level.toUpperCase()] ?? '#8b5cf6',
+        color: colorMap[item.classification_level.toUpperCase()] ?? "#8b5cf6",
       },
-      children: [
-        {
-          name: `${item.affected_table_count} Tables`,
-          value: item.column_count,
-          itemStyle: {
-            color: colorMap[item.classification_level.toUpperCase()] ?? '#8b5cf6',
-            opacity: 0.75,
-          },
-        },
-      ],
     }));
 
     return {
       legend: {
-        bottom: 0,
-        orient: 'horizontal',
+        bottom: 4,
+        left: "center",
+        textStyle: {
+          fontFamily: "inherit",
+          fontSize: 12,
+        },
       },
       tooltip: {
-        trigger: 'item',
-        formatter: (params: any) => {
-          const val = params.value ? Number(params.value).toLocaleString() : '0';
-          return `<strong>${params.name}</strong><br/>Columns: ${val}`;
-        },
+        trigger: "item",
+        formatter: "{b}: {c} ستون ({d}%)",
       },
       series: [
         {
-          type: 'sunburst',
-          data: sunburstData,
-          radius: [0, '90%'],
-          sort: undefined,
-          emphasis: {
-            focus: 'ancestor',
+          name: "Classification",
+          type: "pie",
+          radius: ["48%", "72%"],
+          center: ["50%", "46%"],
+          avoidLabelOverlap: true,
+          label: {
+            show: false,
           },
-          levels: [
-            {},
-            {
-              r0: '15%',
-              r: '55%',
-              itemStyle: {
-                borderWidth: 2,
-                borderColor: '#ffffff',
-              },
-              label: {
-                rotate: 'tangential',
-                fontSize: 12,
-                fontWeight: 600,
-                color: '#ffffff',
-              },
+          emphasis: {
+            label: {
+              show: true,
+              fontSize: 13,
+              fontWeight: "bold",
             },
-            {
-              r0: '55%',
-              r: '88%',
-              label: {
-                align: 'right',
-                fontSize: 11,
-                color: '#1e293b',
-              },
-              itemStyle: {
-                borderWidth: 1,
-                borderColor: '#ffffff',
-              },
-            },
-          ],
+          },
+          data: pieData,
         },
       ],
     };
   });
 }
-

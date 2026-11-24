@@ -1,17 +1,22 @@
-import { ChangeDetectionStrategy, Component, computed, input } from '@angular/core';
-import { CommonModule } from '@angular/common';
-import { NgxEchartsDirective, provideEchartsCore } from 'ngx-echarts';
-import * as echarts from 'echarts/core';
-import { GaugeChart } from 'echarts/charts';
-import { CanvasRenderer } from 'echarts/renderers';
-import { TitleComponent, TooltipComponent } from 'echarts/components';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  computed,
+  input,
+} from "@angular/core";
+
+import { NgxEchartsDirective, provideEchartsCore } from "ngx-echarts";
+import * as echarts from "echarts/core";
+import { GaugeChart } from "echarts/charts";
+import { CanvasRenderer } from "echarts/renderers";
+import { TitleComponent, TooltipComponent } from "echarts/components";
 
 echarts.use([GaugeChart, CanvasRenderer, TitleComponent, TooltipComponent]);
 
 @Component({
-  selector: 'app-completeness-gauge',
+  selector: "app-completeness-gauge",
   standalone: true,
-  imports: [CommonModule, NgxEchartsDirective],
+  imports: [NgxEchartsDirective],
   providers: [provideEchartsCore({ echarts })],
   template: `
     <div class="gauge-card">
@@ -36,7 +41,7 @@ echarts.use([GaugeChart, CanvasRenderer, TitleComponent, TooltipComponent]);
         height: 100%;
         box-sizing: border-box;
         direction: rtl;
-        font-family: var(--font-family-sans, 'Vazirmatn', sans-serif);
+        font-family: var(--font-family-sans, "Vazirmatn", sans-serif);
       }
       .gauge-header {
         margin-bottom: 0.5rem;
@@ -63,25 +68,27 @@ echarts.use([GaugeChart, CanvasRenderer, TitleComponent, TooltipComponent]);
 })
 export class CompletenessGaugeComponent {
   readonly score = input<number>(0);
-  readonly title = input<string>('تکمیل متادیتا');
+  readonly title = input<string>("تکمیل متادیتا");
 
   readonly chartOptions = computed<echarts.EChartsCoreOption>(() => {
     const value = Math.round(this.score() * 100) / 100;
     return {
       tooltip: {
-        formatter: '{a} <br/>{b} : {c}%',
+        formatter: "{a} <br/>{b} : {c}%",
       },
       series: [
         {
-          name: 'Completeness',
-          type: 'gauge',
+          name: "Completeness",
+          type: "gauge",
+          center: ["50%", "52%"],
+          radius: "82%",
           startAngle: 180,
           endAngle: 0,
           min: 0,
           max: 100,
           splitNumber: 5,
           itemStyle: {
-            color: '#00897B',
+            color: "#00897B",
           },
           progress: {
             show: true,
@@ -89,16 +96,16 @@ export class CompletenessGaugeComponent {
             width: 18,
           },
           pointer: {
-            length: '60%',
+            length: "60%",
             width: 6,
           },
           axisLine: {
             lineStyle: {
               width: 18,
               color: [
-                [0.4, '#ef4444'],
-                [0.75, '#f59e0b'],
-                [1.0, '#10b981'],
+                [0.4, "#ef4444"],
+                [0.75, "#f59e0b"],
+                [1.0, "#10b981"],
               ],
             },
           },
@@ -106,7 +113,7 @@ export class CompletenessGaugeComponent {
             distance: -28,
             length: 6,
             lineStyle: {
-              color: '#94a3b8',
+              color: "#94a3b8",
               width: 1,
             },
           },
@@ -114,27 +121,34 @@ export class CompletenessGaugeComponent {
             distance: -34,
             length: 12,
             lineStyle: {
-              color: '#64748b',
+              color: "#64748b",
               width: 2,
             },
           },
           axisLabel: {
             distance: -20,
-            color: '#64748b',
+            color: "#64748b",
             fontSize: 12,
+          },
+          title: {
+            show: true,
+            offsetCenter: [0, "42%"],
+            fontSize: 13,
+            fontFamily: "inherit",
+            color: "#64748b",
           },
           detail: {
             valueAnimation: true,
-            formatter: '{value}%',
-            offsetCenter: [0, '20%'],
-            fontSize: 26,
-            fontWeight: 'bold',
-            color: '#0f172a',
+            offsetCenter: [0, "12%"],
+            fontSize: 24,
+            fontWeight: 800,
+            fontFamily: "inherit",
+            formatter: "{value}%",
+            color: "#0f172a",
           },
-          data: [{ value, name: 'Completeness' }],
+          data: [{ value, name: "نرخ تکمیل" }],
         },
       ],
     };
   });
 }
-

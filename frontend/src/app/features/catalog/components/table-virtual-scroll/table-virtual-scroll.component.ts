@@ -1,24 +1,23 @@
 import {
   ChangeDetectionStrategy,
   Component,
-  EventEmitter,
-  Output,
   computed,
   inject,
   input,
-} from '@angular/core';
-import { CommonModule } from '@angular/common';
-import { RouterLink } from '@angular/router';
-import { ScrollingModule } from '@angular/cdk/scrolling';
-import { CatalogStore } from '../../stores/catalog.store';
-import { SearchHit } from '../../models/catalog.models';
+  output,
+} from "@angular/core";
+
+import { RouterLink } from "@angular/router";
+import { ScrollingModule } from "@angular/cdk/scrolling";
+import { CatalogStore } from "../../stores/catalog.store";
+import { SearchHit } from "../../models/catalog.models";
 
 @Component({
-  selector: 'app-table-virtual-scroll',
+  selector: "app-table-virtual-scroll",
   standalone: true,
-  imports: [CommonModule, ScrollingModule, RouterLink],
-  templateUrl: './table-virtual-scroll.component.html',
-  styleUrls: ['./table-virtual-scroll.component.css'],
+  imports: [ScrollingModule, RouterLink],
+  templateUrl: "./table-virtual-scroll.component.html",
+  styleUrls: ["./table-virtual-scroll.component.css"],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class TableVirtualScrollComponent {
@@ -27,17 +26,21 @@ export class TableVirtualScrollComponent {
   /**
    * Optional custom items input. Defaults to store.searchHits() if not provided.
    */
-  readonly itemsInput = input<SearchHit[] | undefined>(undefined, { alias: 'items' });
+  readonly itemsInput = input<SearchHit[] | undefined>(undefined, {
+    alias: "items",
+  });
 
   /**
    * Reactive signal resolving items to render.
    */
-  readonly items = computed<SearchHit[]>(() => this.itemsInput() ?? this.store.searchHits());
+  readonly items = computed<SearchHit[]>(
+    () => this.itemsInput() ?? this.store.searchHits(),
+  );
 
   /**
    * Emitted when user scrolls near the end of the loaded catalog items.
    */
-  @Output() readonly nearBottom = new EventEmitter<void>();
+  readonly nearBottom = output<void>();
 
   /**
    * Deterministic trackBy function using entity UUID.
@@ -61,4 +64,3 @@ export class TableVirtualScrollComponent {
     }
   }
 }
-

@@ -14,6 +14,7 @@ class SyncJobStatusEnum(str, enum.Enum):
     SUCCESS = "SUCCESS"
     PARTIAL_FAILURE = "PARTIAL_FAILURE"
     FAILED = "FAILED"
+    CANCELLED = "CANCELLED"
 
 
 class SyncTriggerTypeEnum(str, enum.Enum):
@@ -56,6 +57,7 @@ class SyncJobResponse(BaseModel):
     columns_scanned: int = 0
     changes_detected: int = 0
     error_message: Optional[str] = None
+    priority: int = 0
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
@@ -83,3 +85,30 @@ class CircuitBreakerStatusResponse(BaseModel):
     cooldown_until: Optional[datetime] = None
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class SyncJobQueueItem(SyncJobResponse):
+    connection_name: Optional[str] = None
+    queue_position: Optional[int] = None
+    estimated_wait_seconds: Optional[int] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class SyncQueueStatusResponse(BaseModel):
+    worker_online: bool
+    running_jobs: List[SyncJobQueueItem]
+    queued_jobs: List[SyncJobQueueItem]
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class BatchExpediteRequest(BaseModel):
+    connection_ids: List[uuid.UUID]
+
+
+class BatchExpediteResponse(BaseModel):
+    jobs: List[SyncJobResponse]
+    message: str
+    total_dispatched: int
+

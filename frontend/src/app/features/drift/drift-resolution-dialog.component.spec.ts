@@ -50,7 +50,7 @@ describe('DriftBannerComponent & DriftResolutionDialogComponent (T083)', () => {
     });
 
     it('should NOT render warning banner when drift_detected is false', () => {
-      component.driftDetected = false;
+      fixture.componentRef.setInput('driftDetected', false);
       fixture.detectChanges();
 
       const banner = fixture.debugElement.query(By.css('.drift-warning-banner'));
@@ -58,8 +58,8 @@ describe('DriftBannerComponent & DriftResolutionDialogComponent (T083)', () => {
     });
 
     it('should render warning banner when drift_detected is true and emit on resolve click', () => {
-      component.driftDetected = true;
-      component.tableName = 'dim_customers';
+      fixture.componentRef.setInput('driftDetected', true);
+      fixture.componentRef.setInput('tableName', 'dim_customers');
       fixture.detectChanges();
 
       const banner = fixture.debugElement.query(By.css('.drift-warning-banner'));
@@ -98,8 +98,8 @@ describe('DriftBannerComponent & DriftResolutionDialogComponent (T083)', () => {
     });
 
     it('should render side-by-side comparison of approved vs source descriptions', () => {
-      component.tableId = 'table-uuid-123';
-      component.visible = true;
+      fixture.componentRef.setInput('tableId', 'table-uuid-123');
+      fixture.componentRef.setInput('visible', true);
       component.ngOnChanges({
         visible: {
           currentValue: true,
@@ -118,8 +118,8 @@ describe('DriftBannerComponent & DriftResolutionDialogComponent (T083)', () => {
     });
 
     it('should display 3 resolution radio actions: Retain Approved, Overwrite with Source, and Custom Merge', () => {
-      component.tableId = 'table-uuid-123';
-      component.visible = true;
+      fixture.componentRef.setInput('tableId', 'table-uuid-123');
+      fixture.componentRef.setInput('visible', true);
       component.driftData.set(mockDriftDetail);
       fixture.detectChanges();
 
@@ -133,8 +133,8 @@ describe('DriftBannerComponent & DriftResolutionDialogComponent (T083)', () => {
     });
 
     it('should submit resolution to DriftService on confirm click', () => {
-      component.tableId = 'table-uuid-123';
-      component.visible = true;
+      fixture.componentRef.setInput('tableId', 'table-uuid-123');
+      fixture.componentRef.setInput('visible', true);
       component.driftData.set(mockDriftDetail);
       component.selectedAction.set('OVERWRITE_WITH_SOURCE');
       fixture.detectChanges();

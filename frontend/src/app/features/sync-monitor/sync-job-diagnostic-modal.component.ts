@@ -1,34 +1,32 @@
 import {
   ChangeDetectionStrategy,
   Component,
-  EventEmitter,
-  Input,
   OnChanges,
-  Output,
   SimpleChanges,
   inject,
+  input,
+  model,
   signal,
-} from '@angular/core';
-import { CommonModule } from '@angular/common';
+} from "@angular/core";
+import { CommonModule } from "@angular/common";
 import {
   SyncJobDetailResponse,
   SyncJobService,
-} from '../../core/services/sync-job.service';
+} from "../../core/services/sync-job.service";
 
 @Component({
-  selector: 'app-sync-job-diagnostic-modal',
+  selector: "app-sync-job-diagnostic-modal",
   standalone: true,
   imports: [CommonModule],
-  templateUrl: './sync-job-diagnostic-modal.component.html',
-  styleUrls: ['./sync-job-diagnostic-modal.component.css'],
+  templateUrl: "./sync-job-diagnostic-modal.component.html",
+  styleUrls: ["./sync-job-diagnostic-modal.component.css"],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class SyncJobDiagnosticModalComponent implements OnChanges {
   private readonly syncJobService = inject(SyncJobService);
 
-  @Input() jobId: string | null = null;
-  @Input() visible = false;
-  @Output() visibleChange = new EventEmitter<boolean>();
+  readonly jobId = input<string | null>(null);
+  readonly visible = model<boolean>(false);
 
   readonly isLoading = signal<boolean>(false);
   readonly jobDetail = signal<SyncJobDetailResponse | null>(null);
@@ -36,8 +34,9 @@ export class SyncJobDiagnosticModalComponent implements OnChanges {
   readonly copied = signal<boolean>(false);
 
   ngOnChanges(changes: SimpleChanges): void {
-    if (changes['visible'] && this.visible && this.jobId) {
-      this.loadDetail(this.jobId);
+    const jobId = this.jobId();
+    if (changes["visible"] && this.visible() && jobId) {
+      this.loadDetail(jobId);
     }
   }
 
@@ -52,7 +51,10 @@ export class SyncJobDiagnosticModalComponent implements OnChanges {
         this.isLoading.set(false);
       },
       error: (err: unknown) => {
-        const msg = err instanceof Error ? err.message : 'خطا در بارگذاری جزئیات تشخیصی جاب همگام‌سازی';
+        const msg =
+          err instanceof Error
+            ? err.message
+            : "خطا در بارگذاری جزئیات تشخیصی جاب همگام‌سازی";
         this.errorMessage.set(msg);
         this.isLoading.set(false);
       },
@@ -73,7 +75,6 @@ export class SyncJobDiagnosticModalComponent implements OnChanges {
   }
 
   close(): void {
-    this.visible = false;
-    this.visibleChange.emit(false);
+    this.visible.set(false);
   }
 }

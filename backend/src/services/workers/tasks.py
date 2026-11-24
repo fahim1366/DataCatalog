@@ -148,6 +148,10 @@ async def execute_metadata_sync(
         if not job:
             return {"success": False, "error": f"SyncJob {job_uuid} not found."}
 
+        if job.status == SyncJobStatus.CANCELLED.value:
+            logger.info("SyncJob %s was cancelled before execution. Halting task.", job_uuid)
+            return {"success": False, "status": job.status, "message": "Job was cancelled before execution."}
+
         # Transition to RUNNING
         job.status = SyncJobStatus.RUNNING.value
         job.started_at = datetime.now(timezone.utc)

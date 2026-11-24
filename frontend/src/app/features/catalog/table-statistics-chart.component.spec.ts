@@ -97,7 +97,7 @@ describe('TableStatisticsChartComponent (T084)', () => {
   });
 
   it('should load statistics data on tableId change and compute dual y-axis chart options', () => {
-    component.tableId = 'table-uuid-777';
+    fixture.componentRef.setInput('tableId', 'table-uuid-777');
     component.ngOnChanges({
       tableId: {
         currentValue: 'table-uuid-777',

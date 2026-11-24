@@ -2,7 +2,7 @@ import { Injectable, inject } from '@angular/core';
 import { HttpClient, HttpParams } from '@angular/common/http';
 import { Observable } from 'rxjs';
 
-export type SyncJobStatus = 'QUEUED' | 'RUNNING' | 'SUCCESS' | 'PARTIAL_FAILURE' | 'FAILED';
+export type SyncJobStatus = 'QUEUED' | 'RUNNING' | 'SUCCESS' | 'PARTIAL_FAILURE' | 'FAILED' | 'CANCELLED';
 export type SyncTriggerType = 'SCHEDULE' | 'MANUAL' | 'RETRY';
 export type CircuitState = 'CLOSED' | 'OPEN' | 'HALF_OPEN';
 
@@ -32,7 +32,26 @@ export interface SyncJobResponse {
   columns_scanned: number;
   changes_detected: number;
   error_message?: string | null;
+  priority?: number;
   created_at: string;
+}
+
+export interface SyncJobQueueItem extends SyncJobResponse {
+  connection_name?: string | null;
+  queue_position?: number | null;
+  estimated_wait_seconds?: number | null;
+}
+
+export interface SyncQueueStatusResponse {
+  worker_online: boolean;
+  running_jobs: SyncJobQueueItem[];
+  queued_jobs: SyncJobQueueItem[];
+}
+
+export interface BatchExpediteResponse {
+  jobs: SyncJobResponse[];
+  message: string;
+  total_dispatched: number;
 }
 
 export interface SyncJobDetailResponse extends SyncJobResponse {
@@ -143,6 +162,43 @@ export class SyncJobService {
     return this.http.post<SyncJobResponse>(
       `${this.syncJobsUrl}/${jobId}/retry`,
       {}
+    );
+  }
+
+  /**
+   * Retrieves the live sync queue status, worker state, and running/queued jobs.
+   */
+  getQueueStatus(): Observable<SyncQueueStatusResponse> {
+    return this.http.get<SyncQueueStatusResponse>(`${this.syncJobsUrl}/queue`);
+  }
+
+  /**
+   * Promotes a queued job to priority 10 and executes it immediately out of order.
+   */
+  expediteSyncJob(jobId: string): Observable<SyncJobResponse> {
+    return this.http.post<SyncJobResponse>(
+      `${this.syncJobsUrl}/${jobId}/expedite`,
+      {}
+    );
+  }
+
+  /**
+   * Cancels a queued or running sync job and releases the connection concurrency lock.
+   */
+  cancelSyncJob(jobId: string): Observable<SyncJobResponse> {
+    return this.http.post<SyncJobResponse>(
+      `${this.syncJobsUrl}/${jobId}/cancel`,
+      {}
+    );
+  }
+
+  /**
+   * Triggers immediate out-of-order synchronization for multiple selected databases.
+   */
+  batchExpediteSync(connectionIds: string[]): Observable<BatchExpediteResponse> {
+    return this.http.post<BatchExpediteResponse>(
+      `${this.syncJobsUrl}/batch-expedite`,
+      { connection_ids: connectionIds }
     );
   }
 

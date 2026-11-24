@@ -13,6 +13,16 @@
     </div>
 
     <div class="header-actions">
+      <!-- Batch Expedite Out-of-order Button -->
+      <button
+        type="button"
+        class="btn btn-expedite"
+        (click)="openBatchExpediteModal()"
+      >
+        <i class="pi pi-bolt"></i>
+        <span>همگام‌سازی فوری خارج از نوبت</span>
+      </button>
+
       <!-- Polling Toggle Button -->
       <button
         type="button"
@@ -53,6 +63,171 @@
     </div>
   }
 
+  <!-- Live Sync Queue & Running Jobs Card -->
+  <section class="queue-card" aria-label="صف همگام‌سازی زنده و کارهای در حال اجرا">
+    <div class="queue-card-header">
+      <div class="queue-title-wrap">
+        <div class="queue-icon-badge">
+          <i class="pi pi-sync pi-spin"></i>
+        </div>
+        <div>
+          <h3 class="queue-card-title">صف همگام‌سازی زنده و کارهای در حال اجرا</h3>
+          <p class="queue-card-subtitle">
+            وضعیت پردازشگرها، اولویت‌بندی خارج از نوبت و تخمین زمان شروع کارها
+          </p>
+        </div>
+      </div>
+
+      <div class="queue-header-meta">
+        <!-- Worker status badge -->
+        @if (queueStatus()?.worker_online) {
+          <span class="worker-badge worker-active" title="پردازشگرهای توزیع‌شده Celery متصل و فعال هستند">
+            <span class="status-pulse pulse-green"></span>
+            <i class="pi pi-server"></i>
+            <span>سرویس پردازشگر: فعال (Celery Worker)</span>
+          </span>
+        } @else {
+          <span class="worker-badge worker-direct" title="هیچ سرویس ورکر Celery فعال نیست؛ کارها مستقیماً درون سرور وب اجرا می‌شوند">
+            <span class="status-pulse pulse-amber"></span>
+            <i class="pi pi-bolt"></i>
+            <span>اجرای مستقیم درون‌پردازشی (In-Process Fallback)</span>
+          </span>
+        }
+
+        <div class="queue-counters">
+          <span class="counter-pill counter-running">
+            <i class="pi pi-spin pi-spinner"></i>
+            {{ queueStatus()?.running_jobs?.length || 0 }} در حال اجرا
+          </span>
+          <span class="counter-pill counter-queued">
+            <i class="pi pi-list"></i>
+            {{ queueStatus()?.queued_jobs?.length || 0 }} در صف نوبت
+          </span>
+        </div>
+      </div>
+    </div>
+
+    <div class="queue-card-body">
+      @if (!queueStatus() || (queueStatus()?.running_jobs?.length === 0 && queueStatus()?.queued_jobs?.length === 0)) {
+        <div class="queue-empty-state">
+          <i class="pi pi-check-circle empty-icon"></i>
+          <span class="empty-text">صف پردازش خلوت است — در حال حاضر هیچ کاری در صف انتظار یا در حال اجرا نیست.</span>
+        </div>
+      } @else {
+        <!-- Running Jobs Section -->
+        @if ((queueStatus()?.running_jobs?.length || 0) > 0) {
+          <div class="queue-section">
+            <div class="section-label running-label">
+              <i class="pi pi-spin pi-spinner"></i>
+              <span>کارهای در حال اجرا (RUNNING)</span>
+            </div>
+
+            <div class="queue-items-grid">
+              @for (job of queueStatus()!.running_jobs; track job.id) {
+                <div class="queue-job-item item-running">
+                  <div class="job-item-main">
+                    <div class="job-conn-row">
+                      <span class="job-db-icon">🗄️</span>
+                      <strong class="job-conn-name">{{ job.connection_name || 'پایگاه داده' }}</strong>
+                      <span class="badge badge-status-running">در حال اجرا</span>
+                      @if ((job.priority || 0) >= 10) {
+                        <span class="priority-badge priority-high"><i class="pi pi-bolt"></i> اولویت فوری</span>
+                      }
+                    </div>
+                    <div class="job-meta-row">
+                      <span class="mono-font job-id" [title]="job.id">شناسه: {{ job.id.substring(0, 8) }}...</span>
+                      <span>شروع: {{ formatPersianDate(job.started_at || job.created_at) }}</span>
+                      <span>محرک: {{ getTriggerLabel(job.triggered_by) }}</span>
+                    </div>
+                  </div>
+                  <div class="job-item-actions">
+                    <button
+                      type="button"
+                      class="btn-action btn-cancel-sm"
+                      (click)="onCancelJob(job)"
+                      [disabled]="isCancellingJobId() === job.id"
+                      title="لغو این کار"
+                    >
+                      <i class="pi pi-times"></i>
+                      <span>لغو</span>
+                    </button>
+                  </div>
+                </div>
+              }
+            </div>
+          </div>
+        }
+
+        <!-- Queued Jobs Section -->
+        @if ((queueStatus()?.queued_jobs?.length || 0) > 0) {
+          <div class="queue-section">
+            <div class="section-label queued-label">
+              <i class="pi pi-clock"></i>
+              <span>صف کارهای در انتظار (QUEUED) — اولویت بالا و خارج از نوبت در ابتدای صف</span>
+            </div>
+
+            <div class="queue-items-grid">
+              @for (job of queueStatus()!.queued_jobs; track job.id) {
+                <div class="queue-job-item item-queued" [class.item-promoted]="(job.priority || 0) >= 10">
+                  <div class="queue-position-badge">
+                    <span class="pos-num">نوبت {{ job.queue_position }}</span>
+                    <span class="pos-total">از {{ queueStatus()!.queued_jobs.length }}</span>
+                  </div>
+
+                  <div class="job-item-main">
+                    <div class="job-conn-row">
+                      <span class="job-db-icon">🗄️</span>
+                      <strong class="job-conn-name">{{ job.connection_name || 'پایگاه داده' }}</strong>
+                      <span class="badge badge-status-queued">در صف انتظار</span>
+                      @if ((job.priority || 0) >= 10) {
+                        <span class="priority-badge priority-high"><i class="pi pi-bolt"></i> اولویت بالا (فوری)</span>
+                      } @else {
+                        <span class="priority-badge priority-normal">نوبت عادی</span>
+                      }
+                    </div>
+
+                    <div class="job-meta-row">
+                      <span class="eta-pill" title="تخمین زمان شروع بر اساس میانگین زمان همگام‌سازی‌های اخیر">
+                        <i class="pi pi-hourglass"></i>
+                        زمان تقریبی شروع: ~{{ job.estimated_wait_seconds }} ثانیه دیگر
+                      </span>
+                      <span class="mono-font job-id" [title]="job.id">شناسه: {{ job.id.substring(0, 8) }}...</span>
+                      <span>ثبت: {{ formatPersianDate(job.created_at) }}</span>
+                    </div>
+                  </div>
+
+                  <div class="job-item-actions">
+                    <button
+                      type="button"
+                      class="btn-action btn-expedite-sm"
+                      (click)="onExpediteJob(job)"
+                      [disabled]="isExpeditingJobId() === job.id || (job.priority || 0) >= 10"
+                      title="ارتقا به اول صف و اجرای فوری خارج از نوبت"
+                    >
+                      <i class="pi pi-bolt"></i>
+                      <span>{{ isExpeditingJobId() === job.id ? 'در حال اعمال...' : 'اجرای فوری (خارج از نوبت)' }}</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      class="btn-action btn-cancel-sm"
+                      (click)="onCancelJob(job)"
+                      [disabled]="isCancellingJobId() === job.id"
+                      title="لغو این کار از صف"
+                    >
+                      <i class="pi pi-times"></i>
+                      <span>{{ isCancellingJobId() === job.id ? 'در حال لغو...' : 'لغو از صف' }}</span>
+                    </button>
+                  </div>
+                </div>
+              }
+            </div>
+          </div>
+        }
+      }
+    </div>
+  </section>
+
   <!-- Filters Toolbar -->
   <div class="toolbar-card">
     <div class="filter-group">
@@ -68,6 +243,7 @@
         <option value="SUCCESS">موفق (SUCCESS)</option>
         <option value="PARTIAL_FAILURE">شکست جزئی (PARTIAL_FAILURE)</option>
         <option value="FAILED">شکست‌خورده (FAILED)</option>
+        <option value="CANCELLED">لغو شده (CANCELLED)</option>
       </select>
     </div>
 
@@ -147,6 +323,45 @@
                   }
                 </td>
                 <td class="td-actions">
+                  <!-- Expedite & Cancel for Queued jobs -->
+                  @if (job.status === 'QUEUED') {
+                    <button
+                      type="button"
+                      class="action-btn btn-table-expedite"
+                      (click)="onExpediteJob(job)"
+                      [disabled]="isExpeditingJobId() === job.id || (job.priority || 0) >= 10"
+                      title="اجرای فوری خارج از نوبت"
+                    >
+                      <i class="pi pi-bolt"></i>
+                      <span>اجرای فوری</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      class="action-btn btn-table-cancel"
+                      (click)="onCancelJob(job)"
+                      [disabled]="isCancellingJobId() === job.id"
+                      title="لغو کار از صف"
+                    >
+                      <i class="pi pi-times"></i>
+                      <span>لغو</span>
+                    </button>
+                  }
+
+                  <!-- Cancel for Running jobs -->
+                  @if (job.status === 'RUNNING') {
+                    <button
+                      type="button"
+                      class="action-btn btn-table-cancel"
+                      (click)="onCancelJob(job)"
+                      [disabled]="isCancellingJobId() === job.id"
+                      title="لغو این کار در حال اجرا"
+                    >
+                      <i class="pi pi-times"></i>
+                      <span>لغو</span>
+                    </button>
+                  }
+
                   <!-- Diagnostic Detail Button -->
                   <button
                     type="button"
@@ -187,4 +402,111 @@
     [(visible)]="showDiagModal"
     [jobId]="selectedJobIdForDiag()"
   ></app-sync-job-diagnostic-modal>
+
+  <!-- Batch Expedite Modal -->
+  @if (showBatchModal()) {
+    <div class="modal-backdrop" (click)="closeBatchExpediteModal()">
+      <div class="modal-card" dir="rtl" (click)="$event.stopPropagation()">
+        <div class="modal-header">
+          <div class="modal-title-wrap">
+            <span class="modal-bolt-icon"><i class="pi pi-bolt"></i></span>
+            <div>
+              <h3>همگام‌سازی فوری خارج از نوبت پایگاه‌های داده</h3>
+              <p class="modal-subtitle">
+                یک یا چند پایگاه داده را انتخاب کنید تا عملیات همگام‌سازی متادیتا بلافاصله و خارج از نوبت عادی اجرا شود.
+              </p>
+            </div>
+          </div>
+          <button type="button" class="btn-modal-close" (click)="closeBatchExpediteModal()">
+            <i class="pi pi-times"></i>
+          </button>
+        </div>
+
+        <div class="modal-body">
+          <!-- Search & Select All Toolbar -->
+          <div class="modal-search-bar">
+            <div class="search-input-wrap">
+              <i class="pi pi-search search-icon"></i>
+              <input
+                type="text"
+                class="form-control modal-search-input"
+                placeholder="جستجو در عنوان، میزبان یا نام پایگاه داده..."
+                [ngModel]="connectionSearchQuery()"
+                (ngModelChange)="connectionSearchQuery.set($event)"
+              />
+            </div>
+            <button
+              type="button"
+              class="btn btn-outline btn-sm"
+              (click)="toggleSelectAllConnections()"
+            >
+              {{ areAllFilteredSelected() ? 'لغو انتخاب همه' : 'انتخاب همه نتایج' }}
+            </button>
+          </div>
+
+          <!-- Connection Selection List -->
+          @if (isLoadingConnections()) {
+            <div class="modal-loading">
+              <i class="pi pi-spin pi-spinner"></i>
+              <span>در حال بارگذاری لیست پایگاه‌های داده...</span>
+            </div>
+          } @else if (filteredConnections().length === 0) {
+            <div class="modal-empty">
+              <span>هیچ پایگاه‌داده‌ای منطبق با جستجو یافت نشد.</span>
+            </div>
+          } @else {
+            <div class="connection-selection-list">
+              @for (conn of filteredConnections(); track conn.id) {
+                <label class="connection-item-row" [class.selected]="isConnectionSelected(conn.id)">
+                  <input
+                    type="checkbox"
+                    class="conn-checkbox"
+                    [checked]="isConnectionSelected(conn.id)"
+                    (change)="toggleConnectionSelection(conn.id)"
+                  />
+                  <div class="conn-info">
+                    <div class="conn-name-row">
+                      <strong class="conn-title">{{ conn.name }}</strong>
+                      <span class="badge badge-engine">{{ conn.engine_type }}</span>
+                    </div>
+                    <div class="conn-sub-row">
+                      <span>میزبان: {{ conn.host }}:{{ conn.port }}</span>
+                      <span>نام پایگاه: {{ conn.database_name }}</span>
+                    </div>
+                  </div>
+                </label>
+              }
+            </div>
+          }
+        </div>
+
+        <div class="modal-footer">
+          <div class="selected-summary">
+            <span>تعداد انتخاب شده: <strong>{{ selectedConnectionIds().length }}</strong> پایگاه داده</span>
+          </div>
+          <div class="modal-footer-actions">
+            <button
+              type="button"
+              class="btn btn-outline"
+              (click)="closeBatchExpediteModal()"
+              [disabled]="isBatchSubmitting()"
+            >
+              انصراف
+            </button>
+            <button
+              type="button"
+              class="btn btn-expedite-submit"
+              (click)="onBatchExpediteSubmit()"
+              [disabled]="selectedConnectionIds().length === 0 || isBatchSubmitting()"
+            >
+              <i class="pi pi-bolt"></i>
+              <span>
+                {{ isBatchSubmitting() ? 'در حال ارسال...' : 'شروع همگام‌سازی فوری (' + selectedConnectionIds().length + ' پایگاه داده)' }}
+              </span>
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  }
 </div>

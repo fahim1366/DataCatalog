@@ -23,98 +23,186 @@
 
   <!-- Main Content: Split View -->
   <div class="split-container">
-    <!-- Right Sidebar: Database Hierarchy Tree -->
+    <!-- Right Sidebar: Database Hierarchy Tree matching DbUserMonitorComponent and CatalogExplorerComponent -->
     <aside class="sidebar-tree-pane card">
       <div class="pane-header">
-        <h2 class="pane-title">پایگاه‌های داده متصل</h2>
-        <span class="pane-badge">{{ rawCategoryTree().length }} ریشه موضوعی</span>
+        <div class="pane-title-group">
+          <i class="pi pi-sitemap pane-icon"></i>
+          <h2 class="pane-title">درختواره پایگاه‌های داده</h2>
+        </div>
+        <span class="pane-badge" title="تعداد پایگاه‌های داده منطبق">{{ totalFilteredDatabasesCount() }} پایگاه داده</span>
       </div>
 
-      <div class="search-box">
-        <span class="search-icon">🔍</span>
-        <input
-          type="text"
-          class="search-input"
-          placeholder="جستجوی دسته‌بندی یا پایگاه داده..."
-          [value]="treeSearchTerm()"
-          (input)="treeSearchTerm.set($any($event.target).value)"
-        />
-        @if (treeSearchTerm()) {
-          <button class="clear-btn" (click)="treeSearchTerm.set('')">×</button>
-        }
+      <!-- Multi-criteria filter panel -->
+      <div class="tree-filter-panel">
+        <div class="filter-row">
+          <div class="filter-input-group">
+            <i class="pi pi-link input-icon"></i>
+            <input
+              type="text"
+              class="sidebar-filter-input"
+              placeholder="نام اتصال..."
+              [ngModel]="filterConnectionName()"
+              (ngModelChange)="filterConnectionName.set($event)"
+            />
+          </div>
+          <div class="filter-input-group">
+            <i class="pi pi-database input-icon"></i>
+            <input
+              type="text"
+              class="sidebar-filter-input td-mono"
+              placeholder="نام دیتابیس..."
+              [ngModel]="filterDatabaseName()"
+              (ngModelChange)="filterDatabaseName.set($event)"
+            />
+          </div>
+        </div>
+
+        <div class="filter-row">
+          <div class="filter-input-group">
+            <i class="pi pi-globe input-icon"></i>
+            <input
+              type="text"
+              class="sidebar-filter-input td-mono td-ltr"
+              placeholder="IP / هاست..."
+              [ngModel]="filterHost()"
+              (ngModelChange)="filterHost.set($event)"
+            />
+          </div>
+          <div class="filter-input-group">
+            <i class="pi pi-user input-icon"></i>
+            <input
+              type="text"
+              class="sidebar-filter-input"
+              placeholder="مالک..."
+              [ngModel]="filterOwner()"
+              (ngModelChange)="filterOwner.set($event)"
+            />
+          </div>
+        </div>
+
+        <div class="filter-row engine-row">
+          <select
+            class="sidebar-filter-select"
+            [ngModel]="filterEngineType()"
+            (ngModelChange)="filterEngineType.set($event)"
+          >
+            <option value="">همه موتورها</option>
+            <option value="POSTGRESQL">PostgreSQL</option>
+            <option value="MSSQL">MSSQL</option>
+            <option value="ORACLE">Oracle</option>
+            <option value="MYSQL">MySQL</option>
+            <option value="CLICKHOUSE">ClickHouse</option>
+            <option value="MONGODB">MongoDB</option>
+          </select>
+
+          @if (hasActiveTreeFilters()) {
+            <button
+              type="button"
+              class="btn-clear-tree-filters"
+              (click)="clearTreeFilters()"
+              title="پاکسازی تمامی فیلترها"
+            >
+              <i class="pi pi-filter-slash"></i>
+              <span>پاکسازی</span>
+            </button>
+          }
+        </div>
       </div>
 
-      @if (isLoadingTree()) {
-        <div class="tree-loading">
-          <span class="spinner"></span>
-          <span>در حال دریافت ساختار پایگاه‌های داده...</span>
-        </div>
-      } @else if (filteredTree().length === 0) {
-        <div class="tree-empty">
-          <span>موردی یافت نشد.</span>
-        </div>
-      } @else {
-        <div class="tree-scroll-container">
-          <ul class="tree-root-list">
-            @for (cat of filteredTree(); track cat.id) {
+      <!-- Tree scroll container -->
+      <div class="tree-scroll-container">
+        @if (isLoadingTree()) {
+          <div class="tree-loading">
+            <i class="pi pi-spin pi-spinner"></i>
+            <span>در حال دریافت ساختار پایگاه‌های داده...</span>
+          </div>
+        } @else if (displayTree().length === 0 && !uncategorizedNode()) {
+          <div class="tree-empty">
+            <i class="pi pi-info-circle"></i>
+            <span>موردی با شرایط جستجو یافت نشد.</span>
+            @if (hasActiveTreeFilters()) {
+              <button type="button" class="btn-clear-tree-filters mt-2" (click)="clearTreeFilters()">
+                پاکسازی فیلترها
+              </button>
+            }
+          </div>
+        } @else {
+          <div class="category-tree">
+            @for (rootNode of displayTree(); track rootNode.id) {
               <ng-container
-                *ngTemplateOutlet="categoryNodeTpl; context: { cat: cat, level: 0 }"
+                *ngTemplateOutlet="categoryNodeTpl; context: { node: rootNode, depth: 0 }"
               ></ng-container>
             }
-          </ul>
-        </div>
-      }
+
+            @if (uncategorizedNode(); as uncat) {
+              <ng-container
+                *ngTemplateOutlet="categoryNodeTpl; context: { node: uncat, depth: 0, isUncategorized: true }"
+              ></ng-container>
+            }
+          </div>
+        }
+      </div>
     </aside>
 
-    <!-- Recursive Category Tree Node Template -->
-    <ng-template #categoryNodeTpl let-cat="cat" let-level="level">
-      <li class="tree-cat-node" [style.padding-right.px]="level * 16">
-        <div class="cat-header-row" (click)="toggleCategory(cat.id)">
-          <span class="expand-arrow" [class.expanded]="expandedCategoryIds().has(cat.id)">
-            {{ expandedCategoryIds().has(cat.id) ? '▾' : '▸' }}
-          </span>
-          <span class="folder-icon">{{ expandedCategoryIds().has(cat.id) ? '📂' : '📁' }}</span>
-          <span class="cat-name">{{ cat.name }}</span>
-          @if (cat.databases?.length) {
-            <span class="count-pill">{{ cat.databases.length }} پایگاه</span>
-          }
+    <!-- Recursive Category Tree Node Template matching DbUserMonitorComponent and CatalogExplorerComponent -->
+    <ng-template #categoryNodeTpl let-node="node" let-depth="depth" let-isUncat="isUncategorized">
+      <div class="tree-category-item" [style.padding-right.px]="depth * 14">
+        <div
+          class="category-header-row"
+          [class.expanded]="isCategoryExpanded(node)"
+          [class.uncategorized-header]="isUncat"
+          (click)="toggleCategory(node, $event)"
+        >
+          <i
+            class="pi expand-chevron"
+            [ngClass]="isCategoryExpanded(node) ? 'pi-chevron-down' : 'pi-chevron-left'"
+          ></i>
+          <i
+            class="pi category-icon"
+            [ngClass]="isUncat ? 'pi-inbox text-warning' : (isCategoryExpanded(node) ? 'pi-folder-open text-primary' : 'pi-folder text-primary')"
+          ></i>
+          <span class="category-name" [title]="node.description || node.name">{{ node.name }}</span>
+          <span class="category-count-badge">{{ node.connections.length }}</span>
         </div>
 
-        @if (expandedCategoryIds().has(cat.id)) {
-          <!-- Child Categories -->
-          @if (cat.children?.length) {
-            <ul class="tree-child-list">
-              @for (child of cat.children; track child.id) {
-                <ng-container
-                  *ngTemplateOutlet="categoryNodeTpl; context: { cat: child, level: level + 1 }"
-                ></ng-container>
-              }
-            </ul>
-          }
+        @if (isCategoryExpanded(node)) {
+          <div class="category-children-container">
+            <!-- Subcategories Recursion -->
+            @for (child of node.children; track child.id) {
+              <ng-container
+                *ngTemplateOutlet="categoryNodeTpl; context: { node: child, depth: depth + 1 }"
+              ></ng-container>
+            }
 
-          <!-- Direct Database items -->
-          @if (cat.databases?.length) {
-            <ul class="tree-db-list" [style.padding-right.px]="(level + 1) * 16">
-              @for (db of cat.databases; track db.id) {
-                <li
-                  class="tree-db-item"
-                  [class.active]="selectedDatabase()?.id === db.id"
-                  (click)="selectDatabase({ id: db.id, name: db.name, engine_type: db.engine_type, database_name: db.database_name, category_name: cat.name })"
-                >
-                  <span class="db-icon">🗄️</span>
-                  <div class="db-meta">
-                    <span class="db-name">{{ db.name }}</span>
-                    <span class="db-sub">{{ db.database_name }}</span>
-                  </div>
-                  <span class="engine-badge" [attr.data-engine]="db.engine_type">
-                    {{ db.engine_type }}
+            <!-- Databases assigned to this category -->
+            @for (conn of node.connections; track conn.id) {
+              <button
+                type="button"
+                class="connection-card-btn"
+                [class.active]="selectedDatabase()?.id === conn.id"
+                (click)="selectConnection(conn, node.name)"
+              >
+                <div class="card-top-row">
+                  <span class="engine-badge" [attr.data-engine]="conn.engine_type">
+                    {{ conn.engine_type }}
                   </span>
-                </li>
-              }
-            </ul>
-          }
+                  <span class="status-indicator-dot" [class.online]="conn.is_active" title="وضعیت فعال"></span>
+                </div>
+                <div class="card-name">{{ conn.name }}</div>
+                <div class="card-endpoint td-mono td-ltr">{{ conn.host }}:{{ conn.port }}</div>
+                <div class="card-db-name td-mono">{{ conn.database_name }}</div>
+                @if (conn.owner) {
+                  <div class="card-owner">
+                    <i class="pi pi-user me-1"></i>
+                    <span>{{ conn.owner }}</span>
+                  </div>
+                }
+              </button>
+            }
+          </div>
         }
-      </li>
+      </div>
     </ng-template>
 
     <!-- Left Content: Schedule Editor & Operations -->
@@ -154,7 +242,7 @@
             </div>
           </div>
 
-          <!-- Execution Stats -->
+          <!-- Execution Stats Table/Grid -->
           <div class="execution-stats-grid">
             <div class="stat-box">
               <span class="stat-label">وضعیت آخرین اجرا</span>
@@ -173,14 +261,14 @@
 
             <div class="stat-box">
               <span class="stat-label">تاریخ آخرین اجرا</span>
-              <span class="stat-value">
+              <span class="stat-value td-mono">
                 {{ currentSchedule()?.last_run_at ? (currentSchedule()!.last_run_at! | date:'yyyy/MM/dd HH:mm:ss') : '—' }}
               </span>
             </div>
 
             <div class="stat-box">
               <span class="stat-label">اجرای برنامه‌ریزی‌شده بعدی</span>
-              <span class="stat-value">
+              <span class="stat-value td-mono">
                 {{ currentSchedule()?.next_run_at ? (currentSchedule()!.next_run_at! | date:'yyyy/MM/dd HH:mm:ss') : 'خودکار توسط زمان‌بند' }}
               </span>
             </div>
@@ -219,7 +307,7 @@
                   (click)="applyPreset(preset)"
                 >
                   <span class="chip-name">{{ preset.label }}</span>
-                  <code class="chip-code">{{ preset.expression }}</code>
+                  <code class="chip-code td-mono">{{ preset.expression }}</code>
                 </button>
               }
             </div>
@@ -236,7 +324,7 @@
                 id="cron_expression"
                 type="text"
                 dir="ltr"
-                class="form-control mono-font"
+                class="form-control cron-input td-mono"
                 placeholder="0 2 * * *"
                 formControlName="cron_expression"
                 [class.invalid]="scheduleForm.controls.cron_expression.invalid && scheduleForm.controls.cron_expression.touched"

@@ -63,8 +63,8 @@ describe('SyncJobDiagnosticModalComponent (T082)', () => {
   });
 
   it('should display JSON breakdown of failed schemas when modal is opened', () => {
-    component.jobId = mockDetail.id;
-    component.visible = true;
+    fixture.componentRef.setInput('jobId', mockDetail.id);
+    fixture.componentRef.setInput('visible', true);
     component.ngOnChanges({
       visible: {
         currentValue: true,
@@ -90,8 +90,8 @@ describe('SyncJobDiagnosticModalComponent (T082)', () => {
   });
 
   it('should render copyable stack trace and copy JSON to clipboard', async () => {
-    component.jobId = mockDetail.id;
-    component.visible = true;
+    fixture.componentRef.setInput('jobId', mockDetail.id);
+    fixture.componentRef.setInput('visible', true);
     component.jobDetail.set(mockDetail);
     fixture.detectChanges();
 

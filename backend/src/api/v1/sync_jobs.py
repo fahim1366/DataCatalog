@@ -4,7 +4,7 @@ import asyncio
 import base64
 import json
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 import uuid
 
@@ -14,15 +14,24 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from backend.src.api.dependencies.rbac import UserContext, get_current_user
-from backend.src.core.celery_app import QUEUE_PRIORITY, is_broker_available
+from backend.src.core.celery_app import (
+    QUEUE_PRIORITY,
+    celery_app,
+    has_active_celery_worker,
+    is_broker_available,
+)
 from backend.src.core.database import get_db_session
-from backend.src.models.connections import DatabaseConnection
+from backend.src.models.connections import DatabaseConnection, SyncSchedule
 from backend.src.models.rbac import EntityType
 from backend.src.models.sync_jobs import SyncJob, SyncJobStatus, SyncTriggerType
 from backend.src.schemas.sync_jobs import (
+    BatchExpediteRequest,
+    BatchExpediteResponse,
     SyncJobDetailResponse,
     SyncJobListResponse,
+    SyncJobQueueItem,
     SyncJobResponse,
+    SyncQueueStatusResponse,
 )
 from backend.src.services.audit.audit_service import record_audit_event
 from backend.src.services.workers.tasks import execute_metadata_sync, manual_metadata_sync_task
@@ -112,6 +121,196 @@ async def list_sync_jobs(
 
 
 @router.get(
+    "/queue",
+    response_model=SyncQueueStatusResponse,
+    summary="Get live sync queue and running execution state",
+)
+async def get_sync_queue(
+    user_ctx: UserContext = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+) -> SyncQueueStatusResponse:
+    """
+    Returns live synchronization queue and active running jobs ordered by priority DESC, created_at ASC.
+    Calculates queue_position and estimated_wait_seconds based on recent historical average job duration.
+    """
+    worker_online = has_active_celery_worker()
+
+    # Calculate average duration of recent SUCCESS sync jobs (default 15s)
+    avg_stmt = select(func.avg(SyncJob.duration_ms)).where(
+        SyncJob.status == SyncJobStatus.SUCCESS.value,
+        SyncJob.duration_ms.is_not(None),
+        SyncJob.duration_ms > 0,
+    )
+    avg_res = await db.execute(avg_stmt)
+    avg_duration_ms = avg_res.scalar()
+    avg_seconds = max(1, round(float(avg_duration_ms) / 1000.0)) if avg_duration_ms and avg_duration_ms > 0 else 15
+
+    # Query running jobs
+    running_stmt = (
+        select(SyncJob)
+        .options(selectinload(SyncJob.connection))
+        .where(SyncJob.status == SyncJobStatus.RUNNING.value)
+        .order_by(SyncJob.started_at.desc(), SyncJob.created_at.desc())
+    )
+    running_res = await db.execute(running_stmt)
+    running_rows = list(running_res.scalars().all())
+    running_jobs = [
+        SyncJobQueueItem(
+            **SyncJobResponse.model_validate(job).model_dump(),
+            connection_name=job.connection.name if job.connection else None,
+            queue_position=None,
+            estimated_wait_seconds=None,
+        )
+        for job in running_rows
+    ]
+
+    # Query queued jobs ordered by priority DESC, created_at ASC
+    queued_stmt = (
+        select(SyncJob)
+        .options(selectinload(SyncJob.connection))
+        .where(SyncJob.status == SyncJobStatus.QUEUED.value)
+        .order_by(SyncJob.priority.desc(), SyncJob.created_at.asc())
+    )
+    queued_res = await db.execute(queued_stmt)
+    queued_rows = list(queued_res.scalars().all())
+    queued_jobs = [
+        SyncJobQueueItem(
+            **SyncJobResponse.model_validate(job).model_dump(),
+            connection_name=job.connection.name if job.connection else None,
+            queue_position=idx,
+            estimated_wait_seconds=idx * avg_seconds,
+        )
+        for idx, job in enumerate(queued_rows, start=1)
+    ]
+
+    return SyncQueueStatusResponse(
+        worker_online=worker_online,
+        running_jobs=running_jobs,
+        queued_jobs=queued_jobs,
+    )
+
+
+@router.post(
+    "/batch-expedite",
+    response_model=BatchExpediteResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Batch expedite synchronization for multiple connections out-of-order",
+)
+async def batch_expedite_sync(
+    payload: BatchExpediteRequest,
+    user_ctx: UserContext = Depends(require_manage_schedules),
+    db: AsyncSession = Depends(get_db_session),
+) -> BatchExpediteResponse:
+    """
+    Accepts connection_ids to trigger immediate out-of-order synchronization for multiple selected databases at once.
+    Promotes already-queued jobs to priority=10 or enqueues new ones.
+    """
+    dispatched_jobs = []
+    worker_online = has_active_celery_worker()
+
+    for conn_id in payload.connection_ids:
+        # Check connection exists
+        conn_stmt = select(DatabaseConnection).where(DatabaseConnection.id == conn_id)
+        conn = (await db.execute(conn_stmt)).scalar_one_or_none()
+        if not conn:
+            continue
+
+        # Check if already queued or running
+        active_stmt = select(SyncJob).where(
+            SyncJob.connection_id == conn_id,
+            SyncJob.status.in_([SyncJobStatus.QUEUED.value, SyncJobStatus.RUNNING.value]),
+        )
+        active_job = (await db.execute(active_stmt)).scalar_one_or_none()
+
+        if active_job:
+            if active_job.status == SyncJobStatus.QUEUED.value:
+                active_job.priority = 10
+                active_job.triggered_by = SyncTriggerType.MANUAL.value
+                await db.flush()
+
+                if worker_online:
+                    try:
+                        manual_metadata_sync_task.apply_async(
+                            args=[str(conn_id), str(active_job.id)],
+                            queue=QUEUE_PRIORITY,
+                            priority=9,
+                            retry=False,
+                        )
+                    except Exception:
+                        asyncio.create_task(
+                            execute_metadata_sync(connection_id=conn_id, job_id=active_job.id)
+                        )
+                else:
+                    asyncio.create_task(
+                        execute_metadata_sync(connection_id=conn_id, job_id=active_job.id)
+                    )
+
+                await record_audit_event(
+                    session=db,
+                    actor_username=user_ctx.user.username,
+                    actor_id=user_ctx.user.id,
+                    action="EXPEDITE_SYNC_JOB",
+                    entity_type=EntityType.DATABASE,
+                    entity_id=conn_id,
+                    diff_jsonb={"job_id": str(active_job.id), "priority": 10, "status": active_job.status},
+                    flush=True,
+                )
+                dispatched_jobs.append(SyncJobResponse.model_validate(active_job))
+            else:
+                dispatched_jobs.append(SyncJobResponse.model_validate(active_job))
+        else:
+            sched_stmt = select(SyncSchedule).where(SyncSchedule.connection_id == conn_id)
+            sched = (await db.execute(sched_stmt)).scalar_one_or_none()
+            new_job = SyncJob(
+                id=uuid.uuid4(),
+                connection_id=conn_id,
+                schedule_id=sched.id if sched else None,
+                status=SyncJobStatus.QUEUED.value,
+                triggered_by=SyncTriggerType.MANUAL.value,
+                priority=10,
+            )
+            db.add(new_job)
+            await db.flush()
+            await db.refresh(new_job)
+
+            if worker_online:
+                try:
+                    manual_metadata_sync_task.apply_async(
+                        args=[str(conn_id), str(new_job.id)],
+                        queue=QUEUE_PRIORITY,
+                        priority=9,
+                        retry=False,
+                    )
+                except Exception:
+                    asyncio.create_task(
+                        execute_metadata_sync(connection_id=conn_id, job_id=new_job.id)
+                    )
+            else:
+                asyncio.create_task(
+                    execute_metadata_sync(connection_id=conn_id, job_id=new_job.id)
+                )
+
+            await record_audit_event(
+                session=db,
+                actor_username=user_ctx.user.username,
+                actor_id=user_ctx.user.id,
+                action="EXPEDITE_SYNC_JOB",
+                entity_type=EntityType.DATABASE,
+                entity_id=conn_id,
+                diff_jsonb={"job_id": str(new_job.id), "priority": 10, "status": SyncJobStatus.QUEUED.value},
+                flush=True,
+            )
+            dispatched_jobs.append(SyncJobResponse.model_validate(new_job))
+
+    await db.flush()
+    return BatchExpediteResponse(
+        jobs=dispatched_jobs,
+        message=f"{len(dispatched_jobs)} پایگاه‌داده برای همگام‌سازی فوری خارج از نوبت ارسال شدند.",
+        total_dispatched=len(dispatched_jobs),
+    )
+
+
+@router.get(
     "/{job_id}",
     response_model=SyncJobDetailResponse,
     summary="Get detailed sync job diagnostics",
@@ -195,7 +394,7 @@ async def retry_sync_job(
     await db.flush()
     await db.refresh(retry_job)
 
-    if is_broker_available():
+    if has_active_celery_worker():
         try:
             manual_metadata_sync_task.apply_async(
                 args=[str(retry_job.connection_id), str(retry_job.id)],
@@ -215,7 +414,7 @@ async def retry_sync_job(
             )
     else:
         logger.info(
-            "Celery broker not reachable. Executing retry sync in-process via asyncio.create_task for connection %s.",
+            "Celery worker not online. Executing retry sync in-process via asyncio.create_task for connection %s.",
             retry_job.connection_id,
         )
         asyncio.create_task(
@@ -238,3 +437,148 @@ async def retry_sync_job(
     await db.flush()
 
     return SyncJobResponse.model_validate(retry_job)
+
+
+@router.post(
+    "/{job_id}/expedite",
+    response_model=SyncJobResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Expedite a queued sync job out of order",
+)
+async def expedite_sync_job(
+    job_id: uuid.UUID,
+    user_ctx: UserContext = Depends(require_manage_schedules),
+    db: AsyncSession = Depends(get_db_session),
+) -> SyncJobResponse:
+    """
+    Promotes a QUEUED job to priority = 10 (triggered_by = MANUAL), dispatches it immediately
+    (or executes directly via asyncio.create_task if no worker is active),
+    emits an EXPEDITE_SYNC_JOB AuditLog event, and returns the updated SyncJobResponse.
+    """
+    stmt = select(SyncJob).where(SyncJob.id == job_id)
+    res = await db.execute(stmt)
+    job = res.scalar_one_or_none()
+    if job is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"SyncJob '{job_id}' not found.",
+        )
+    if job.status != SyncJobStatus.QUEUED.value:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"تنها کارهای در صف انتظار (QUEUED) امکان اجرای فوری دارند. وضعیت فعلی: {job.status}",
+        )
+
+    job.priority = 10
+    job.triggered_by = SyncTriggerType.MANUAL.value
+    await db.flush()
+
+    if has_active_celery_worker():
+        try:
+            manual_metadata_sync_task.apply_async(
+                args=[str(job.connection_id), str(job.id)],
+                queue=QUEUE_PRIORITY,
+                priority=9,
+                retry=False,
+            )
+        except Exception as exc:
+            logger.warning(
+                "Could not dispatch Celery task (%s). Falling back to in-process execution via asyncio.create_task.",
+                exc,
+            )
+            asyncio.create_task(
+                execute_metadata_sync(
+                    connection_id=job.connection_id,
+                    job_id=job.id,
+                )
+            )
+    else:
+        logger.info(
+            "Celery worker not online. Executing expedited sync in-process via asyncio.create_task for connection %s.",
+            job.connection_id,
+        )
+        asyncio.create_task(
+            execute_metadata_sync(
+                connection_id=job.connection_id,
+                job_id=job.id,
+            )
+        )
+
+    await record_audit_event(
+        session=db,
+        actor_username=user_ctx.user.username,
+        actor_id=user_ctx.user.id,
+        action="EXPEDITE_SYNC_JOB",
+        entity_type=EntityType.DATABASE,
+        entity_id=job.connection_id,
+        diff_jsonb={"job_id": str(job.id), "priority": 10, "status": job.status},
+        flush=True,
+    )
+    await db.flush()
+    await db.refresh(job)
+
+    return SyncJobResponse.model_validate(job)
+
+
+@router.post(
+    "/{job_id}/cancel",
+    response_model=SyncJobResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Cancel a queued or running sync job",
+)
+async def cancel_sync_job(
+    job_id: uuid.UUID,
+    user_ctx: UserContext = Depends(require_manage_schedules),
+    db: AsyncSession = Depends(get_db_session),
+) -> SyncJobResponse:
+    """
+    Cancels a QUEUED (or stuck) job by setting status = 'CANCELLED',
+    completed_at = now(), error_message = 'لغو شده توسط کاربر', revoking any Celery task if present,
+    emitting a CANCEL_SYNC_JOB AuditLog event, and releasing the concurrency lock so new syncs can run.
+    """
+    stmt = select(SyncJob).where(SyncJob.id == job_id)
+    res = await db.execute(stmt)
+    job = res.scalar_one_or_none()
+    if job is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"SyncJob '{job_id}' not found.",
+        )
+    if job.status in [
+        SyncJobStatus.SUCCESS.value,
+        SyncJobStatus.FAILED.value,
+        SyncJobStatus.PARTIAL_FAILURE.value,
+        SyncJobStatus.CANCELLED.value,
+    ]:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"این کار همگام‌سازی قبلاً به پایان رسیده است یا لغو شده است (وضعیت: {job.status}).",
+        )
+
+    now = datetime.now(timezone.utc)
+    job.status = SyncJobStatus.CANCELLED.value
+    job.completed_at = now
+    job.error_message = "لغو شده توسط کاربر"
+    if job.started_at:
+        job.duration_ms = int((now - job.started_at).total_seconds() * 1000)
+
+    try:
+        celery_app.control.revoke(str(job.id), terminate=True)
+    except Exception as exc:
+        logger.debug("Failed or skipped Celery task revoke for job %s: %s", job.id, exc)
+
+    await record_audit_event(
+        session=db,
+        actor_username=user_ctx.user.username,
+        actor_id=user_ctx.user.id,
+        action="CANCEL_SYNC_JOB",
+        entity_type=EntityType.DATABASE,
+        entity_id=job.connection_id,
+        diff_jsonb={"job_id": str(job.id), "status": SyncJobStatus.CANCELLED.value},
+        flush=True,
+    )
+    await db.flush()
+    await db.refresh(job)
+
+    return SyncJobResponse.model_validate(job)
+

@@ -1,4 +1,4 @@
-@if (visible) {
+@if (visible()) {
   <div class="modal-backdrop" (click)="close()">
     <div class="modal-dialog" (click)="$event.stopPropagation()" dir="rtl">
       <!-- Modal Header -->
@@ -6,11 +6,21 @@
         <div class="header-titles">
           <div class="diag-modal-title">
             <span class="header-icon">🔍</span>
-            <h3>تشخیص و خطایابی همگام‌سازی: {{ jobDetail()?.connection_name || 'جاب بدون نام' }}</h3>
+            <h3>
+              تشخیص و خطایابی همگام‌سازی:
+              {{ jobDetail()?.connection_name || "جاب بدون نام" }}
+            </h3>
           </div>
           <div class="meta-row">
-            <span class="badge badge-status-{{ jobDetail()?.status?.toLowerCase() }}">{{ jobDetail()?.status }}</span>
-            <span class="mono-font text-muted">شناسه: {{ jobDetail()?.id }}</span>
+            <span
+              class="badge badge-status-{{
+                jobDetail()?.status?.toLowerCase()
+              }}"
+              >{{ jobDetail()?.status }}</span
+            >
+            <span class="mono-font text-muted"
+              >شناسه: {{ jobDetail()?.id }}</span
+            >
           </div>
         </div>
         <button class="btn-close" (click)="close()" aria-label="بستن">✕</button>
@@ -33,19 +43,29 @@
           <div class="metrics-grid">
             <div class="metric-card">
               <span class="metric-label">مدت زمان اجرا</span>
-              <span class="metric-value mono-font">{{ job.duration_ms ? (job.duration_ms / 1000).toFixed(2) + ' ثانیه' : '—' }}</span>
+              <span class="metric-value mono-font">{{
+                job.duration_ms
+                  ? (job.duration_ms / 1000).toFixed(2) + " ثانیه"
+                  : "—"
+              }}</span>
             </div>
             <div class="metric-card">
               <span class="metric-label">جداول اسکن‌شده</span>
-              <span class="metric-value mono-font">{{ job.tables_scanned }}</span>
+              <span class="metric-value mono-font">{{
+                job.tables_scanned
+              }}</span>
             </div>
             <div class="metric-card">
               <span class="metric-label">ستون‌های بررسی‌شده</span>
-              <span class="metric-value mono-font">{{ job.columns_scanned }}</span>
+              <span class="metric-value mono-font">{{
+                job.columns_scanned
+              }}</span>
             </div>
             <div class="metric-card">
               <span class="metric-label">تغییرات ثبت‌شده</span>
-              <span class="metric-value mono-font">{{ job.changes_detected }}</span>
+              <span class="metric-value mono-font">{{
+                job.changes_detected
+              }}</span>
             </div>
           </div>
 
@@ -58,16 +78,25 @@
           }
 
           <!-- Failed Schemas Breakdown -->
-          @if (job.error_trace_jsonb && job.error_trace_jsonb['failed_schemas']; as failedSchemas) {
+          @if (
+            job.error_trace_jsonb && job.error_trace_jsonb["failed_schemas"];
+            as failedSchemas
+          ) {
             <div class="failed-schemas-section">
-              <h4 class="section-title">اسکیماهای دارای خطا (Partial Schema Failures):</h4>
+              <h4 class="section-title">
+                اسکیماهای دارای خطا (Partial Schema Failures):
+              </h4>
               <div class="failed-schemas-list">
                 @for (fs of failedSchemas; track fs.schema) {
                   <div class="failed-schema-item">
                     <div class="schema-header">
-                      <span class="schema-name mono-font">📁 اسکیما: {{ fs.schema }}</span>
+                      <span class="schema-name mono-font"
+                        >📁 اسکیما: {{ fs.schema }}</span
+                      >
                       @if (fs.code) {
-                        <span class="error-code-badge mono-font">کد خطا: {{ fs.code }}</span>
+                        <span class="error-code-badge mono-font"
+                          >کد خطا: {{ fs.code }}</span
+                        >
                       }
                     </div>
                     <div class="schema-error mono-font">{{ fs.error }}</div>
@@ -80,8 +109,14 @@
           <!-- Full Raw Trace & Copy Button -->
           <div class="trace-section">
             <div class="trace-header">
-              <h4 class="section-title">لاگ کامل خطا و ساختار JSONB (Error Trace Stack):</h4>
-              <button type="button" class="btn btn-sm btn-outline btn-copy-trace" (click)="copyErrorTrace()">
+              <h4 class="section-title">
+                لاگ کامل خطا و ساختار JSONB (Error Trace Stack):
+              </h4>
+              <button
+                type="button"
+                class="btn btn-sm btn-outline btn-copy-trace"
+                (click)="copyErrorTrace()"
+              >
                 @if (copied()) {
                   <span>✓ کپی شد!</span>
                 } @else {
@@ -89,14 +124,18 @@
                 }
               </button>
             </div>
-            <pre class="trace-box mono-font">{{ job.error_trace_jsonb | json }}</pre>
+            <pre class="trace-box mono-font">{{
+              job.error_trace_jsonb | json
+            }}</pre>
           </div>
         }
       </div>
 
       <!-- Modal Footer -->
       <div class="modal-footer">
-        <button type="button" class="btn btn-secondary" (click)="close()">بستن</button>
+        <button type="button" class="btn btn-secondary" (click)="close()">
+          بستن
+        </button>
       </div>
     </div>
   </div>

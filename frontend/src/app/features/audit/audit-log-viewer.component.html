@@ -2,16 +2,21 @@
   <!-- Audit Header & Filters -->
   <header class="audit-viewer-header">
     <div class="header-titles">
-      <h2 class="viewer-title">لاگ‌های ممیزی و امنیت (Security &amp; Compliance Audit Trail)</h2>
+      <h2 class="viewer-title">
+        لاگ‌های ممیزی و امنیت (Security &amp; Compliance Audit Trail)
+      </h2>
       <p class="viewer-subtitle">
-        جریان لاگ‌های تغییرناپذیر ممیزی با پارتیشن‌بندی ماهانه دیتابیس جهت ردیابی تمامی رویدادهای احراز هویت، مجوزها و تغییرات متادیتا.
+        جریان لاگ‌های تغییرناپذیر ممیزی با پارتیشن‌بندی ماهانه دیتابیس جهت
+        ردیابی تمامی رویدادهای احراز هویت، مجوزها و تغییرات متادیتا.
       </p>
     </div>
 
     <!-- Filter Toolbar -->
     <div class="filter-toolbar">
       <div class="filter-group">
-        <label for="filter-entity-type" class="filter-label">نوع موجودیت (Entity Type)</label>
+        <label for="filter-entity-type" class="filter-label"
+          >نوع موجودیت (Entity Type)</label
+        >
         <select
           id="filter-entity-type"
           class="filter-control select-control"
@@ -27,7 +32,9 @@
       </div>
 
       <div class="filter-group">
-        <label for="filter-action" class="filter-label">نوع عملیات (Action)</label>
+        <label for="filter-action" class="filter-label"
+          >نوع عملیات (Action)</label
+        >
         <input
           id="filter-action"
           type="text"
@@ -39,7 +46,9 @@
       </div>
 
       <div class="filter-group">
-        <label for="filter-actor-id" class="filter-label">شناسه کاربر (Actor ID)</label>
+        <label for="filter-actor-id" class="filter-label"
+          >شناسه کاربر (Actor ID)</label
+        >
         <input
           id="filter-actor-id"
           type="text"
@@ -51,7 +60,9 @@
       </div>
 
       <div class="filter-group">
-        <label for="filter-entity-id" class="filter-label">شناسه موجودیت (Entity ID)</label>
+        <label for="filter-entity-id" class="filter-label"
+          >شناسه موجودیت (Entity ID)</label
+        >
         <input
           id="filter-entity-id"
           type="text"
@@ -63,7 +74,9 @@
       </div>
 
       <div class="filter-group">
-        <label for="filter-start-time" class="filter-label">از تاریخ (Start Time)</label>
+        <label for="filter-start-time" class="filter-label"
+          >از تاریخ (Start Time)</label
+        >
         <input
           id="filter-start-time"
           type="datetime-local"
@@ -74,7 +87,9 @@
       </div>
 
       <div class="filter-group">
-        <label for="filter-end-time" class="filter-label">تا تاریخ (End Time)</label>
+        <label for="filter-end-time" class="filter-label"
+          >تا تاریخ (End Time)</label
+        >
         <input
           id="filter-end-time"
           type="datetime-local"
@@ -106,10 +121,12 @@
   </header>
 
   <!-- Error Alert -->
-  <div *ngIf="errorMessage()" class="audit-error-alert" role="alert">
-    <span class="error-icon">⚠</span>
-    <span>{{ errorMessage() }}</span>
-  </div>
+  @if (errorMessage()) {
+    <div class="audit-error-alert" role="alert">
+      <span class="error-icon">⚠</span>
+      <span>{{ errorMessage() }}</span>
+    </div>
+  }
 
   <!-- Table Viewport Wrapper -->
   <div class="audit-table-card">
@@ -124,80 +141,97 @@
     </div>
 
     <!-- Loading State -->
-    <div *ngIf="isLoading()" class="audit-loading-state">
-      <div class="spinner"></div>
-      <span>در حال بارگذاری لاگ‌های ممیزی...</span>
-    </div>
+    @if (isLoading()) {
+      <div class="audit-loading-state">
+        <div class="spinner"></div>
+        <span>در حال بارگذاری لاگ‌های ممیزی...</span>
+      </div>
+    }
 
     <!-- Empty State -->
-    <div *ngIf="!isLoading() && items().length === 0" class="empty-audit-state">
-      <div class="empty-icon">🛡</div>
-      <h4>هیچ لاگ ممیزی یافت نشد (No audit records found)</h4>
-      <p>هیچ رویدادی مطابق با فیلترهای انتخابی پیدا نشد. لطفا فیلترها را تنظیم یا بازنشانی کنید.</p>
-    </div>
+    @if (!isLoading() && items().length === 0) {
+      <div class="empty-audit-state">
+        <div class="empty-icon">🛡</div>
+        <h4>هیچ لاگ ممیزی یافت نشد (No audit records found)</h4>
+        <p>
+          هیچ رویدادی مطابق با فیلترهای انتخابی پیدا نشد. لطفا فیلترها را تنظیم
+          یا بازنشانی کنید.
+        </p>
+      </div>
+    }
 
     <!-- CDK Virtual Scroll Viewport -->
-    <cdk-virtual-scroll-viewport
-      *ngIf="!isLoading() && items().length > 0"
-      itemSize="52"
-      class="audit-viewport"
-      (scrolledIndexChange)="onScroll($event)"
-    >
-      <div
-        *cdkVirtualFor="let item of items(); trackBy: trackById"
-        class="audit-row"
-        (click)="inspectPayload(item)"
-        tabindex="0"
-        role="row"
+    @if (!isLoading() && items().length > 0) {
+      <cdk-virtual-scroll-viewport
+        itemSize="52"
+        class="audit-viewport"
+        (scrolledIndexChange)="onScroll($event)"
       >
-        <div class="col col-timestamp" [title]="item.created_at">
-          {{ item.created_at | date: 'yyyy-MM-dd HH:mm:ss' }}
+        <div
+          *cdkVirtualFor="let item of items(); trackBy: trackById"
+          class="audit-row"
+          (click)="inspectPayload(item)"
+          tabindex="0"
+          role="row"
+        >
+          <div class="col col-timestamp" [title]="item.created_at">
+            {{ item.created_at | date: "yyyy-MM-dd HH:mm:ss" }}
+          </div>
+          <div class="col col-actor" [title]="item.actor_username">
+            <span class="actor-name">{{ item.actor_username }}</span>
+          </div>
+          <div class="col col-action">
+            <span class="badge" [ngClass]="getActionBadgeClass(item.action)">
+              {{ item.action }}
+            </span>
+          </div>
+          <div class="col col-entity-type">
+            <span
+              class="badge"
+              [ngClass]="getEntityTypeBadgeClass(item.entity_type)"
+            >
+              {{ item.entity_type }}
+            </span>
+          </div>
+          <div class="col col-entity-id font-mono" [title]="item.entity_id">
+            {{ item.entity_id }}
+          </div>
+          <div class="col col-ip font-mono" [title]="item.ip_address || '—'">
+            {{ item.ip_address || "—" }}
+          </div>
+          <div class="col col-actions">
+            <button
+              type="button"
+              class="btn-inspect inspect-payload-btn"
+              (click)="$event.stopPropagation(); inspectPayload(item)"
+            >
+              🔍 جزئیات
+            </button>
+          </div>
         </div>
-        <div class="col col-actor" [title]="item.actor_username">
-          <span class="actor-name">{{ item.actor_username }}</span>
-        </div>
-        <div class="col col-action">
-          <span class="badge" [ngClass]="getActionBadgeClass(item.action)">
-            {{ item.action }}
-          </span>
-        </div>
-        <div class="col col-entity-type">
-          <span class="badge" [ngClass]="getEntityTypeBadgeClass(item.entity_type)">
-            {{ item.entity_type }}
-          </span>
-        </div>
-        <div class="col col-entity-id font-mono" [title]="item.entity_id">
-          {{ item.entity_id }}
-        </div>
-        <div class="col col-ip font-mono" [title]="item.ip_address || '—'">
-          {{ item.ip_address || '—' }}
-        </div>
-        <div class="col col-actions">
-          <button
-            type="button"
-            class="btn-inspect inspect-payload-btn"
-            (click)="$event.stopPropagation(); inspectPayload(item)"
-          >
-            🔍 جزئیات (Inspect)
-          </button>
-        </div>
-      </div>
-
-      <!-- Infinite Scroll Loading Indicator -->
-      <div *ngIf="isLoadingMore()" class="audit-loading-more">
-        <div class="spinner-small"></div>
-        <span>در حال دریافت صفحات بعدی...</span>
-      </div>
-    </cdk-virtual-scroll-viewport>
+        <!-- Infinite Scroll Loading Indicator -->
+        @if (isLoadingMore()) {
+          <div class="audit-loading-more">
+            <div class="spinner-small"></div>
+            <span>در حال دریافت صفحات بعدی...</span>
+          </div>
+        }
+      </cdk-virtual-scroll-viewport>
+    }
   </div>
 
   <!-- Detail Inspection Drawer / Modal -->
-  <ng-container *ngIf="selectedItem() as item">
+  @if (selectedItem(); as item) {
     <div class="audit-drawer-backdrop" (click)="closeDetail()"></div>
-    <aside class="audit-drawer" role="dialog" aria-labelledby="drawer-title" aria-modal="true">
+    <aside
+      class="audit-drawer"
+      role="dialog"
+      aria-labelledby="drawer-title"
+      aria-modal="true"
+    >
       <div class="drawer-header">
         <div class="drawer-title-group">
-          <h3 id="drawer-title" class="drawer-title">جزئیات لاگ ممیزی (Audit Record Details)</h3>
+          <h3 id="drawer-title" class="drawer-title">جزئیات لاگ ممیزی</h3>
           <span class="badge" [ngClass]="getActionBadgeClass(item.action)">
             {{ item.action }}
           </span>
@@ -211,7 +245,6 @@
           &times;
         </button>
       </div>
-
       <div class="drawer-body">
         <section class="drawer-metadata-grid">
           <div class="meta-item">
@@ -220,7 +253,9 @@
           </div>
           <div class="meta-item">
             <span class="meta-label">شناسه کاربر (Actor ID)</span>
-            <span class="meta-value font-mono">{{ item.actor_id || 'سیستمی (System)' }}</span>
+            <span class="meta-value font-mono">{{
+              item.actor_id || "سیستمی (System)"
+            }}</span>
           </div>
           <div class="meta-item">
             <span class="meta-label">نوع موجودیت (Entity Type)</span>
@@ -236,28 +271,31 @@
           </div>
           <div class="meta-item">
             <span class="meta-label">آدرس IP</span>
-            <span class="meta-value font-mono">{{ item.ip_address || '—' }}</span>
+            <span class="meta-value font-mono">{{
+              item.ip_address || "—"
+            }}</span>
           </div>
           <div class="meta-item col-span-2">
             <span class="meta-label">مرورگر و کلاینت (User Agent)</span>
-            <span class="meta-value font-mono text-sm">{{ item.user_agent || '—' }}</span>
+            <span class="meta-value font-mono text-sm">{{
+              item.user_agent || "—"
+            }}</span>
           </div>
         </section>
-
         <section class="drawer-diff-section">
-          <h4 class="diff-title">تغییرات ثبت شده (Audit State Mutation &amp; JSON Diff)</h4>
+          <h4 class="diff-title">
+            تغییرات ثبت شده (Audit State Mutation &amp; JSON Diff)
+          </h4>
           <div class="diff-payload-content">
             <pre><code>{{ formattedDiffJson() }}</code></pre>
           </div>
         </section>
       </div>
-
       <div class="drawer-footer">
         <button type="button" class="btn-secondary" (click)="closeDetail()">
           بستن (Close)
         </button>
       </div>
     </aside>
-  </ng-container>
+  }
 </div>
-

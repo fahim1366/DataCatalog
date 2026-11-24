@@ -122,7 +122,7 @@ export class UserManagementComponent implements OnInit {
     if (uncategorizedDbs.length > 0) {
       const uncategorizedNode = {
         id: 'uncategorized',
-        name: 'پایگاه‌های داده دسته‌بندی‌نشده (Uncategorized)',
+        name: 'پایگاه‌های داده دسته‌بندی‌نشده',
         description: 'پایگاه‌های داده‌ای که به هیچ موضوعی انتساب داده نشده‌اند',
         databases: uncategorizedDbs,
         children: [],

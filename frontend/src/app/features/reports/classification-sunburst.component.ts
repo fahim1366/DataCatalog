@@ -22,7 +22,9 @@ echarts.use([SunburstChart, CanvasRenderer, TitleComponent, TooltipComponent, Le
           {{ r.total_classified_columns.toLocaleString() }} ستون طبقه‌بندی شده
         </span>
       </div>
-      <div echarts [options]="chartOptions()" class="chart-container"></div>
+      <div class="chart-wrapper" dir="ltr">
+        <div echarts [options]="chartOptions()" class="chart-container"></div>
+      </div>
     </div>
   `,
   styles: [
@@ -60,10 +62,15 @@ echarts.use([SunburstChart, CanvasRenderer, TitleComponent, TooltipComponent, Le
         padding: 0.25rem 0.625rem;
         border-radius: 9999px;
       }
-      .chart-container {
-        height: 320px;
+      .chart-wrapper {
+        position: relative;
+        height: 280px;
         width: 100%;
-        min-height: 280px;
+        overflow: hidden;
+      }
+      .chart-container {
+        height: 100%;
+        width: 100%;
       }
     `,
   ],
@@ -71,7 +78,7 @@ echarts.use([SunburstChart, CanvasRenderer, TitleComponent, TooltipComponent, Le
 })
 export class ClassificationSunburstComponent {
   readonly report = input<ClassificationReport | null>(null);
-  readonly title = input<string>('توزیع محرمانگی و داده‌های حساس (Classification & PII Distribution)');
+  readonly title = input<string>('توزیع محرمانگی و داده‌های حساس');
 
   readonly chartOptions = computed<echarts.EChartsCoreOption>(() => {
     const rep = this.report();
@@ -103,6 +110,10 @@ export class ClassificationSunburstComponent {
     }));
 
     return {
+      legend: {
+        bottom: 0,
+        orient: 'horizontal',
+      },
       tooltip: {
         trigger: 'item',
         formatter: (params: any) => {

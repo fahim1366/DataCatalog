@@ -23,16 +23,16 @@
   <div class="subnav-header">
     <div class="subnav-tabs">
       <div class="subnav-tab active">
+        <i class="pi pi-users tab-icon"></i>
         <span>کاربران</span>
-        <i class="pi pi-times tab-close-icon"></i>
       </div>
       <a routerLink="/admin/roles" class="subnav-tab inactive">
+        <i class="pi pi-shield tab-icon"></i>
         <span>نقش‌ها</span>
-        <i class="pi pi-times tab-close-icon"></i>
       </a>
       <a routerLink="/admin/db-users" class="subnav-tab inactive" *hasPermission="'MANAGE_DB_USERS'">
+        <i class="pi pi-database tab-icon"></i>
         <span>پایش کاربران دیتابیس</span>
-        <i class="pi pi-times tab-close-icon"></i>
       </a>
     </div>
 

@@ -335,7 +335,7 @@ describe('UserManagementComponent', () => {
     expect(displayTree.length).toBe(2);
     const uncatNode = displayTree.find((n) => n.id === 'uncategorized');
     expect(uncatNode).toBeDefined();
-    expect(uncatNode?.name).toBe('پایگاه‌های داده دسته‌بندی‌نشده (Uncategorized)');
+    expect(uncatNode?.name).toBe('پایگاه‌های داده دسته‌بندی‌نشده');
     expect(uncatNode?.databases.length).toBe(1);
     expect(uncatNode?.databases[0].id).toBe('db-2');
   });

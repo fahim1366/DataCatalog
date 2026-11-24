@@ -32,19 +32,6 @@
       </div>
     </div>
 
-    <!-- Secondary Tree Toolbar Actions -->
-    <div class="tree-actions-subtle">
-      <button
-        *hasPermission="'MANAGE_CONNECTIONS'"
-        type="button"
-        class="btn-subtle-ingest"
-        (click)="openIngestionModal()"
-        title="بارگذاری ساختار متادیتا به صورت دسته‌ای"
-      >
-        <span>+ بارگذاری متادیتا (JSON)</span>
-      </button>
-    </div>
-
     <!-- Tree Content View -->
     <div class="tree-scroll-area">
       @if (isTreeLoading()) {
@@ -129,7 +116,7 @@
                     *hasPermission="'MANAGE_CONNECTIONS'"
                     type="button"
                     class="btn-sync-inline"
-                    title="همگام‌سازی فوری پایگاه داده (Sync)"
+                    title="همگام‌سازی فوری پایگاه داده"
                     (click)="triggerDatabaseSync(conn, $event)"
                   >
                     ↻
@@ -277,9 +264,9 @@
           <label>سطح محرمانگی:</label>
           <select class="filter-select" [(ngModel)]="selectedClassification" (change)="executeSearch()">
             <option value="">همه سطوح</option>
-            <option value="PUBLIC">عمومی (PUBLIC)</option>
-            <option value="INTERNAL">داخلی (INTERNAL)</option>
-            <option value="CONFIDENTIAL">محرمانه (CONFIDENTIAL)</option>
+            <option value="PUBLIC">عمومی</option>
+            <option value="INTERNAL">داخلی</option>
+            <option value="CONFIDENTIAL">محرمانه</option>
             <option value="PII">حاوی اطلاعات هویتی (PII)</option>
           </select>
         </div>
@@ -288,19 +275,9 @@
           <label>وضعیت چرخه حیات:</label>
           <select class="filter-select" [(ngModel)]="selectedStatus" (change)="executeSearch()">
             <option value="">همه وضعیت‌ها</option>
-            <option value="ACTIVE">فعال (ACTIVE)</option>
-            <option value="DEPRECATED">منسوخ (DEPRECATED)</option>
-            <option value="DELETED">حذف شده (DELETED)</option>
-          </select>
-        </div>
-
-        <div class="filter-item">
-          <label>تگ سازمانی:</label>
-          <select class="filter-select" [(ngModel)]="selectedTag" (change)="executeSearch()">
-            <option value="">همه تگ‌ها</option>
-            @for (t of availableTags(); track t.id) {
-              <option [value]="t.name">{{ t.name }}</option>
-            }
+            <option value="ACTIVE">فعال</option>
+            <option value="DEPRECATED">منسوخ</option>
+            <option value="DELETED">حذف شده</option>
           </select>
         </div>
 
@@ -325,7 +302,7 @@
             [class.active]="missingDescriptionsOnly()"
             (click)="toggleMissingDescriptionsOnly()"
           >
-            <span><i class="pi pi-exclamation-triangle me-1"></i> فقط موارد فاقد توضیحات (Missing Only)</span>
+            <span><i class="pi pi-exclamation-triangle me-1"></i> فقط موارد فاقد توضیحات</span>
           </button>
         </div>
 
@@ -348,57 +325,39 @@
           <span class="policy-icon"><i class="pi pi-file"></i></span>
           <span class="policy-label">سیاست نمایش توضیحات:</span>
         </div>
-        <div class="policy-segmented-control">
-          <button
-            type="button"
-            class="policy-seg-btn"
-            [class.active]="descPolicy() === 'APPROVED_FIRST'"
-            (click)="setDescPolicy('APPROVED_FIRST')"
-            title="اولویت با توضیحات مصوب (Approved First)"
-          >
-            اولویت با توضیحات مصوب
-          </button>
-          <button
-            type="button"
-            class="policy-seg-btn"
-            [class.active]="descPolicy() === 'SOURCE_FIRST'"
-            (click)="setDescPolicy('SOURCE_FIRST')"
-            title="اولویت با توضیحات مبدأ دیتابیس (Source First)"
-          >
-            اولویت با توضیحات مبدأ
-          </button>
-          <button
-            type="button"
-            class="policy-seg-btn"
-            [class.active]="descPolicy() === 'BOTH'"
-            (click)="setDescPolicy('BOTH')"
-            title="نمایش ترکیبی توضیحات مصوب و مبدأ (Both)"
-          >
-            نمایش ترکیبی (هر دو)
-          </button>
+        <div class="policy-radio-group" role="radiogroup" aria-label="سیاست نمایش توضیحات">
+          <label class="policy-radio-label" [class.selected]="descPolicy() === 'APPROVED_FIRST'">
+            <input
+              type="radio"
+              name="descPolicy"
+              value="APPROVED_FIRST"
+              [checked]="descPolicy() === 'APPROVED_FIRST'"
+              (change)="setDescPolicy('APPROVED_FIRST')"
+            />
+            <span>اولویت با توضیحات مصوب</span>
+          </label>
+          <label class="policy-radio-label" [class.selected]="descPolicy() === 'SOURCE_FIRST'">
+            <input
+              type="radio"
+              name="descPolicy"
+              value="SOURCE_FIRST"
+              [checked]="descPolicy() === 'SOURCE_FIRST'"
+              (change)="setDescPolicy('SOURCE_FIRST')"
+            />
+            <span>اولویت با توضیحات مبدأ</span>
+          </label>
+          <label class="policy-radio-label" [class.selected]="descPolicy() === 'BOTH'">
+            <input
+              type="radio"
+              name="descPolicy"
+              value="BOTH"
+              [checked]="descPolicy() === 'BOTH'"
+              (change)="setDescPolicy('BOTH')"
+            />
+            <span>نمایش ترکیبی (هر دو)</span>
+          </label>
         </div>
       </div>
-
-      <!-- Multi-select Bulk Actions Bar (appears when >= 1 table selected) -->
-      @if (hasSelectedTables()) {
-        <div class="bulk-action-bar">
-          <div class="bulk-count">
-            <strong>{{ selectedCount() }}</strong> جدول انتخاب شده است
-          </div>
-          <div class="bulk-actions">
-            <button
-              *hasPermission="'MANAGE_TAGS'"
-              class="btn btn-primary btn-sm"
-              (click)="openBulkTagModal()"
-            >
-              <i class="pi pi-tags me-1"></i> تخصیص گروهی تگ (Bulk Tagging)
-            </button>
-            <button class="btn btn-secondary btn-sm" (click)="clearSelection()">
-              انصراف از انتخاب
-            </button>
-          </div>
-        </div>
-      }
     </header>
 
     <!-- Interactive Scope Breadcrumb & 4-Card KPI Strip -->
@@ -487,7 +446,7 @@
           role="tab"
         >
           <span class="tab-icon"><i class="pi pi-table"></i></span>
-          <span class="tab-label">جداول (Tables)</span>
+          <span class="tab-label">جداول</span>
           <span class="tab-count-badge">{{ objectCounts().tables }}</span>
         </button>
 
@@ -499,7 +458,7 @@
           role="tab"
         >
           <span class="tab-icon"><i class="pi pi-eye"></i></span>
-          <span class="tab-label">نماها (Views)</span>
+          <span class="tab-label">نماها</span>
           <span class="tab-count-badge">{{ objectCounts().views }}</span>
         </button>
 
@@ -511,7 +470,7 @@
           role="tab"
         >
           <span class="tab-icon"><i class="pi pi-bolt"></i></span>
-          <span class="tab-label">ایندکس‌ها (Indexes)</span>
+          <span class="tab-label">ایندکس‌ها</span>
           <span class="tab-count-badge">{{ objectCounts().indexes }}</span>
         </button>
 
@@ -523,7 +482,7 @@
           role="tab"
         >
           <span class="tab-icon"><i class="pi pi-cog"></i></span>
-          <span class="tab-label">روال‌های ذخیره (Stored Procedures)</span>
+          <span class="tab-label">روال‌های ذخیره</span>
           <span class="tab-count-badge">{{ objectCounts().procedures }}</span>
         </button>
 
@@ -535,7 +494,7 @@
           role="tab"
         >
           <span class="tab-icon"><i class="pi pi-code"></i></span>
-          <span class="tab-label">توابع (Functions)</span>
+          <span class="tab-label">توابع</span>
           <span class="tab-count-badge">{{ objectCounts().functions }}</span>
         </button>
       </div>
@@ -558,8 +517,8 @@
               <span class="hint-icon"><i class="pi pi-lightbulb"></i></span>
               <div class="hint-content">
                 <strong>راهنمای حاکمیت داده و تکمیل متادیتا:</strong><br />
-                شاخص تکمیل متادیتا (Metadata Completeness) بر پایه ثبت همزمان
-                <strong>«شرح جدول» (Table Description)</strong> و <strong>«مالک سازمانی داده» (Data Owner)</strong> محاسبه می‌شود. با تکمیل شناسنامه جداول، امتیاز حاکمیتی سازمان در داشبورد گزارشات مدیریتی ارتقا می‌یابد.
+                شاخص تکمیل متادیتا بر پایه ثبت همزمان
+                <strong>«شرح جدول»</strong> و <strong>«مالک سازمانی داده»</strong> محاسبه می‌شود. با تکمیل شناسنامه جداول، امتیاز حاکمیتی سازمان در داشبورد گزارشات مدیریتی ارتقا می‌یابد.
               </div>
             </div>
             <button class="btn btn-primary btn-sm" (click)="resetFilters()">مشاهده تمامی جداول در دسترس</button>
@@ -576,7 +535,6 @@
             </div>
             <div class="col-name">نام جدول</div>
             <div class="col-stats">تعداد رکورد / حجم</div>
-            <div class="col-tags">تگ‌های متصل</div>
             <div class="col-desc">توضیحات جدول</div>
             <div class="col-action">عملیات</div>
           </div>
@@ -624,18 +582,6 @@
                   }
                 </div>
                 <div class="text-muted">{{ (hit.size_bytes ? (hit.size_bytes / 1024 / 1024).toFixed(1) : 0) }} مگابایت</div>
-              </div>
-
-              <div class="col-tags">
-                @if (hit.tags && hit.tags.length > 0) {
-                  <div class="tags-flex">
-                    @for (tag of hit.tags; track tag.id) {
-                      <app-tag-chip [tag]="tag" [removable]="false"></app-tag-chip>
-                    }
-                  </div>
-                } @else {
-                  <span class="text-muted">-</span>
-                }
               </div>
 
               <div class="col-desc">
@@ -690,7 +636,7 @@
           <table class="data-table">
             <thead>
               <tr>
-                <th>نام نما (View Name)</th>
+                <th>نام نما</th>
                 <th>اسکیما / پایگاه داده</th>
                 <th>رکورد / حجم تقریبی</th>
                 <th>توضیحات مبدأ</th>
@@ -740,7 +686,7 @@
                 </tr>
               } @empty {
                 <tr>
-                  <td colspan="6" class="text-center empty-hint py-4">هیچ نمایی (View) در این محدوده ثبت نشده است.</td>
+                  <td colspan="6" class="text-center empty-hint py-4">هیچ نمایی در این محدوده ثبت نشده است.</td>
                 </tr>
               }
             </tbody>
@@ -752,12 +698,12 @@
           <table class="data-table">
             <thead>
               <tr>
-                <th>نام ایندکس (Index Name)</th>
+                <th>نام ایندکس</th>
                 <th>جدول و اسکیما</th>
                 <th>نوع ایندکس</th>
                 <th>ویژگی</th>
-                <th>ستون‌ها (Columns List)</th>
-                <th>تعریف DDL (Index Definition)</th>
+                <th>ستون‌ها</th>
+                <th>تعریف DDL</th>
               </tr>
             </thead>
             <tbody>
@@ -792,7 +738,7 @@
                 </tr>
               } @empty {
                 <tr>
-                  <td colspan="6" class="text-center empty-hint py-4">هیچ ایندکسی (Index) در این محدوده ثبت نشده است.</td>
+                  <td colspan="6" class="text-center empty-hint py-4">هیچ ایندکسی در این محدوده ثبت نشده است.</td>
                 </tr>
               }
             </tbody>
@@ -804,10 +750,10 @@
           <table class="data-table">
             <thead>
               <tr>
-                <th>نام روال (Procedure Name)</th>
+                <th>نام روال</th>
                 <th>اسکیما و پایگاه داده</th>
                 <th>زبان</th>
-                <th>امضا و پارامترها (Arguments)</th>
+                <th>امضا و پارامترها</th>
                 <th>توضیحات مبدأ</th>
                 <th>توضیحات مصوب</th>
               </tr>
@@ -852,7 +798,7 @@
                 </tr>
               } @empty {
                 <tr>
-                  <td colspan="6" class="text-center empty-hint py-4">هیچ روال ذخیره‌شده‌ای (Stored Procedure) در این محدوده ثبت نشده است.</td>
+                  <td colspan="6" class="text-center empty-hint py-4">هیچ روال ذخیره‌شده‌ای در این محدوده ثبت نشده است.</td>
                 </tr>
               }
             </tbody>
@@ -864,11 +810,11 @@
           <table class="data-table">
             <thead>
               <tr>
-                <th>نام تابع (Function Name)</th>
+                <th>نام تابع</th>
                 <th>اسکیما و پایگاه داده</th>
-                <th>نوع بازگشتی (Return Type)</th>
+                <th>نوع بازگشتی</th>
                 <th>زبان</th>
-                <th>امضا و پارامترها (Arguments)</th>
+                <th>امضا و پارامترها</th>
                 <th>توضیحات</th>
               </tr>
             </thead>
@@ -910,7 +856,7 @@
                 </tr>
               } @empty {
                 <tr>
-                  <td colspan="6" class="text-center empty-hint py-4">هیچ تابعی (Function) در این محدوده ثبت نشده است.</td>
+                  <td colspan="6" class="text-center empty-hint py-4">هیچ تابعی در این محدوده ثبت نشده است.</td>
                 </tr>
               }
             </tbody>
@@ -969,7 +915,7 @@
         [class.active]="activeInspectorTab() === 'indexes'"
         (click)="activeInspectorTab.set('indexes')"
       >
-        ایندکس‌ها (Indexes) ({{ tableIndexes().length }})
+        ایندکس‌ها ({{ tableIndexes().length }})
       </button>
       <button
         class="tab-btn"
@@ -1016,7 +962,6 @@
                   <th>ویژگی کلید</th>
                   <th>اجباری</th>
                   <th>سطح محرمانگی</th>
-                  <th>تگ‌های فیلد</th>
                   <th>توضیحات مبدا و تایید شده</th>
                 </tr>
               </thead>
@@ -1069,18 +1014,6 @@
                       </select>
                     </td>
                     <td>
-                      <div class="col-tags-container">
-                        @for (t of col.tags || []; track t.id) {
-                          <app-tag-chip
-                            [tag]="t"
-                            [removable]="true"
-                            (removed)="removeTagFromColumn(col, t)"
-                          ></app-tag-chip>
-                        }
-                        <button class="btn-tag-add" (click)="openColumnTagModal(col)">+</button>
-                      </div>
-                    </td>
-                    <td>
                       <div class="dual-desc-container">
                         @if (col.source_description) {
                           <div class="source-desc-hint">
@@ -1127,7 +1060,7 @@
                 <div class="ai-suggestion-header">
                   <div class="ai-title-group">
                     <span class="ai-icon">✨</span>
-                    <span class="ai-title">پیشنهاد هوش مصنوعی برای شرح این جدول (AI Suggested Description)</span>
+                    <span class="ai-title">پیشنهاد هوش مصنوعی برای شرح این جدول</span>
                   </div>
                   <button
                     type="button"
@@ -1146,7 +1079,7 @@
             <div class="meta-card">
               <div class="desc-header-row">
                 <div class="desc-title-with-badge">
-                  <h3>توضیحات استخراج شده از مبدأ (Source Description)</h3>
+                  <h3>توضیحات استخراج شده از مبدأ</h3>
                   <span class="origin-pill origin-source">مبدأ دیتابیس</span>
                 </div>
               </div>
@@ -1183,7 +1116,7 @@
                 <span class="meta-val mono-font">{{ selectedTable()!.table_type }}</span>
               </div>
               <div class="meta-item">
-                <span class="meta-label">مالک داده (Owner):</span>
+                <span class="meta-label">مالک داده:</span>
                 @if (!isEditingOwner()) {
                   <div class="owner-display-row">
                     <span class="meta-val mono-font">{{ selectedTable()!.owner || 'تعیین نشده' }}</span>
@@ -1231,7 +1164,7 @@
             </div>
 
             <div class="meta-card">
-              <h3>ویژگی‌های سفارشی (Custom Properties JSONB)</h3>
+              <h3>ویژگی‌های سفارشی</h3>
               <pre class="json-box json-diff">{{ selectedTable()!.custom_properties | json }}</pre>
             </div>
           </div>
@@ -1244,11 +1177,11 @@
               <table class="data-table">
                 <thead>
                   <tr>
-                    <th>نام ایندکس (Index Name)</th>
+                    <th>نام ایندکس</th>
                     <th>نوع ایندکس</th>
                     <th>ویژگی یکتا / کلید اصلی</th>
-                    <th>ستون‌های ایندکس (Indexed Columns)</th>
-                    <th>تعریف DDL (Index Definition)</th>
+                    <th>ستون‌های ایندکس</th>
+                    <th>تعریف DDL</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1347,122 +1280,6 @@
       (resolved)="onDriftResolved()"
     ></app-drift-resolution-dialog>
   </aside>
-}
-
-<!-- ========================================================================= -->
-<!-- BULK INGESTION MODAL -->
-<!-- ========================================================================= -->
-@if (isIngestionModalOpen()) {
-  <div class="modal-backdrop" (click)="closeIngestionModal()">
-    <div class="modal-dialog" (click)="$event.stopPropagation()">
-      <div class="modal-header">
-        <h3 class="modal-title">بارگذاری دسته‌ای متادیتا (Bulk Metadata Ingestion)</h3>
-        <button class="btn-close" (click)="closeIngestionModal()">✕</button>
-      </div>
-      <div class="modal-body">
-        <p class="text-muted" style="margin-bottom: 14px;">
-          ساختار جداول و ستون‌ها را به صورت JSON وارد کنید. سیستم به صورت خودکار نسخه جدید اسکیما و لاگ تغییرات را ثبت می‌کند.
-        </p>
-
-        <div class="form-group">
-          <label class="form-label">اتصال پایگاه داده مقصد:</label>
-          <select class="form-select" [ngModel]="ingestConnectionId()" (ngModelChange)="ingestConnectionId.set($event)">
-            @for (conn of physicalTree(); track conn.id) {
-              <option [value]="conn.id">{{ conn.name }} ({{ conn.engine_type }})</option>
-            }
-          </select>
-        </div>
-
-        <div class="form-group">
-          <label class="form-label">نام اسکیما:</label>
-          <input
-            type="text"
-            class="form-control mono-font"
-            [ngModel]="ingestSchemaName()"
-            (ngModelChange)="ingestSchemaName.set($event)"
-          />
-        </div>
-
-        <div class="form-group">
-          <label class="form-label">محتوای متادیتا (JSON Tables Payload):</label>
-          <textarea
-            class="form-control mono-font"
-            rows="10"
-            [ngModel]="ingestJsonPayload()"
-            (ngModelChange)="ingestJsonPayload.set($event)"
-          ></textarea>
-        </div>
-      </div>
-      <div class="modal-footer">
-        <button class="btn btn-secondary" (click)="closeIngestionModal()">انصراف</button>
-        <button class="btn btn-primary" (click)="executeBulkIngestion()">اجرای بارگذاری و ثبت نسخه</button>
-      </div>
-    </div>
-  </div>
-}
-
-<!-- ========================================================================= -->
-<!-- BULK TAGGING MODAL -->
-<!-- ========================================================================= -->
-@if (isBulkTagModalOpen()) {
-  <div class="modal-backdrop" (click)="closeBulkTagModal()">
-    <div class="modal-dialog" (click)="$event.stopPropagation()">
-      <div class="modal-header">
-        <h3 class="modal-title">تخصیص گروهی تگ به {{ selectedCount() }} جدول</h3>
-        <button class="btn-close" (click)="closeBulkTagModal()">✕</button>
-      </div>
-      <div class="modal-body">
-        <div class="form-group">
-          <label class="form-label">نوع عملیات:</label>
-          <select class="form-select" [ngModel]="bulkTagAction()" (ngModelChange)="bulkTagAction.set($event)">
-            <option value="ASSIGN">افزودن و تخصیص تگ (ASSIGN)</option>
-            <option value="REMOVE">حذف تگ از جداول انتخاب شده (REMOVE)</option>
-          </select>
-        </div>
-
-        <div class="form-group">
-          <label class="form-label">انتخاب تگ سازمانی:</label>
-          <select class="form-select" [ngModel]="selectedTagIdToAssign()" (ngModelChange)="selectedTagIdToAssign.set($event)">
-            @for (t of availableTags(); track t.id) {
-              <option [value]="t.id">{{ t.name }} ({{ t.description || 'بدون توضیح' }})</option>
-            }
-          </select>
-        </div>
-      </div>
-      <div class="modal-footer">
-        <button class="btn btn-secondary" (click)="closeBulkTagModal()">انصراف</button>
-        <button class="btn btn-primary" (click)="executeBulkTag()">اعمال روی {{ selectedCount() }} جدول</button>
-      </div>
-    </div>
-  </div>
-}
-
-<!-- ========================================================================= -->
-<!-- COLUMN TAG MODAL -->
-<!-- ========================================================================= -->
-@if (isColumnTagModalOpen()) {
-  <div class="modal-backdrop" (click)="closeColumnTagModal()">
-    <div class="modal-dialog" (click)="$event.stopPropagation()">
-      <div class="modal-header">
-        <h3 class="modal-title">تخصیص تگ به فیلد {{ targetColumn()?.name }}</h3>
-        <button class="btn-close" (click)="closeColumnTagModal()">✕</button>
-      </div>
-      <div class="modal-body">
-        <div class="form-group">
-          <label class="form-label">انتخاب تگ:</label>
-          <select class="form-select" [ngModel]="selectedTagForColumn()" (ngModelChange)="selectedTagForColumn.set($event)">
-            @for (t of availableTags(); track t.id) {
-              <option [value]="t.id">{{ t.name }}</option>
-            }
-          </select>
-        </div>
-      </div>
-      <div class="modal-footer">
-        <button class="btn btn-secondary" (click)="closeColumnTagModal()">انصراف</button>
-        <button class="btn btn-primary" (click)="assignTagToColumn()">تخصیص تگ</button>
-      </div>
-    </div>
-  </div>
 }
 
 <!-- TOAST -->

@@ -66,8 +66,8 @@
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  padding: 6px 14px;
-  border-radius: 6px 6px 0 0;
+  padding: 8px 16px;
+  border-radius: 8px 8px 0 0;
   font-size: 13px;
   font-weight: 600;
   text-decoration: none;
@@ -94,13 +94,8 @@
   color: #334155;
 }
 
-.tab-close-icon {
+.tab-icon {
   font-size: 14px;
-  opacity: 0.6;
-  transition: opacity 0.15s ease;
-}
-.tab-close-icon:hover {
-  opacity: 1;
 }
 
 .subnav-actions {

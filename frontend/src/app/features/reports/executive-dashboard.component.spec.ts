@@ -445,9 +445,7 @@ describe('Executive Governance Reporting Dashboard (T044: Apache ECharts Executi
       expect(emptyDebug).toBeTruthy();
       const text = emptyDebug.nativeElement.textContent;
       expect(text).toContain('شرح مصوب جدول');
-      expect(text).toContain('Table Description');
       expect(text).toContain('مالک سازمانی داده');
-      expect(text).toContain('Data Owner');
 
       const catalogLink = fixture.debugElement.query(By.css('[data-testid="goto-catalog-link"]'));
       expect(catalogLink).toBeTruthy();

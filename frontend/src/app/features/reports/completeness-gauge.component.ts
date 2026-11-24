@@ -18,7 +18,9 @@ echarts.use([GaugeChart, CanvasRenderer, TitleComponent, TooltipComponent]);
       <div class="gauge-header">
         <h3 class="gauge-title">{{ title() }}</h3>
       </div>
-      <div echarts [options]="chartOptions()" class="chart-container"></div>
+      <div class="chart-wrapper" dir="ltr">
+        <div echarts [options]="chartOptions()" class="chart-container"></div>
+      </div>
     </div>
   `,
   styles: [
@@ -45,10 +47,15 @@ echarts.use([GaugeChart, CanvasRenderer, TitleComponent, TooltipComponent]);
         color: #1e293b;
         margin: 0;
       }
-      .chart-container {
-        height: 320px;
+      .chart-wrapper {
+        position: relative;
+        height: 280px;
         width: 100%;
-        min-height: 280px;
+        overflow: hidden;
+      }
+      .chart-container {
+        height: 100%;
+        width: 100%;
       }
     `,
   ],
@@ -56,7 +63,7 @@ echarts.use([GaugeChart, CanvasRenderer, TitleComponent, TooltipComponent]);
 })
 export class CompletenessGaugeComponent {
   readonly score = input<number>(0);
-  readonly title = input<string>('تکمیل متادیتا (Metadata Completeness)');
+  readonly title = input<string>('تکمیل متادیتا');
 
   readonly chartOptions = computed<echarts.EChartsCoreOption>(() => {
     const value = Math.round(this.score() * 100) / 100;

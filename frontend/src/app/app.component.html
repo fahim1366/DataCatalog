@@ -125,8 +125,8 @@
 
   <!-- Application Body: Sidebar + Main Router Outlet -->
   <div class="app-body" [class.unauthenticated]="!authService.isAuthenticated()">
-    @if (authService.isAuthenticated() && isSidebarOpen()) {
-      <aside class="app-sidebar">
+    @if (authService.isAuthenticated()) {
+      <aside class="app-sidebar" [class.collapsed]="!isSidebarOpen()">
         <nav class="nav-menu">
           <!-- Section 1: کاوش و مستندسازی -->
           <div class="nav-section">

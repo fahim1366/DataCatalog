@@ -3,9 +3,9 @@
   <header class="dashboard-header">
     <div class="header-content">
       <div class="title-group">
-        <h1 class="dashboard-title">داشبورد گزارشات مدیریتی و حاکمیت داده (Executive Governance Dashboard)</h1>
+        <h1 class="dashboard-title">داشبورد گزارشات مدیریتی و حاکمیت داده</h1>
         <p class="dashboard-subtitle">
-          پایش شاخص‌های برخط کیفیت متادیتا و توزیع سطوح محرمانگی مبتنی بر Materialized Views در کمتر از ۲۰۰ میلی‌ثانیه. Sub-200ms real-time governance metrics and classification breakdown across all connected databases.
+          پایش شاخص‌های برخط کیفیت متادیتا و توزیع سطوح محرمانگی مبتنی بر Materialized Views در کمتر از ۲۰۰ میلی‌ثانیه.
         </p>
       </div>
       <div class="header-actions">
@@ -56,7 +56,7 @@
           (click)="refreshViews()"
         >
           <span class="refresh-icon" [class.spinning]="isRefreshing()">↻</span>
-          {{ isRefreshing() ? 'در حال بروزرسانی (Refreshing Views...)' : 'بروزرسانی همزمان گزارشات (Refresh Reports)' }}
+          {{ isRefreshing() ? 'در حال بروزرسانی...' : 'بروزرسانی همزمان گزارشات' }}
         </button>
       </div>
     </div>
@@ -272,7 +272,7 @@
           (click)="generateReport()"
           [disabled]="isLoading()"
         >
-          📊 «تولید گزارش» (Generate Report)
+          📊 «تولید گزارش»
         </button>
       </div>
     </aside>
@@ -283,7 +283,7 @@
       @if (isLoading() && !completenessReport()) {
         <div class="loading-state">
           <div class="spinner"></div>
-          <p>در حال بارگذاری شاخص‌های حاکمیت داده (Loading executive governance data...)</p>
+          <p>در حال بارگذاری شاخص‌های حاکمیت داده...</p>
         </div>
       } @else {
         <!-- Helpful Explanatory Banner when metadata is empty / zero -->
@@ -291,9 +291,9 @@
           <div class="completeness-global-empty-banner" dir="rtl" data-testid="completeness-zero-banner">
             <div class="banner-icon">ℹ️</div>
             <div class="banner-body">
-              <h4 class="banner-title">راهنمای محاسبه شاخص تکمیل متادیتا (Metadata Completeness)</h4>
+              <h4 class="banner-title">راهنمای محاسبه شاخص تکمیل متادیتا</h4>
               <p class="banner-text">
-                شاخص تکمیل متادیتا بر اساس وجود همزمان <strong>«شرح مصوب جدول» (Table Description)</strong> و <strong>«مالک سازمانی داده» (Data Owner)</strong> محاسبه می‌گردد. در حال حاضر هیچ جدولی در پایگاه‌های داده انتخابی یافت نشد یا داده‌ها هنوز همگام‌سازی نشده‌اند.
+                شاخص تکمیل متادیتا بر اساس وجود همزمان <strong>«شرح مصوب جدول»</strong> و <strong>«مالک سازمانی داده»</strong> محاسبه می‌گردد. در حال حاضر هیچ جدولی در پایگاه‌های داده انتخابی یافت نشد یا داده‌ها هنوز همگام‌سازی نشده‌اند.
               </p>
             </div>
             <a routerLink="/catalog" class="btn btn-primary btn-sm banner-action-btn">
@@ -306,55 +306,55 @@
         <section class="kpi-grid">
           <div class="kpi-card card-highlight">
             <div class="kpi-header">
-              <span class="kpi-label">نرخ کلی تکمیل متادیتا (Overall Completeness)</span>
+              <span class="kpi-label">نرخ کلی تکمیل متادیتا</span>
               <span class="kpi-tag" [class.tag-good]="overallScore() >= 80" [class.tag-warning]="overallScore() < 80">
-                {{ overallScore() >= 80 ? 'منطبق با هدف (Target Met)' : 'نیازمند اقدام (Action Required)' }}
+                {{ overallScore() >= 80 ? 'منطبق با هدف' : 'نیازمند اقدام' }}
               </span>
             </div>
             <div class="kpi-value-row">
               <span class="kpi-value">{{ overallScore() }}%</span>
             </div>
-            <p class="kpi-subtext">دارایی‌های کاتالوگ با شرح تایید شده و مالک مشخص (Catalog assets with approved descriptions &amp; owners)</p>
+            <p class="kpi-subtext">دارایی‌های کاتالوگ با شرح تایید شده و مالک مشخص</p>
           </div>
 
           <div class="kpi-card">
             <div class="kpi-header">
-              <span class="kpi-label">پایگاه‌های داده متصل (Connected Databases)</span>
+              <span class="kpi-label">پایگاه‌های داده متصل</span>
             </div>
             <div class="kpi-value-row">
               <span class="kpi-value">{{ totalDatabases() | number }}</span>
             </div>
-            <p class="kpi-subtext">منابع داده‌ای متصل سازمانی (Enterprise database sources)</p>
+            <p class="kpi-subtext">منابع داده‌ای متصل سازمانی</p>
           </div>
 
           <div class="kpi-card">
             <div class="kpi-header">
-              <span class="kpi-label">جداول کاتالوگ (Catalog Tables)</span>
+              <span class="kpi-label">جداول کاتالوگ</span>
             </div>
             <div class="kpi-value-row">
               <span class="kpi-value">{{ totalTables() | number }}</span>
             </div>
-            <p class="kpi-subtext">مجموع جداول شناسنامه‌دار (Total cataloged tables)</p>
+            <p class="kpi-subtext">مجموع جداول شناسنامه‌دار</p>
           </div>
 
           <div class="kpi-card">
             <div class="kpi-header">
-              <span class="kpi-label">فیلدها و ستون‌ها (Catalog Columns)</span>
+              <span class="kpi-label">فیلدها و ستون‌ها</span>
             </div>
             <div class="kpi-value-row">
               <span class="kpi-value">{{ totalColumns() | number }}</span>
             </div>
-            <p class="kpi-subtext">ستون‌های پایش‌شده سازمانی (Monitored enterprise columns)</p>
+            <p class="kpi-subtext">ستون‌های پایش‌شده سازمانی</p>
           </div>
 
           <div class="kpi-card">
             <div class="kpi-header">
-              <span class="kpi-label">فیلدهای طبقه‌بندی‌شده (Classified Columns)</span>
+              <span class="kpi-label">فیلدهای طبقه‌بندی‌شده</span>
             </div>
             <div class="kpi-value-row">
               <span class="kpi-value">{{ totalClassified() | number }}</span>
             </div>
-            <p class="kpi-subtext">عمومی، داخلی، محرمانه و با دسترسی محدود (Public, Internal, Confidential, Restricted)</p>
+            <p class="kpi-subtext">عمومی، داخلی، محرمانه و با دسترسی محدود</p>
           </div>
         </section>
 
@@ -372,18 +372,18 @@
         <section class="breakdown-section">
           <div class="breakdown-card">
             <div class="breakdown-card-header">
-              <h2 class="breakdown-title">تفکیک نرخ تکمیل متادیتا به ازای هر پایگاه داده (Database Completeness Breakdown)</h2>
-              <span class="breakdown-count">{{ databaseBreakdown().length }} پایگاه‌داده (Databases)</span>
+              <h2 class="breakdown-title">تفکیک نرخ تکمیل متادیتا به ازای هر پایگاه داده</h2>
+              <span class="breakdown-count">{{ databaseBreakdown().length }} پایگاه‌داده</span>
             </div>
             <div class="table-wrapper">
               <table class="data-table">
                 <thead>
                   <tr>
-                    <th>پایگاه داده (Database)</th>
-                    <th>تعداد کل جداول (Total Tables)</th>
-                    <th>دارای شرح مصوب (With Description)</th>
-                    <th>دارای مالک مشخص (With Owner)</th>
-                    <th>نرخ تکمیل (Completeness)</th>
+                    <th>پایگاه داده</th>
+                    <th>تعداد کل جداول</th>
+                    <th>دارای شرح مصوب</th>
+                    <th>دارای مالک مشخص</th>
+                    <th>نرخ تکمیل</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -417,17 +417,17 @@
                           <div class="empty-icon-wrap">📋</div>
                           <h4 class="empty-state-title">اطلاعاتی برای نمایش نرخ تکمیل متادیتا یافت نشد</h4>
                           <p class="empty-state-calc-desc">
-                            <strong>شاخص تکمیل متادیتا (Metadata Completeness) چگونه محاسبه می‌شود؟</strong><br />
+                            <strong>شاخص تکمیل متادیتا چگونه محاسبه می‌شود؟</strong><br />
                             این شاخص کلیدی بر پایه دو رکن اصلی کیفیت داده ارزیابی می‌گردد:
                           </p>
                           <ul class="completeness-rules-list">
                             <li>
                               <span class="rule-bullet">✔</span>
-                              <span><strong>شرح مصوب جدول (Table Description):</strong> داشتن توضیحات کاربردی و استاندارد برای جدول در کاتالوگ.</span>
+                              <span><strong>شرح مصوب جدول:</strong> داشتن توضیحات کاربردی و استاندارد برای جدول در کاتالوگ.</span>
                             </li>
                             <li>
                               <span class="rule-bullet">✔</span>
-                              <span><strong>مالک سازمانی داده (Data Owner):</strong> تعیین فرد یا تیم مسئول حاکمیت و راستی‌آزمایی داده‌های جدول.</span>
+                              <span><strong>مالک سازمانی داده:</strong> تعیین فرد یا تیم مسئول حاکمیت و راستی‌آزمایی داده‌های جدول.</span>
                             </li>
                           </ul>
                           <p class="empty-state-action-prompt">
@@ -458,7 +458,7 @@
           <div class="section-card">
             <div class="section-card-header">
               <div class="card-title-group">
-                <h3 class="card-title">پیش‌نمایش شناسنامه اقلام داده و دیکشنری متادیتا (Data Dictionary Preview)</h3>
+                <h3 class="card-title">پیش‌نمایش شناسنامه اقلام داده و دیکشنری متادیتا</h3>
                 <span class="card-subtitle">نمایش همزمان توضیحات مبدأ، توضیحات مصوب / هوش مصنوعی و منبع شرح</span>
               </div>
               <span class="preview-count-badge">{{ reportPreview().length }} جدول</span>
@@ -471,9 +471,9 @@
                     <th>پایگاه داده / اسکیما</th>
                     <th>نام جدول</th>
                     <th>نوع جدول</th>
-                    <th>توضیحات مبدأ (Source)</th>
-                    <th>توضیحات مصوب / هوش مصنوعی (Approved / AI)</th>
-                    <th>مالک (Owner)</th>
+                    <th>توضیحات مبدأ</th>
+                    <th>توضیحات مصوب / هوش مصنوعی</th>
+                    <th>مالک</th>
                   </tr>
                 </thead>
                 <tbody>

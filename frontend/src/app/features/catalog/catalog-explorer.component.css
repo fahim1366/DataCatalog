@@ -8,8 +8,8 @@
 
 /* Tree Pane (RTL Right side) */
 .tree-pane {
-  width: 320px;
-  min-width: 320px;
+  width: 275px;
+  min-width: 275px;
   background-color: #ffffff;
   border-left: 1px solid var(--slate-200);
   display: flex;
@@ -17,6 +17,26 @@
   transition: all 0.25s ease-in-out;
   box-shadow: -2px 0 6px -1px rgba(0, 0, 0, 0.04);
   z-index: 10;
+}
+
+@media (max-width: 1200px) {
+  .tree-pane {
+    width: 240px;
+    min-width: 240px;
+  }
+}
+
+@media (max-width: 900px) {
+  .explorer-layout {
+    flex-direction: column;
+    height: auto;
+    overflow-y: auto;
+  }
+  .tree-pane {
+    width: 100%;
+    min-width: 100%;
+    max-height: 350px;
+  }
 }
 
 .tree-pane.collapsed {
@@ -180,7 +200,7 @@
   padding: 6px 8px;
   border-radius: var(--radius-sm);
   cursor: pointer;
-  font-size: 0.84rem;
+  font-size: 12.5px;
   color: var(--slate-800);
   transition: background-color 0.15s ease;
 }
@@ -189,7 +209,8 @@
   background-color: var(--slate-100);
 }
 
-.node-db {
+.node-db, .node-cat {
+  font-size: 13px;
   font-weight: 700;
   color: var(--primary-900);
 }
@@ -219,12 +240,13 @@
 }
 
 .node-schema {
+  font-size: 12.5px;
   font-weight: 600;
   color: var(--slate-700);
 }
 
-.node-table {
-  font-size: 0.8rem;
+.node-table, .node-db-assigned, .node-table-assigned {
+  font-size: 12.5px;
   color: var(--slate-600);
 }
 
@@ -314,6 +336,21 @@
   border: 1px solid var(--slate-200);
 }
 
+@media (max-width: 1200px) {
+  .filters-row {
+    gap: 8px;
+    padding: 6px 10px;
+  }
+}
+
+@media (max-width: 900px) {
+  .filters-row {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+  }
+}
+
 .filter-item {
   display: flex;
   align-items: center;
@@ -383,37 +420,40 @@
   font-size: 1rem;
 }
 
-.policy-segmented-control {
-  display: inline-flex;
-  background-color: var(--slate-200);
-  border-radius: var(--radius-sm);
-  padding: 2px;
-  gap: 2px;
+.policy-radio-group {
+  display: flex;
+  align-items: center;
+  gap: 16px;
   flex-wrap: wrap;
 }
 
-.policy-seg-btn {
-  padding: 4px 12px;
-  border: none;
-  background: transparent;
-  font-family: var(--font-family-sans);
-  font-size: 0.78rem;
-  font-weight: 600;
-  color: var(--slate-600);
-  border-radius: 4px;
+.policy-radio-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   cursor: pointer;
-  transition: all 0.15s ease;
-  white-space: nowrap;
+  font-size: 0.82rem;
+  font-weight: 500;
+  color: var(--slate-700);
+  user-select: none;
+  transition: color 0.15s ease;
 }
 
-.policy-seg-btn:hover {
-  color: var(--slate-900);
+.policy-radio-label:hover {
+  color: var(--primary-600);
 }
 
-.policy-seg-btn.active {
-  background-color: #ffffff;
+.policy-radio-label input[type="radio"] {
+  cursor: pointer;
+  accent-color: #2563eb;
+  width: 15px;
+  height: 15px;
+  margin: 0;
+}
+
+.policy-radio-label.selected {
+  font-weight: 600;
   color: var(--primary-700);
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
 }
 
 /* Scope Summary Section: Breadcrumb & 4-Card KPI Strip */
@@ -466,6 +506,18 @@
   display: grid;
   grid-template-columns: repeat(4, 1fr);
   gap: 12px;
+}
+
+@media (max-width: 1200px) {
+  .scope-kpi-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 900px) {
+  .scope-kpi-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 .scope-kpi-card {
@@ -528,7 +580,7 @@
 
 .table-header-row {
   display: grid;
-  grid-template-columns: 40px 240px 130px 160px minmax(300px, 2fr) 130px;
+  grid-template-columns: 40px 240px 140px minmax(320px, 1fr) 130px;
   padding: 10px 16px;
   background-color: var(--slate-100);
   border-bottom: 1px solid var(--slate-200);
@@ -546,7 +598,7 @@
 
 .table-row {
   display: grid;
-  grid-template-columns: 40px 240px 130px 160px minmax(300px, 2fr) 130px;
+  grid-template-columns: 40px 240px 140px minmax(320px, 1fr) 130px;
   padding: 10px 16px;
   border-bottom: 1px solid var(--slate-200);
   align-items: center;
@@ -1445,6 +1497,12 @@
   font-weight: 700;
   background-color: var(--slate-200);
   color: var(--slate-700);
+}
+
+.table-responsive {
+  width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
 }
 
 .object-tab-btn.active .tab-count-badge {

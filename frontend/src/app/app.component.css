@@ -289,8 +289,8 @@
 
 /* RTL Dark Navigation Sidebar */
 .app-sidebar {
-  width: 290px;
-  min-width: 290px;
+  width: 215px;
+  min-width: 215px;
   background-color: var(--slate-900);
   border-left: 1px solid var(--slate-800);
   display: flex;
@@ -300,6 +300,24 @@
   box-shadow: -2px 0 8px rgba(0, 0, 0, 0.2);
   z-index: 20;
   overflow-y: auto;
+  transition: width 0.2s ease, min-width 0.2s ease, padding 0.2s ease;
+}
+
+.app-sidebar.collapsed {
+  width: 60px;
+  min-width: 60px;
+  padding: 18px 6px;
+}
+
+.app-sidebar.collapsed .nav-section-title,
+.app-sidebar.collapsed .nav-text,
+.app-sidebar.collapsed .sidebar-footer {
+  display: none;
+}
+
+.app-sidebar.collapsed .nav-item {
+  justify-content: center;
+  padding: 10px 0;
 }
 
 .nav-menu {

@@ -20,7 +20,7 @@ from backend.src.models.catalog import (
     DatabaseSchema,
     LifecycleStatus,
 )
-from backend.src.models.connections import DatabaseConnection
+from backend.src.models.connections import DatabaseConnection, DatabaseEngine
 from backend.src.models.identity import User
 from backend.src.models.rbac import (
     EntityType,
@@ -136,7 +136,14 @@ async def get_physical_tree(
         conn_stmt = conn_stmt.where(DatabaseConnection.is_active == True)
 
     if engine_type is not None and engine_type.strip():
-        conn_stmt = conn_stmt.where(DatabaseConnection.engine_type == engine_type.strip())
+        try:
+            normalized_engine = DatabaseEngine(engine_type.strip().upper())
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=f"Invalid engine dialect '{engine_type}'. Supported engines: {[e.value for e in DatabaseEngine]}",
+            ) from exc
+        conn_stmt = conn_stmt.where(DatabaseConnection.engine_type == normalized_engine)
     if host is not None and host.strip():
         conn_stmt = conn_stmt.where(DatabaseConnection.host.ilike(f"%{host.strip()}%"))
     if owner is not None and owner.strip():

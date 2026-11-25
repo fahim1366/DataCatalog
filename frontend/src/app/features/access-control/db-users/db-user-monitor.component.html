@@ -208,8 +208,23 @@
           </div>
         </div>
 
-        <!-- Filter Bar -->
-        <div class="table-card">
+        @if (isUnsupportedEngine()) {
+          <div class="unsupported-engine-container">
+            <div class="unsupported-icon-circle">
+              <i class="pi pi-info-circle unsupported-icon"></i>
+            </div>
+            <h3 class="unsupported-title">عدم پشتیبانی از پایش زنده کاربران</h3>
+            <p class="unsupported-desc">
+              {{ unsupportedEngineMessage() || 'قابلیت پایش زنده کاربران و نقش‌ها برای موتور پایگاه داده ' + conn.engine_type + ' پیاده‌سازی نشده است.' }}
+            </p>
+            <div class="unsupported-meta-badge">
+              <span class="engine-badge" [attr.data-engine]="conn.engine_type">{{ conn.engine_type }}</span>
+              <span>در حال حاضر پایش و مدیریت مستقیم کاربران و نقش‌ها برای پایگاه داده‌های PostgreSQL بهینه‌سازی شده است.</span>
+            </div>
+          </div>
+        } @else {
+          <!-- Filter Bar -->
+          <div class="table-card">
           <div class="table-card-header">
             <div class="filter-pills">
               <button
@@ -397,6 +412,7 @@
             </table>
           </div>
         </div>
+        }
       } @else {
         <div class="empty-state-container">
           <i class="pi pi-database empty-hero-icon"></i>

@@ -203,6 +203,21 @@ async def test_physical_tree_filtering_and_fields(test_db_session: AsyncSession,
         items_none = res_none.json()
         assert len(items_none) == 0
 
+        # 4. Filter by valid engine dialect with lowercase/normalization
+        res_engine = await client.get(
+            "/api/v1/tables/tree/physical?engine_type=postgresql",
+            headers=admin_auth_data["headers"],
+        )
+        assert res_engine.status_code == 200
+
+        # 5. Filter by invalid engine dialect returns HTTP 422 Unprocessable Entity
+        res_invalid_engine = await client.get(
+            "/api/v1/tables/tree/physical?engine_type=INVALID_SQL_ENGINE",
+            headers=admin_auth_data["headers"],
+        )
+        assert res_invalid_engine.status_code == 422
+        assert "Invalid engine dialect" in res_invalid_engine.json()["detail"]
+
 
 @pytest.mark.asyncio
 async def test_catalog_objects_endpoint(test_db_session: AsyncSession, admin_auth_data):

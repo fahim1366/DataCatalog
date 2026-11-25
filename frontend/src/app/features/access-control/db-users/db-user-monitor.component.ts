@@ -66,6 +66,8 @@ export class DbUserMonitorComponent implements OnInit {
   // Users list state
   users = signal<DatabaseUserItem[]>([]);
   isLoadingUsers = signal<boolean>(false);
+  isUnsupportedEngine = signal<boolean>(false);
+  unsupportedEngineMessage = signal<string | null>(null);
   userSearchQuery = signal<string>('');
   userTypeFilter = signal<UserFilterType>('ALL');
 
@@ -356,9 +358,10 @@ export class DbUserMonitorComponent implements OnInit {
           }
         }
 
-        // Auto-select first available connection
+        // Auto-select first active connection or fallback to first
         if (connections.length > 0) {
-          this.selectConnection(connections[0]);
+          const autoConn = connections.find((c) => c.is_active) || connections[0];
+          this.selectConnection(autoConn);
         }
       },
       error: (err) => {
@@ -376,6 +379,8 @@ export class DbUserMonitorComponent implements OnInit {
   loadUsers(connectionId: string): void {
     this.isLoadingUsers.set(true);
     this.users.set([]);
+    this.isUnsupportedEngine.set(false);
+    this.unsupportedEngineMessage.set(null);
     this.errorMessage.set(null);
 
     this.dbUserService.getDatabaseUsers(connectionId).subscribe({
@@ -385,7 +390,19 @@ export class DbUserMonitorComponent implements OnInit {
       },
       error: (err) => {
         this.isLoadingUsers.set(false);
-        this.showError('خطا در دریافت لیست کاربران پایگاه داده: ' + (err.error?.detail || err.message));
+        const detail: string = err.error?.detail || err.message || '';
+        // If database engine does not support live DB-user management, display informational card instead of red error alert
+        if (
+          err.status === 400 &&
+          (detail.includes('پیاده‌سازی نشده') ||
+           detail.includes('پیادهسازی نشده') ||
+           detail.includes('پیاده سازی نشده'))
+        ) {
+          this.isUnsupportedEngine.set(true);
+          this.unsupportedEngineMessage.set(detail);
+        } else {
+          this.showError('خطا در دریافت لیست کاربران پایگاه داده: ' + detail);
+        }
       },
     });
   }

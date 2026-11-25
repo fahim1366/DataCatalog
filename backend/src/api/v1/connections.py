@@ -4,6 +4,7 @@ import asyncio
 from datetime import datetime, timezone
 import ipaddress
 import logging
+import re
 import socket
 import uuid
 from typing import List, Optional
@@ -68,12 +69,24 @@ from backend.src.services.connectors.postgres import PostgresConnector
 logger = logging.getLogger(__name__)
 
 
+def sanitize_uri_credentials(text: str) -> str:
+    """
+    Sanitizes URI credentials pattern (://user:pass@) to prevent leaking credentials/passwords.
+    Replaces password with '***' (e.g. mongodb://user:pass@host -> mongodb://user:***@host).
+    """
+    if not text:
+        return ""
+    return re.sub(r"://([^:@/\s]*):([^/\s]+)@", r"://\1:***@", str(text))
+
+
 def format_connection_error_persian(raw_error: str, context: str = "discovery") -> str:
     """
     Translates raw database connection/discovery error messages into clear, actionable Persian.
     Provides helpful hints to verify host/port/credentials or use «تست اتصال».
+    Sanitizes any URI credentials pattern (://user:pass@) before returning error messages so passwords in MongoDB/SQL URIs are never leaked in error responses.
     """
-    err_lower = (raw_error or "").lower()
+    sanitized_error = sanitize_uri_credentials(raw_error or "")
+    err_lower = sanitized_error.lower()
 
     # Missing Driver / Package
     if any(
@@ -93,9 +106,9 @@ def format_connection_error_persian(raw_error: str, context: str = "discovery") 
             "driver not found",
             "cannot import name",
         ]
-    ) or ("نصب" in raw_error and ("درایور" in raw_error or "پکیج" in raw_error)):
-        if any("\u0600" <= c <= "\u06FF" for c in raw_error) and ("نصب" in raw_error or "پکیج" in raw_error):
-            return raw_error
+    ) or ("نصب" in sanitized_error and ("درایور" in sanitized_error or "پکیج" in sanitized_error)):
+        if any("\u0600" <= c <= "\u06FF" for c in sanitized_error) and ("نصب" in sanitized_error or "پکیج" in sanitized_error):
+            return sanitized_error
         pkg = "مربوطه"
         if "aioodbc" in err_lower or "pymssql" in err_lower or "mssql" in err_lower:
             pkg = "'aioodbc' یا 'pymssql'"
@@ -392,7 +405,7 @@ async def discover_databases(
     config = {
         "host": payload.host,
         "port": payload.port,
-        "username": payload.credentials.get("username", "postgres"),
+        "username": payload.credentials.get("username", ""),
         "password": payload.credentials.get("password", ""),
         "custom_params": payload.custom_params or {},
     }
@@ -454,7 +467,7 @@ async def test_unsaved_connection(
         "port": payload.port,
         "database_name": payload.database_name,
         "database": payload.database_name,
-        "username": payload.credentials.get("username", "postgres"),
+        "username": payload.credentials.get("username", ""),
         "password": payload.credentials.get("password", ""),
         "custom_params": payload.custom_params or {},
     }
@@ -479,14 +492,15 @@ async def test_unsaved_connection(
             tested_at=test_res.tested_at,
         )
     except Exception as exc:
-        logger.warning("Unsaved connection test failed for %s:%s: %s", payload.host, payload.port, exc)
+        sanitized_exc = sanitize_uri_credentials(str(exc))
+        logger.warning("Unsaved connection test failed for %s:%s: %s", payload.host, payload.port, sanitized_exc)
         return ConnectionDiagnosticTestResponse(
             success=False,
             latency_ms=0.0,
             dialect=str(payload.engine_type.value if hasattr(payload.engine_type, "value") else payload.engine_type),
             server_version=None,
             message=format_connection_error_persian(str(exc), context="test"),
-            diagnostic_details={"error": str(exc)},
+            diagnostic_details={"error": sanitized_exc},
             tested_at=datetime.now(timezone.utc),
         )
 

@@ -2,7 +2,7 @@ import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideHttpClient } from '@angular/common/http';
 import { provideHttpClientTesting } from '@angular/common/http/testing';
 import { provideRouter } from '@angular/router';
-import { of } from 'rxjs';
+import { of, throwError } from 'rxjs';
 import { vi } from 'vitest';
 import { DbUserMonitorComponent } from './db-user-monitor.component';
 import { ConnectionService } from '../../connections/services/connection.service';
@@ -243,5 +243,39 @@ describe('DbUserMonitorComponent (Hierarchical Category Tree & Clarified User Fi
     expect(stats.loginUsers).toBe(2);
     expect(stats.roles).toBe(1);
     expect(stats.activeSessions).toBe(4);
+  });
+
+  it('should auto-select first active connection when first connection is inactive', () => {
+    const conns: DatabaseConnection[] = [
+      { ...mockConnections[2], id: 'inactive-conn', is_active: false },
+      { ...mockConnections[0], id: 'active-conn', is_active: true },
+    ];
+    vi.spyOn(connectionService, 'getConnections').mockReturnValue(of(conns));
+    component.loadData();
+    expect(component.selectedConnection()?.id).toBe('active-conn');
+  });
+
+  it('should render clean informational state and suppress red error alert when engine is unsupported', () => {
+    const errorResponse = {
+      status: 400,
+      error: {
+        detail: "قابلیت پایش کاربران برای موتور پایگاه داده 'CLICKHOUSE' پیاده‌سازی نشده است.",
+      },
+    };
+    vi.spyOn(dbUserService, 'getDatabaseUsers').mockReturnValue(
+      throwError(() => errorResponse)
+    );
+
+    component.loadUsers('conn-clickhouse');
+    fixture.detectChanges();
+
+    expect(component.isUnsupportedEngine()).toBe(true);
+    expect(component.unsupportedEngineMessage()).toContain('پیاده‌سازی نشده است');
+    expect(component.errorMessage()).toBeNull();
+
+    // Verify DOM contains unsupported container and no error alert
+    const compiled = fixture.nativeElement as HTMLElement;
+    expect(compiled.querySelector('.unsupported-engine-container')).not.toBeNull();
+    expect(compiled.querySelector('.alert-danger')).toBeNull();
   });
 });

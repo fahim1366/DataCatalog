@@ -1433,6 +1433,7 @@ import asyncio
 from datetime import datetime, timezone
 import ipaddress
 import logging
+import re
 import socket
 import uuid
 from typing import List, Optional
@@ -1497,12 +1498,58 @@ from backend.src.services.connectors.postgres import PostgresConnector
 logger = logging.getLogger(__name__)
 
 
+def sanitize_uri_credentials(text: str) -> str:
+    """
+    Sanitizes URI credentials pattern (://user:pass@) to prevent leaking credentials/passwords.
+    Replaces password with '***' (e.g. mongodb://user:pass@host -> mongodb://user:***@host).
+    """
+    if not text:
+        return ""
+    return re.sub(r"://([^:@/\s]*):([^/\s]+)@", r"://\1:***@", str(text))
+
+
 def format_connection_error_persian(raw_error: str, context: str = "discovery") -> str:
     """
     Translates raw database connection/discovery error messages into clear, actionable Persian.
     Provides helpful hints to verify host/port/credentials or use آ«طھط³طھ ط§طھطµط§ظ„آ».
+    Sanitizes any URI credentials pattern (://user:pass@) before returning error messages so passwords in MongoDB/SQL URIs are never leaked in error responses.
     """
-    err_lower = (raw_error or "").lower()
+    sanitized_error = sanitize_uri_credentials(raw_error or "")
+    err_lower = sanitized_error.lower()
+
+    # Missing Driver / Package
+    if any(
+        k in err_lower
+        for k in [
+            "missingdrivererror",
+            "aioodbc",
+            "pymssql",
+            "aiomysql",
+            "asyncmy",
+            "oracledb",
+            "motor",
+            "pymongo",
+            "clickhouse-connect",
+            "clickhouse_connect",
+            "no module named",
+            "driver not found",
+            "cannot import name",
+        ]
+    ) or ("ظ†طµط¨" in sanitized_error and ("ط¯ط±ط§غŒظˆط±" in sanitized_error or "ظ¾ع©غŒط¬" in sanitized_error)):
+        if any("\u0600" <= c <= "\u06FF" for c in sanitized_error) and ("ظ†طµط¨" in sanitized_error or "ظ¾ع©غŒط¬" in sanitized_error):
+            return sanitized_error
+        pkg = "ظ…ط±ط¨ظˆط·ظ‡"
+        if "aioodbc" in err_lower or "pymssql" in err_lower or "mssql" in err_lower:
+            pkg = "'aioodbc' غŒط§ 'pymssql'"
+        elif "aiomysql" in err_lower or "asyncmy" in err_lower or "mysql" in err_lower:
+            pkg = "'aiomysql' غŒط§ 'asyncmy'"
+        elif "oracledb" in err_lower or "oracle" in err_lower:
+            pkg = "'oracledb'"
+        elif "motor" in err_lower or "pymongo" in err_lower or "mongo" in err_lower:
+            pkg = "'motor' غŒط§ 'pymongo'"
+        elif "clickhouse" in err_lower:
+            pkg = "'clickhouse-connect'"
+        return f"ط¯ط±ط§غŒظˆط± ط§ط±طھط¨ط§ط·غŒ ظ¾ط§غŒع¯ط§ظ‡ ط¯ط§ط¯ظ‡ ط¨ط± ط±ظˆغŒ ط³ط±ظˆط± ظ†طµط¨ ظ†غŒط³طھ: ظ„ط·ظپط§ظ‹ ظ¾ع©غŒط¬ {pkg} ط±ط§ ظ†طµط¨ ظ†ظ…ط§غŒغŒط¯."
 
     # Network / Timeout
     if any(k in err_lower for k in ["timeout", "timed out", "time out"]):
@@ -1787,13 +1834,14 @@ async def discover_databases(
     config = {
         "host": payload.host,
         "port": payload.port,
-        "username": payload.credentials.get("username", "postgres"),
+        "username": payload.credentials.get("username", ""),
         "password": payload.credentials.get("password", ""),
         "custom_params": payload.custom_params or {},
     }
 
-    if payload.engine_type == DatabaseEngine.POSTGRESQL or str(payload.engine_type).upper() == "POSTGRESQL":
-        result = await PostgresConnector.discover_databases_from_config(config)
+    try:
+        connector_cls = default_connector_registry.get_connector_class(payload.engine_type)
+        result = await connector_cls.discover_databases_from_config(config)
         if result.get("success"):
             db_count = len(result.get("databases", []))
             persian_msg = f"ط´ظ†ط§ط³ط§غŒغŒ ظ¾ط§غŒع¯ط§ظ‡â€Œظ‡ط§غŒ ط¯ط§ط¯ظ‡ ط¨ط§ ظ…ظˆظپظ‚غŒطھ ط§ظ†ط¬ط§ظ… ط´ط¯ ({db_count} ظ¾ط§غŒع¯ط§ظ‡â€Œط¯ط§ط¯ظ‡ غŒط§ظپطھ ط´ط¯)."
@@ -1806,7 +1854,7 @@ async def discover_databases(
             server_version=result.get("server_version"),
             message=persian_msg,
         )
-    else:
+    except NotImplementedError:
         return DiscoverDatabasesResponse(
             success=False,
             databases=[],
@@ -1816,6 +1864,15 @@ async def discover_databases(
                 f"ط´ظ†ط§ط³ط§غŒغŒ ط®ظˆط¯ع©ط§ط± ظ¾ط§غŒع¯ط§ظ‡â€Œط¯ط§ط¯ظ‡ ط¨ط±ط§غŒ ظ…ظˆطھظˆط± آ«{payload.engine_type}آ» ط¯ط± ط­ط§ظ„ ط­ط§ط¶ط± ظ¾ط´طھغŒط¨ط§ظ†غŒ ظ†ظ…غŒâ€Œط´ظˆط¯. "
                 "ظ„ط·ظپط§ظ‹ ظ†ط§ظ… ط¯غŒطھط§ط¨غŒط³ ط±ط§ ط¨ظ‡ طµظˆط±طھ ط¯ط³طھغŒ ظˆط§ط±ط¯ ع©ط±ط¯ظ‡ ظˆ ط§ط² آ«طھط³طھ ط§طھطµط§ظ„آ» ط§ط³طھظپط§ط¯ظ‡ ظ†ظ…ط§غŒغŒط¯."
             ),
+        )
+    except Exception as exc:
+        logger.warning("Database discovery failed for %s:%s: %s", payload.host, payload.port, exc)
+        return DiscoverDatabasesResponse(
+            success=False,
+            databases=[],
+            latency_ms=0.0,
+            server_version=None,
+            message=format_connection_error_persian(str(exc), context="discovery"),
         )
 
 
@@ -1839,7 +1896,7 @@ async def test_unsaved_connection(
         "port": payload.port,
         "database_name": payload.database_name,
         "database": payload.database_name,
-        "username": payload.credentials.get("username", "postgres"),
+        "username": payload.credentials.get("username", ""),
         "password": payload.credentials.get("password", ""),
         "custom_params": payload.custom_params or {},
     }
@@ -1864,14 +1921,15 @@ async def test_unsaved_connection(
             tested_at=test_res.tested_at,
         )
     except Exception as exc:
-        logger.warning("Unsaved connection test failed for %s:%s: %s", payload.host, payload.port, exc)
+        sanitized_exc = sanitize_uri_credentials(str(exc))
+        logger.warning("Unsaved connection test failed for %s:%s: %s", payload.host, payload.port, sanitized_exc)
         return ConnectionDiagnosticTestResponse(
             success=False,
             latency_ms=0.0,
             dialect=str(payload.engine_type.value if hasattr(payload.engine_type, "value") else payload.engine_type),
             server_version=None,
             message=format_connection_error_persian(str(exc), context="test"),
-            diagnostic_details={"error": str(exc)},
+            diagnostic_details={"error": sanitized_exc},
             tested_at=datetime.now(timezone.utc),
         )
 
@@ -5850,7 +5908,7 @@ from backend.src.models.catalog import (
     DatabaseSchema,
     LifecycleStatus,
 )
-from backend.src.models.connections import DatabaseConnection
+from backend.src.models.connections import DatabaseConnection, DatabaseEngine
 from backend.src.models.identity import User
 from backend.src.models.rbac import (
     EntityType,
@@ -5966,7 +6024,14 @@ async def get_physical_tree(
         conn_stmt = conn_stmt.where(DatabaseConnection.is_active == True)
 
     if engine_type is not None and engine_type.strip():
-        conn_stmt = conn_stmt.where(DatabaseConnection.engine_type == engine_type.strip())
+        try:
+            normalized_engine = DatabaseEngine(engine_type.strip().upper())
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=f"Invalid engine dialect '{engine_type}'. Supported engines: {[e.value for e in DatabaseEngine]}",
+            ) from exc
+        conn_stmt = conn_stmt.where(DatabaseConnection.engine_type == normalized_engine)
     if host is not None and host.strip():
         conn_stmt = conn_stmt.where(DatabaseConnection.host.ilike(f"%{host.strip()}%"))
     if owner is not None and owner.strip():
@@ -13945,8 +14010,10 @@ __all__ = [
 === FILE: D:\datacatalog\backend\src\services\connectors\base.py ===
 from __future__ import annotations
 
+import asyncio
 import enum
 import logging
+import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -13955,6 +14022,19 @@ from typing import Any, Dict, List, Optional, Type
 from sqlalchemy.pool import NullPool, Pool
 
 logger = logging.getLogger(__name__)
+
+
+class MissingDriverError(ImportError):
+    """Raised when an engine's optional driver package is missing."""
+
+    def __init__(self, engine: str, package_name: str, message: Optional[str] = None) -> None:
+        self.engine = engine
+        self.package_name = package_name
+        msg = (
+            message
+            or f"ط¯ط±ط§غŒظˆط± '{package_name}' ط¨ط±ط§غŒ ط§طھطµط§ظ„ ط¨ظ‡ ط¯غŒطھط§ط¨غŒط³ '{engine}' ط¨ط± ط±ظˆغŒ ط³غŒط³طھظ… ظ†طµط¨ ظ†غŒط³طھ. ظ„ط·ظپط§ظ‹ ظ¾ع©غŒط¬ ظ…ط±ط¨ظˆط·ظ‡ ط±ط§ ظ†طµط¨ ظ†ظ…ط§غŒغŒط¯."
+        )
+        super().__init__(msg)
 
 
 class ConnectorEngine(str, enum.Enum):
@@ -14149,6 +14229,50 @@ class BaseMetadataConnector(ABC):
         """Extracts default database collation if supported by the engine."""
         return None
 
+    async def discover_databases(self) -> List[str]:
+        """Lists accessible non-system databases for this engine."""
+        return []
+
+    @classmethod
+    async def discover_databases_from_config(cls, config: Dict[str, Any]) -> Dict[str, Any]:
+        """Classmethod helper to execute discover_databases with a 5.0s timeout."""
+        start_time = time.monotonic()
+        connector = cls(config)
+        try:
+            return await asyncio.wait_for(connector._run_database_discovery(start_time), timeout=5.0)
+        except asyncio.TimeoutError:
+            elapsed_ms = round((time.monotonic() - start_time) * 1000, 2)
+            return {
+                "success": False,
+                "databases": [],
+                "latency_ms": elapsed_ms,
+                "server_version": None,
+                "message": "Database discovery probe timed out after 5.0 seconds.",
+            }
+        except Exception as exc:
+            elapsed_ms = round((time.monotonic() - start_time) * 1000, 2)
+            return {
+                "success": False,
+                "databases": [],
+                "latency_ms": elapsed_ms,
+                "server_version": None,
+                "message": f"Database discovery failed: {str(exc)}",
+            }
+
+    async def _run_database_discovery(self, start_time: float) -> Dict[str, Any]:
+        """Default discovery runner implementation."""
+        async with self:
+            dbs = await self.discover_databases()
+            test_res = await self.test_connection()
+            elapsed_ms = round((time.monotonic() - start_time) * 1000, 2)
+            return {
+                "success": True,
+                "databases": dbs,
+                "latency_ms": elapsed_ms,
+                "server_version": test_res.server_version,
+                "message": f"Successfully discovered {len(dbs)} databases.",
+            }
+
     @abstractmethod
     async def extract_schema_metadata(self, schema_name: str) -> SchemaExtractionResult:
         """Bulk extracts tables, columns, constraints, and statistics for a single schema."""
@@ -14189,6 +14313,2254 @@ class BaseMetadataConnector(ABC):
                 )
 
         return results
+
+=== FILE: D:\datacatalog\backend\src\services\connectors\clickhouse.py ===
+from __future__ import annotations
+
+import asyncio
+import logging
+import time
+from typing import Any, Dict, List, Optional
+
+import httpx
+
+from backend.src.models.connections import DatabaseEngine
+from backend.src.services.connectors.base import (
+    BaseMetadataConnector,
+    ColumnMetadata,
+    ConnectionTestResult,
+    ForeignKeyMetadata,
+    IndexMetadata,
+    RoutineMetadata,
+    SchemaExtractionResult,
+    SchemaMetadata,
+    TableMetadata,
+    TableStatisticsMetadata,
+)
+from backend.src.services.connectors.registry import default_connector_registry
+
+logger = logging.getLogger(__name__)
+
+
+class ClickHouseConnector(BaseMetadataConnector):
+    """
+    Enterprise ClickHouse columnar metadata connector.
+
+    Communicates directly via ClickHouse's high-performance native HTTP JSON interface (port 8123)
+    using httpx, with optional clickhouse-connect support. Enforces strict 5.0-second timeouts.
+    """
+
+    STATEMENT_TIMEOUT_MS: int = 30000
+
+    def __init__(self, connection_config: Dict[str, Any]) -> None:
+        super().__init__(connection_config)
+        self._http_client: Optional[httpx.AsyncClient] = None
+
+    def _get_base_url(self) -> str:
+        host = self.config.get("host", "127.0.0.1")
+        port = int(self.config.get("port", 8123))
+        protocol = "https" if self.config.get("ssl") else "http"
+        return f"{protocol}://{host}:{port}"
+
+    def _get_auth(self) -> Optional[httpx.BasicAuth]:
+        username = self.config.get("username") or self.config.get("user", "default")
+        password = self.config.get("password", "")
+        return httpx.BasicAuth(username, password)
+
+    async def _query_json(self, sql: str) -> List[Dict[str, Any]]:
+        """Executes a SQL query against ClickHouse HTTP interface with JSON output."""
+        base_url = self._get_base_url()
+        auth = self._get_auth()
+        client = self._http_client or httpx.AsyncClient(timeout=10.0)
+        should_close = self._http_client is None
+
+        try:
+            formatted_sql = f"{sql.strip().rstrip(';')} FORMAT JSON"
+            resp = await client.post(
+                base_url,
+                content=formatted_sql.encode("utf-8"),
+                auth=auth,
+                headers={"Content-Type": "text/plain"},
+            )
+            if resp.status_code != 200:
+                raise RuntimeError(f"ClickHouse query error ({resp.status_code}): {resp.text.strip()}")
+            payload = resp.json()
+            return payload.get("data", [])
+        finally:
+            if should_close:
+                await client.aclose()
+
+    async def __aenter__(self) -> "ClickHouseConnector":
+        self._is_closed = False
+        if self._http_client is None:
+            self._http_client = httpx.AsyncClient(timeout=10.0)
+        return self
+
+    async def __aexit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
+        if self._http_client is not None:
+            await self._http_client.aclose()
+            self._http_client = None
+        self._is_closed = True
+
+    async def test_connection(self) -> ConnectionTestResult:
+        """5s timeout ping returning SELECT version()."""
+        start_time = time.monotonic()
+        try:
+            return await asyncio.wait_for(self._run_connection_test(start_time), timeout=5.0)
+        except asyncio.TimeoutError:
+            elapsed_ms = round((time.monotonic() - start_time) * 1000, 2)
+            return ConnectionTestResult(
+                success=False,
+                latency_ms=elapsed_ms,
+                dialect="CLICKHOUSE",
+                server_version=None,
+                message="Connection probe timed out after 5.0 seconds.",
+                diagnostic_details={"error_type": "TimeoutError", "timeout_seconds": 5.0},
+            )
+        except Exception as exc:
+            elapsed_ms = round((time.monotonic() - start_time) * 1000, 2)
+            return ConnectionTestResult(
+                success=False,
+                latency_ms=elapsed_ms,
+                dialect="CLICKHOUSE",
+                server_version=None,
+                message=str(exc),
+                diagnostic_details={"error_type": type(exc).__name__, "error": str(exc)},
+            )
+
+    async def _run_connection_test(self, start_time: float) -> ConnectionTestResult:
+        rows = await self._query_json("SELECT version() AS ver, currentDatabase() AS current_db")
+        server_ver = rows[0].get("ver") if rows else None
+        current_db = rows[0].get("current_db") if rows else ""
+        elapsed_ms = round((time.monotonic() - start_time) * 1000, 2)
+
+        return ConnectionTestResult(
+            success=True,
+            latency_ms=elapsed_ms,
+            dialect="CLICKHOUSE",
+            server_version=server_ver,
+            message=f"Successfully connected to ClickHouse database '{current_db}'.",
+            diagnostic_details={
+                "version_string": server_ver or "",
+                "current_database": current_db,
+                "session_read_only": True,
+                "tcp_reachable": True,
+                "auth_valid": True,
+            },
+        )
+
+    async def discover_databases(self) -> List[str]:
+        """Query SELECT name FROM system.databases excluding internal databases."""
+        sql = """
+            SELECT name 
+            FROM system.databases 
+            WHERE name NOT IN ('system', 'INFORMATION_SCHEMA', 'information_schema')
+            ORDER BY name
+        """
+        rows = await self._query_json(sql)
+        return [r["name"] for r in rows if "name" in r]
+
+    async def _run_database_discovery(self, start_time: float) -> Dict[str, Any]:
+        server_ver = None
+        try:
+            ver_rows = await self._query_json("SELECT version() AS ver")
+            if ver_rows:
+                server_ver = ver_rows[0].get("ver")
+        except Exception:
+            pass
+
+        databases = await self.discover_databases()
+        elapsed_ms = round((time.monotonic() - start_time) * 1000, 2)
+        return {
+            "success": True,
+            "databases": databases,
+            "latency_ms": elapsed_ms,
+            "server_version": server_ver,
+            "message": f"Successfully discovered {len(databases)} ClickHouse databases.",
+        }
+
+    async def extract_schemas(self) -> List[SchemaMetadata]:
+        """Lists discoverable non-system databases."""
+        dbs = await self.discover_databases()
+        return [SchemaMetadata(name=name) for name in dbs]
+
+    async def extract_schema_metadata(self, schema_name: str) -> SchemaExtractionResult:
+        """Extracts ClickHouse tables, columns, statistics, and sorting keys."""
+        safe_schema = schema_name.replace("'", "''")
+
+        # 1. Tables & statistics
+        tbl_sql = f"""
+            SELECT 
+                name,
+                engine,
+                total_rows,
+                total_bytes,
+                comment
+            FROM system.tables
+            WHERE database = '{safe_schema}'
+            ORDER BY name
+        """
+        tbl_rows = await self._query_json(tbl_sql)
+
+        tables: List[TableMetadata] = []
+        statistics: List[TableStatisticsMetadata] = []
+        for r in tbl_rows:
+            table_name = r["name"]
+            is_view = "View" in r.get("engine", "")
+            table_type = "VIEW" if is_view else "TABLE"
+            row_count = int(r.get("total_rows") or 0)
+            size_bytes = int(r.get("total_bytes") or 0)
+            comment = r.get("comment") or None
+
+            tables.append(
+                TableMetadata(
+                    schema_name=schema_name,
+                    name=table_name,
+                    table_type=table_type,
+                    row_count_estimate=row_count,
+                    size_bytes=size_bytes,
+                    source_description=comment,
+                    custom_properties={"engine": r.get("engine", "")},
+                )
+            )
+            statistics.append(
+                TableStatisticsMetadata(
+                    schema_name=schema_name,
+                    table_name=table_name,
+                    row_count_estimate=row_count,
+                    size_bytes=size_bytes,
+                )
+            )
+
+        # 2. Columns
+        col_sql = f"""
+            SELECT 
+                table,
+                name,
+                position,
+                type,
+                default_expression,
+                is_in_primary_key,
+                comment
+            FROM system.columns
+            WHERE database = '{safe_schema}'
+            ORDER BY table, position
+        """
+        col_rows = await self._query_json(col_sql)
+
+        columns: List[ColumnMetadata] = []
+        pk_cols_by_table: Dict[str, List[str]] = {}
+
+        for r in col_rows:
+            tbl_name = r["table"]
+            col_name = r["name"]
+            is_pk = bool(r.get("is_in_primary_key"))
+            if is_pk:
+                pk_cols_by_table.setdefault(tbl_name, []).append(col_name)
+
+            data_type = r.get("type", "String")
+            is_nullable = "Nullable" in data_type
+
+            columns.append(
+                ColumnMetadata(
+                    schema_name=schema_name,
+                    table_name=tbl_name,
+                    name=col_name,
+                    ordinal_position=int(r.get("position", 1)),
+                    data_type=data_type,
+                    raw_data_type=data_type,
+                    is_nullable=is_nullable,
+                    is_primary_key=is_pk,
+                    default_value=r.get("default_expression") or None,
+                    source_description=r.get("comment") or None,
+                )
+            )
+
+        # 3. Primary Key Indexes
+        indexes: List[IndexMetadata] = []
+        for tbl_name, pk_cols in pk_cols_by_table.items():
+            indexes.append(
+                IndexMetadata(
+                    schema_name=schema_name,
+                    table_name=tbl_name,
+                    name=f"pk_{tbl_name}",
+                    is_unique=True,
+                    is_primary=True,
+                    index_type="PRIMARY_KEY",
+                    columns_list=pk_cols,
+                )
+            )
+
+        # 4. Routines (ClickHouse functions)
+        routines: List[RoutineMetadata] = []
+        try:
+            fn_rows = await self._query_json("SELECT name, is_aggregate, origin FROM system.functions WHERE origin = 'System' LIMIT 20")
+            for r in fn_rows:
+                routines.append(
+                    RoutineMetadata(
+                        schema_name=schema_name,
+                        name=r["name"],
+                        routine_type="AGGREGATE" if r.get("is_aggregate") else "FUNCTION",
+                        language="C++",
+                    )
+                )
+        except Exception:
+            pass
+
+        return SchemaExtractionResult(
+            schema=SchemaMetadata(name=schema_name),
+            tables=tables,
+            columns=columns,
+            foreign_keys=[],  # ClickHouse does not enforce relational foreign keys
+            statistics=statistics,
+            indexes=indexes,
+            routines=routines,
+            success=True,
+        )
+
+
+# Auto-register with default registry
+default_connector_registry.register(DatabaseEngine.CLICKHOUSE, ClickHouseConnector)
+default_connector_registry.register("CLICKHOUSE", ClickHouseConnector)
+
+=== FILE: D:\datacatalog\backend\src\services\connectors\mongodb.py ===
+from __future__ import annotations
+
+import asyncio
+import logging
+import time
+import urllib.parse
+from typing import Any, Dict, List, Optional, Set
+
+from backend.src.models.connections import DatabaseEngine
+from backend.src.services.connectors.base import (
+    BaseMetadataConnector,
+    ColumnMetadata,
+    ConnectionTestResult,
+    IndexMetadata,
+    MissingDriverError,
+    SchemaExtractionResult,
+    SchemaMetadata,
+    TableMetadata,
+    TableStatisticsMetadata,
+)
+from backend.src.services.connectors.registry import default_connector_registry
+
+logger = logging.getLogger(__name__)
+
+
+def _has_mongo_driver() -> bool:
+    """Checks whether motor or pymongo is installed."""
+    try:
+        import motor.motor_asyncio  # noqa: F401
+        return True
+    except ImportError:
+        try:
+            import pymongo  # noqa: F401
+            return True
+        except ImportError:
+            return False
+
+
+class MongoDBConnector(BaseMetadataConnector):
+    """
+    Enterprise MongoDB document database metadata connector.
+
+    Treats databases as schemas, collections as tables, and samples up to 50 documents
+    per collection to infer dynamic BSON/JSON schema structure, nested types, and indexes.
+    Enforces strict 5.0-second timeouts.
+    """
+
+    STATEMENT_TIMEOUT_MS: int = 30000
+
+    def __init__(self, connection_config: Dict[str, Any]) -> None:
+        super().__init__(connection_config)
+        self._client: Any = None
+
+    def _ensure_driver(self) -> None:
+        if not _has_mongo_driver():
+            raise MissingDriverError(
+                engine="MONGODB",
+                package_name="motor",
+                message="ط¨ط±ط§غŒ ط§طھطµط§ظ„ ط¨ظ‡ ظ¾ط§غŒع¯ط§ظ‡â€Œط¯ط§ط¯ظ‡ MongoDBطŒ ظ„ط·ظپط§ظ‹ ظ¾ع©غŒط¬ 'motor' غŒط§ 'pymongo' ط±ط§ ظ†طµط¨ ظ†ظ…ط§غŒغŒط¯.",
+            )
+
+    def _build_connection_uri(self) -> str:
+        if "url" in self.config:
+            return self.config["url"]
+
+        host = self.config.get("host", "127.0.0.1")
+        port = int(self.config.get("port", 27017))
+        username = self.config.get("username")
+        password = self.config.get("password")
+        custom_params = self.config.get("custom_params") or {}
+        auth_source = custom_params.get("authSource", "admin")
+
+        auth = ""
+        if username and password:
+            q_user = urllib.parse.quote_plus(str(username))
+            q_pass = urllib.parse.quote_plus(str(password))
+            auth = f"{q_user}:{q_pass}@"
+        elif username:
+            auth = f"{urllib.parse.quote_plus(str(username))}@"
+
+        return f"mongodb://{auth}{host}:{port}/?authSource={auth_source}"
+
+    async def _get_client(self) -> Any:
+        self._ensure_driver()
+        import motor.motor_asyncio
+
+        uri = self._build_connection_uri()
+        return motor.motor_asyncio.AsyncIOMotorClient(
+            uri,
+            serverSelectionTimeoutMS=5000,
+            connectTimeoutMS=5000,
+            socketTimeoutMS=10000,
+        )
+
+    async def __aenter__(self) -> "MongoDBConnector":
+        self._is_closed = False
+        if self._client is None:
+            self._client = await self._get_client()
+        return self
+
+    async def __aexit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
+        if self._client is not None:
+            self._client.close()
+            self._client = None
+        self._is_closed = True
+
+    async def test_connection(self) -> ConnectionTestResult:
+        """5s timeout ping command and server_info()."""
+        start_time = time.monotonic()
+        try:
+            return await asyncio.wait_for(self._run_connection_test(start_time), timeout=5.0)
+        except asyncio.TimeoutError:
+            elapsed_ms = round((time.monotonic() - start_time) * 1000, 2)
+            return ConnectionTestResult(
+                success=False,
+                latency_ms=elapsed_ms,
+                dialect="MONGODB",
+                server_version=None,
+                message="Connection probe timed out after 5.0 seconds.",
+                diagnostic_details={"error_type": "TimeoutError", "timeout_seconds": 5.0},
+            )
+        except Exception as exc:
+            elapsed_ms = round((time.monotonic() - start_time) * 1000, 2)
+            return ConnectionTestResult(
+                success=False,
+                latency_ms=elapsed_ms,
+                dialect="MONGODB",
+                server_version=None,
+                message=str(exc),
+                diagnostic_details={"error_type": type(exc).__name__, "error": str(exc)},
+            )
+
+    async def _run_connection_test(self, start_time: float) -> ConnectionTestResult:
+        client = self._client
+        should_close = False
+        if client is None:
+            client = await self._get_client()
+            should_close = True
+
+        try:
+            admin_db = client.admin
+            await admin_db.command("ping")
+            server_info = await client.server_info()
+            server_ver = server_info.get("version")
+            elapsed_ms = round((time.monotonic() - start_time) * 1000, 2)
+
+            return ConnectionTestResult(
+                success=True,
+                latency_ms=elapsed_ms,
+                dialect="MONGODB",
+                server_version=server_ver,
+                message=f"Successfully connected to MongoDB server v{server_ver}.",
+                diagnostic_details={
+                    "version_string": server_ver or "",
+                    "session_read_only": True,
+                    "tcp_reachable": True,
+                    "auth_valid": True,
+                },
+            )
+        finally:
+            if should_close:
+                client.close()
+
+    async def discover_databases(self) -> List[str]:
+        """list_database_names() excluding admin, local, config."""
+        client = self._client
+        should_close = False
+        if client is None:
+            client = await self._get_client()
+            should_close = True
+
+        try:
+            all_dbs = await client.list_database_names()
+            excluded = {"admin", "local", "config"}
+            return [db for db in all_dbs if db not in excluded]
+        finally:
+            if should_close:
+                client.close()
+
+    async def _run_database_discovery(self, start_time: float) -> Dict[str, Any]:
+        client = self._client
+        should_close = False
+        if client is None:
+            client = await self._get_client()
+            should_close = True
+
+        try:
+            server_ver = None
+            try:
+                info = await client.server_info()
+                server_ver = info.get("version")
+            except Exception:
+                pass
+
+            databases = await self.discover_databases()
+            elapsed_ms = round((time.monotonic() - start_time) * 1000, 2)
+            return {
+                "success": True,
+                "databases": databases,
+                "latency_ms": elapsed_ms,
+                "server_version": server_ver,
+                "message": f"Successfully discovered {len(databases)} MongoDB databases.",
+            }
+        finally:
+            if should_close:
+                client.close()
+
+    async def extract_schemas(self) -> List[SchemaMetadata]:
+        """Lists discoverable non-system databases."""
+        dbs = await self.discover_databases()
+        return [SchemaMetadata(name=name) for name in dbs]
+
+    @staticmethod
+    def _infer_type(val: Any) -> str:
+        """Maps Python / BSON types to standard type string."""
+        if val is None:
+            return "null"
+        if isinstance(val, bool):
+            return "bool"
+        if isinstance(val, int):
+            return "int"
+        if isinstance(val, float):
+            return "double"
+        if isinstance(val, str):
+            return "string"
+        if isinstance(val, dict):
+            return "object"
+        if isinstance(val, (list, tuple)):
+            return "array"
+        tname = type(val).__name__.lower()
+        if "objectid" in tname:
+            return "objectId"
+        if "datetime" in tname or "timestamp" in tname:
+            return "date"
+        return tname
+
+    async def extract_schema_metadata(self, schema_name: str) -> SchemaExtractionResult:
+        """
+        Introspects collections, infers schema from up to 50 documents, and extracts indexes.
+        """
+        client = self._client
+        should_close = False
+        if client is None:
+            client = await self._get_client()
+            should_close = True
+
+        try:
+            db = client[schema_name]
+            coll_names = await db.list_collection_names()
+
+            tables: List[TableMetadata] = []
+            columns: List[ColumnMetadata] = []
+            statistics: List[TableStatisticsMetadata] = []
+            indexes: List[IndexMetadata] = []
+
+            for coll_name in coll_names:
+                if coll_name.startswith("system."):
+                    continue
+
+                coll = db[coll_name]
+
+                # Fast stats
+                row_count = 0
+                size_bytes = 0
+                try:
+                    stats = await db.command("collStats", coll_name)
+                    row_count = int(stats.get("count", 0))
+                    size_bytes = int(stats.get("size", stats.get("storageSize", 0)))
+                except Exception:
+                    try:
+                        row_count = await coll.estimated_document_count()
+                    except Exception:
+                        pass
+
+                tables.append(
+                    TableMetadata(
+                        schema_name=schema_name,
+                        name=coll_name,
+                        table_type="TABLE",
+                        row_count_estimate=row_count,
+                        size_bytes=size_bytes,
+                    )
+                )
+                statistics.append(
+                    TableStatisticsMetadata(
+                        schema_name=schema_name,
+                        table_name=coll_name,
+                        row_count_estimate=row_count,
+                        size_bytes=size_bytes,
+                    )
+                )
+
+                # Sample up to 50 documents to infer fields
+                field_types: Dict[str, Set[str]] = {}
+                field_seen_count: Dict[str, int] = {}
+                doc_count = 0
+
+                try:
+                    cursor = coll.find().limit(50)
+                    async for doc in cursor:
+                        doc_count += 1
+                        for key, val in doc.items():
+                            t = self._infer_type(val)
+                            field_types.setdefault(key, set()).add(t)
+                            field_seen_count[key] = field_seen_count.get(key, 0) + 1
+                except Exception as exc:
+                    logger.debug("MongoDB sampling failed for collection %s: %s", coll_name, exc)
+
+                # Ensure _id is present
+                if "_id" not in field_types:
+                    field_types["_id"] = {"objectId"}
+                    field_seen_count["_id"] = doc_count
+
+                # Create column metadata
+                ordinal = 1
+                for field_name in sorted(field_types.keys(), key=lambda k: (0 if k == "_id" else 1, k)):
+                    types = field_types[field_name]
+                    type_str = "/".join(sorted(types)) if types else "unknown"
+                    seen = field_seen_count.get(field_name, 0)
+                    is_pk = (field_name == "_id")
+                    is_nullable = not is_pk and (seen < doc_count or "null" in types)
+
+                    columns.append(
+                        ColumnMetadata(
+                            schema_name=schema_name,
+                            table_name=coll_name,
+                            name=field_name,
+                            ordinal_position=ordinal,
+                            data_type=type_str,
+                            raw_data_type=type_str,
+                            is_nullable=is_nullable,
+                            is_primary_key=is_pk,
+                        )
+                    )
+                    ordinal += 1
+
+                # Extract indexes
+                try:
+                    idx_info = await coll.index_information()
+                    for idx_name, idx_meta in idx_info.items():
+                        key_pairs = idx_meta.get("key", [])
+                        cols = [k[0] for k in key_pairs]
+                        is_uniq = bool(idx_meta.get("unique", False))
+                        is_pk = (idx_name == "_id_")
+
+                        indexes.append(
+                            IndexMetadata(
+                                schema_name=schema_name,
+                                table_name=coll_name,
+                                name=idx_name,
+                                is_unique=is_uniq,
+                                is_primary=is_pk,
+                                index_type="BTREE",
+                                columns_list=cols,
+                            )
+                        )
+                except Exception as exc:
+                    logger.debug("MongoDB index extraction failed for %s: %s", coll_name, exc)
+
+            return SchemaExtractionResult(
+                schema=SchemaMetadata(name=schema_name),
+                tables=tables,
+                columns=columns,
+                foreign_keys=[],  # MongoDB is non-relational
+                statistics=statistics,
+                indexes=indexes,
+                routines=[],
+                success=True,
+            )
+        finally:
+            if should_close:
+                client.close()
+
+
+# Auto-register with default registry
+default_connector_registry.register(DatabaseEngine.MONGODB, MongoDBConnector)
+default_connector_registry.register("MONGODB", MongoDBConnector)
+
+=== FILE: D:\datacatalog\backend\src\services\connectors\mssql.py ===
+from __future__ import annotations
+
+import asyncio
+import logging
+import time
+import urllib.parse
+from typing import Any, Dict, List, Optional, Type
+
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
+from sqlalchemy.pool import NullPool, Pool
+
+from backend.src.models.connections import DatabaseEngine
+from backend.src.services.connectors.base import (
+    BaseMetadataConnector,
+    ColumnMetadata,
+    ConnectionTestResult,
+    ForeignKeyMetadata,
+    IndexMetadata,
+    MissingDriverError,
+    RoutineMetadata,
+    SchemaExtractionResult,
+    SchemaMetadata,
+    TableMetadata,
+    TableStatisticsMetadata,
+)
+from backend.src.services.connectors.registry import default_connector_registry
+
+logger = logging.getLogger(__name__)
+
+
+def _detect_mssql_driver() -> Optional[str]:
+    """Detects available async MSSQL drivers."""
+    try:
+        import aioodbc  # noqa: F401
+        return "aioodbc"
+    except ImportError:
+        pass
+    try:
+        import pymssql  # noqa: F401
+        return "pymssql"
+    except ImportError:
+        pass
+    return None
+
+
+class MSSQLConnector(BaseMetadataConnector):
+    """
+    Enterprise Microsoft SQL Server (MSSQL) metadata connector.
+
+    Uses ephemeral connections with NullPool, strict timeouts, and READ UNCOMMITTED isolation.
+    Gracefully detects and falls back between aioodbc and pymssql.
+    """
+
+    STATEMENT_TIMEOUT_MS: int = 30000
+
+    QUERIES: Dict[str, str] = {
+        "TEST": """
+            SELECT @@VERSION AS server_version, DB_NAME() AS current_database;
+        """,
+        "DISCOVER_DATABASES": """
+            SELECT name 
+            FROM sys.databases 
+            WHERE state = 0 
+              AND database_id > 4 
+            ORDER BY name;
+        """,
+        "COLLATION": """
+            SELECT CAST(DATABASEPROPERTYEX(DB_NAME(), 'Collation') AS VARCHAR(128)) AS collation_name;
+        """,
+        "SCHEMAS": """
+            SELECT s.name AS schema_name, p.name AS owner
+            FROM sys.schemas s
+            JOIN sys.database_principals p ON s.principal_id = p.principal_id
+            WHERE s.name NOT IN (
+                'guest', 'INFORMATION_SCHEMA', 'sys', 'db_owner', 'db_accessadmin',
+                'db_securityadmin', 'db_ddladmin', 'db_backupoperator', 'db_datareader',
+                'db_datawriter', 'db_denydatareader', 'db_denydatawriter'
+            )
+            ORDER BY s.name;
+        """,
+        "TABLES": """
+            SELECT 
+                t.name AS table_name,
+                CASE t.type WHEN 'U' THEN 'TABLE' WHEN 'V' THEN 'VIEW' ELSE 'TABLE' END AS table_type,
+                ISNULL(p.row_count, 0) AS row_count_estimate,
+                ISNULL(p.size_bytes, 0) AS size_bytes,
+                CAST(ep.value AS NVARCHAR(MAX)) AS source_description,
+                USER_NAME(t.schema_id) AS owner
+            FROM (
+                SELECT object_id, name, schema_id, type FROM sys.tables
+                UNION ALL
+                SELECT object_id, name, schema_id, type FROM sys.views
+            ) t
+            JOIN sys.schemas s ON t.schema_id = s.schema_id
+            LEFT JOIN (
+                SELECT 
+                    object_id,
+                    SUM(CASE WHEN index_id < 2 THEN row_count ELSE 0 END) AS row_count,
+                    SUM(reserved_page_count) * 8192 AS size_bytes
+                FROM sys.dm_db_partition_stats
+                GROUP BY object_id
+            ) p ON t.object_id = p.object_id
+            LEFT JOIN sys.extended_properties ep ON ep.major_id = t.object_id AND ep.minor_id = 0 AND ep.name = 'MS_Description'
+            WHERE s.name = :schema_name
+            ORDER BY t.name;
+        """,
+        "COLUMNS": """
+            SELECT 
+                t.name AS table_name,
+                c.name AS column_name,
+                c.column_id AS ordinal_position,
+                tp.name AS data_type,
+                tp.name + CASE 
+                    WHEN tp.name IN ('varchar', 'char', 'varbinary') THEN '(' + CASE WHEN c.max_length = -1 THEN 'max' ELSE CAST(c.max_length AS VARCHAR) END + ')'
+                    WHEN tp.name IN ('nvarchar', 'nchar') THEN '(' + CASE WHEN c.max_length = -1 THEN 'max' ELSE CAST(c.max_length/2 AS VARCHAR) END + ')'
+                    WHEN tp.name IN ('decimal', 'numeric') THEN '(' + CAST(c.precision AS VARCHAR) + ',' + CAST(c.scale AS VARCHAR) + ')'
+                    ELSE ''
+                END AS raw_data_type,
+                c.collation_name AS collation,
+                c.is_nullable AS is_nullable,
+                CASE WHEN pk.column_id IS NOT NULL THEN 1 ELSE 0 END AS is_primary_key,
+                CASE WHEN fk.column_id IS NOT NULL THEN 1 ELSE 0 END AS is_foreign_key,
+                dc.definition AS default_value,
+                CAST(ep.value AS NVARCHAR(MAX)) AS source_description
+            FROM (
+                SELECT object_id, name, schema_id FROM sys.tables
+                UNION ALL
+                SELECT object_id, name, schema_id FROM sys.views
+            ) t
+            JOIN sys.schemas s ON t.schema_id = s.schema_id
+            JOIN sys.columns c ON t.object_id = c.object_id
+            JOIN sys.types tp ON c.user_type_id = tp.user_type_id
+            LEFT JOIN sys.default_constraints dc ON c.default_object_id = dc.object_id
+            LEFT JOIN sys.extended_properties ep ON ep.major_id = t.object_id AND ep.minor_id = c.column_id AND ep.name = 'MS_Description'
+            LEFT JOIN (
+                SELECT ic.object_id, ic.column_id
+                FROM sys.index_columns ic
+                JOIN sys.indexes i ON ic.object_id = i.object_id AND ic.index_id = i.index_id
+                WHERE i.is_primary_key = 1
+            ) pk ON t.object_id = pk.object_id AND c.column_id = pk.column_id
+            LEFT JOIN (
+                SELECT fkc.parent_object_id AS object_id, fkc.parent_column_id AS column_id
+                FROM sys.foreign_key_columns fkc
+            ) fk ON t.object_id = fk.object_id AND c.column_id = fk.column_id
+            WHERE s.name = :schema_name
+            ORDER BY t.name, c.column_id;
+        """,
+        "FOREIGN_KEYS": """
+            SELECT 
+                tp.name AS table_name,
+                cp.name AS column_name,
+                rf_s.name AS foreign_schema_name,
+                tr.name AS foreign_table_name,
+                cr.name AS foreign_column_name,
+                fk.name AS constraint_name
+            FROM sys.foreign_keys fk
+            JOIN sys.foreign_key_columns fkc ON fk.object_id = fkc.constraint_object_id
+            JOIN sys.tables tp ON fkc.parent_object_id = tp.object_id
+            JOIN sys.schemas s ON tp.schema_id = s.schema_id
+            JOIN sys.columns cp ON fkc.parent_object_id = cp.object_id AND fkc.parent_column_id = cp.column_id
+            JOIN sys.tables tr ON fkc.referenced_object_id = tr.object_id
+            JOIN sys.schemas rf_s ON tr.schema_id = rf_s.schema_id
+            JOIN sys.columns cr ON fkc.referenced_object_id = cr.object_id AND fkc.referenced_column_id = cr.column_id
+            WHERE s.name = :schema_name
+            ORDER BY tp.name, fk.name;
+        """,
+        "STATISTICS": """
+            SELECT 
+                t.name AS table_name,
+                ISNULL(p.row_count, 0) AS row_count_estimate,
+                ISNULL(p.size_bytes, 0) AS size_bytes
+            FROM sys.tables t
+            JOIN sys.schemas s ON t.schema_id = s.schema_id
+            LEFT JOIN (
+                SELECT 
+                    object_id,
+                    SUM(CASE WHEN index_id < 2 THEN row_count ELSE 0 END) AS row_count,
+                    SUM(reserved_page_count) * 8192 AS size_bytes
+                FROM sys.dm_db_partition_stats
+                GROUP BY object_id
+            ) p ON t.object_id = p.object_id
+            WHERE s.name = :schema_name
+            ORDER BY t.name;
+        """,
+        "INDEXES": """
+            SELECT 
+                t.name AS table_name,
+                i.name AS index_name,
+                CAST(i.is_unique AS BIT) AS is_unique,
+                CAST(i.is_primary_key AS BIT) AS is_primary,
+                i.type_desc AS index_type,
+                (
+                    SELECT STRING_AGG(c.name, ', ') WITHIN GROUP (ORDER BY ic.key_ordinal)
+                    FROM sys.index_columns ic
+                    JOIN sys.columns c ON ic.object_id = c.object_id AND ic.column_id = c.column_id
+                    WHERE ic.object_id = i.object_id AND ic.index_id = i.index_id
+                ) AS column_names
+            FROM sys.indexes i
+            JOIN sys.tables t ON i.object_id = t.object_id
+            JOIN sys.schemas s ON t.schema_id = s.schema_id
+            WHERE s.name = :schema_name AND i.name IS NOT NULL
+            ORDER BY t.name, i.name;
+        """,
+        "ROUTINES": """
+            SELECT 
+                o.name AS routine_name,
+                CASE o.type WHEN 'P' THEN 'PROCEDURE' ELSE 'FUNCTION' END AS routine_type,
+                'SQL' AS language,
+                CAST(ep.value AS NVARCHAR(MAX)) AS source_description
+            FROM sys.objects o
+            JOIN sys.schemas s ON o.schema_id = s.schema_id
+            LEFT JOIN sys.extended_properties ep ON ep.major_id = o.object_id AND ep.minor_id = 0 AND ep.name = 'MS_Description'
+            WHERE s.name = :schema_name AND o.type IN ('P', 'FN', 'IF', 'TF')
+            ORDER BY o.name;
+        """,
+    }
+
+    def __init__(self, connection_config: Dict[str, Any]) -> None:
+        super().__init__(connection_config)
+        self._engine: Optional[AsyncEngine] = None
+
+    def get_pool_class(self) -> Type[Pool]:
+        return NullPool
+
+    def get_session_setup_statements(self) -> List[str]:
+        return [
+            "SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;",
+            f"SET LOCK_TIMEOUT {self.STATEMENT_TIMEOUT_MS};",
+        ]
+
+    def build_connection_url(self) -> str:
+        """Constructs an async driver connection URL."""
+        if "url" in self.config:
+            return self.config["url"]
+
+        driver = _detect_mssql_driver()
+        if not driver:
+            raise MissingDriverError(
+                engine="MSSQL",
+                package_name="aioodbc",
+                message="ط¨ط±ط§غŒ ط§طھطµط§ظ„ ط¨ظ‡ ظ¾ط§غŒع¯ط§ظ‡â€Œط¯ط§ط¯ظ‡ SQL ServerطŒ ظ„ط·ظپط§ظ‹ ظ¾ع©غŒط¬ 'aioodbc' غŒط§ 'pymssql' ط±ط§ ظ†طµط¨ ظ†ظ…ط§غŒغŒط¯.",
+            )
+
+        host = self.config.get("host", "127.0.0.1")
+        port = self.config.get("port", 1433)
+        database = self.config.get("database") or self.config.get("database_name", "master")
+        username = self.config.get("username") or self.config.get("user", "sa")
+        password = self.config.get("password", "")
+
+        quoted_username = urllib.parse.quote_plus(str(username))
+        quoted_password = urllib.parse.quote_plus(str(password)) if password else ""
+        auth = f"{quoted_username}:{quoted_password}@" if quoted_password else f"{quoted_username}@"
+
+        custom_params = self.config.get("custom_params") or {}
+        if driver == "aioodbc":
+            odbc_driver = custom_params.get("driver", "ODBC Driver 18 for SQL Server")
+            trust_cert = custom_params.get("TrustServerCertificate", "yes")
+            params = f"?driver={urllib.parse.quote_plus(odbc_driver)}&TrustServerCertificate={trust_cert}"
+            return f"mssql+aioodbc://{auth}{host}:{port}/{database}{params}"
+        else:
+            return f"mssql+pymssql://{auth}{host}:{port}/{database}"
+
+    def _create_engine(self) -> AsyncEngine:
+        url = self.build_connection_url()
+        return create_async_engine(
+            url,
+            poolclass=self.get_pool_class(),
+            connect_args={"timeout": 10},
+            echo=False,
+        )
+
+    async def __aenter__(self) -> "MSSQLConnector":
+        self._is_closed = False
+        if self._engine is None:
+            self._engine = self._create_engine()
+        return self
+
+    async def __aexit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
+        if self._engine is not None:
+            await self._engine.dispose()
+            self._engine = None
+        self._is_closed = True
+
+    async def test_connection(self) -> ConnectionTestResult:
+        """5s timeout diagnostic ping returning SQL Server version (@@VERSION)."""
+        start_time = time.monotonic()
+        try:
+            return await asyncio.wait_for(self._run_connection_test(start_time), timeout=5.0)
+        except asyncio.TimeoutError:
+            elapsed_ms = round((time.monotonic() - start_time) * 1000, 2)
+            return ConnectionTestResult(
+                success=False,
+                latency_ms=elapsed_ms,
+                dialect="MSSQL",
+                server_version=None,
+                message="Connection probe timed out after 5.0 seconds.",
+                diagnostic_details={"error_type": "TimeoutError", "timeout_seconds": 5.0},
+            )
+        except Exception as exc:
+            elapsed_ms = round((time.monotonic() - start_time) * 1000, 2)
+            return ConnectionTestResult(
+                success=False,
+                latency_ms=elapsed_ms,
+                dialect="MSSQL",
+                server_version=None,
+                message=str(exc),
+                diagnostic_details={"error_type": type(exc).__name__, "error": str(exc)},
+            )
+
+    async def _run_connection_test(self, start_time: float) -> ConnectionTestResult:
+        engine = self._engine or self._create_engine()
+        should_dispose = self._engine is None
+        try:
+            async with engine.connect() as conn:
+                for stmt in self.get_session_setup_statements():
+                    await conn.execute(text(stmt))
+
+                result = await conn.execute(text(self.QUERIES["TEST"]))
+                row = result.fetchone()
+                server_ver = row[0] if row else None
+                db_name = row[1] if row else ""
+                elapsed_ms = round((time.monotonic() - start_time) * 1000, 2)
+
+                return ConnectionTestResult(
+                    success=True,
+                    latency_ms=elapsed_ms,
+                    dialect="MSSQL",
+                    server_version=server_ver,
+                    message=f"Successfully connected to SQL Server database '{db_name}'.",
+                    diagnostic_details={
+                        "version_string": server_ver or "",
+                        "database": db_name,
+                        "session_read_only": True,
+                        "tcp_reachable": True,
+                        "auth_valid": True,
+                    },
+                )
+        finally:
+            if should_dispose:
+                await engine.dispose()
+
+    async def discover_databases(self) -> List[str]:
+        """Query sys.databases WHERE state = 0 AND database_id > 4."""
+        engine = self._engine or self._create_engine()
+        should_dispose = self._engine is None
+        try:
+            async with engine.connect() as conn:
+                for stmt in self.get_session_setup_statements():
+                    await conn.execute(text(stmt))
+                result = await conn.execute(text(self.QUERIES["DISCOVER_DATABASES"]))
+                return [r[0] for r in result.fetchall()]
+        finally:
+            if should_dispose:
+                await engine.dispose()
+
+    async def _run_database_discovery(self, start_time: float) -> Dict[str, Any]:
+        engine = self._engine or self._create_engine()
+        should_dispose = self._engine is None
+        try:
+            async with engine.connect() as conn:
+                for stmt in self.get_session_setup_statements():
+                    await conn.execute(text(stmt))
+
+                ver_res = await conn.execute(text(self.QUERIES["TEST"]))
+                ver_row = ver_res.fetchone()
+                server_ver = ver_row[0] if ver_row else None
+
+                db_res = await conn.execute(text(self.QUERIES["DISCOVER_DATABASES"]))
+                databases = [r[0] for r in db_res.fetchall()]
+                elapsed_ms = round((time.monotonic() - start_time) * 1000, 2)
+                return {
+                    "success": True,
+                    "databases": databases,
+                    "latency_ms": elapsed_ms,
+                    "server_version": server_ver,
+                    "message": f"Successfully discovered {len(databases)} databases.",
+                }
+        finally:
+            if should_dispose:
+                await engine.dispose()
+
+    async def extract_database_collation(self) -> Optional[str]:
+        """Extracts SQL Server database default collation."""
+        engine = self._engine or self._create_engine()
+        should_dispose = self._engine is None
+        try:
+            async with engine.connect() as conn:
+                for stmt in self.get_session_setup_statements():
+                    await conn.execute(text(stmt))
+                result = await conn.execute(text(self.QUERIES["COLLATION"]))
+                row = result.fetchone()
+                return str(row[0]) if row and row[0] else None
+        except Exception as exc:
+            logger.debug("MSSQL database collation extraction failed: %s", exc)
+            return None
+        finally:
+            if should_dispose:
+                await engine.dispose()
+
+    async def extract_schemas(self) -> List[SchemaMetadata]:
+        """Lists accessible schemas excluding system schemas."""
+        engine = self._engine or self._create_engine()
+        should_dispose = self._engine is None
+        try:
+            async with engine.connect() as conn:
+                for stmt in self.get_session_setup_statements():
+                    await conn.execute(text(stmt))
+                result = await conn.execute(text(self.QUERIES["SCHEMAS"]))
+                return [
+                    SchemaMetadata(name=row["schema_name"], owner=row["owner"])
+                    for row in result.mappings().all()
+                ]
+        finally:
+            if should_dispose:
+                await engine.dispose()
+
+    async def extract_schema_metadata(self, schema_name: str) -> SchemaExtractionResult:
+        """Bulk extracts tables, columns, constraints, statistics, indexes, and routines."""
+        engine = self._engine or self._create_engine()
+        should_dispose = self._engine is None
+        try:
+            async with engine.connect() as conn:
+                for stmt in self.get_session_setup_statements():
+                    await conn.execute(text(stmt))
+
+                # Tables
+                tbl_res = await conn.execute(text(self.QUERIES["TABLES"]), {"schema_name": schema_name})
+                tables = [
+                    TableMetadata(
+                        schema_name=schema_name,
+                        name=row["table_name"],
+                        table_type=row["table_type"],
+                        row_count_estimate=int(row["row_count_estimate"] or 0),
+                        size_bytes=int(row["size_bytes"] or 0),
+                        source_description=row["source_description"],
+                        owner=row["owner"],
+                    )
+                    for row in tbl_res.mappings().all()
+                ]
+
+                # Columns
+                col_res = await conn.execute(text(self.QUERIES["COLUMNS"]), {"schema_name": schema_name})
+                columns = [
+                    ColumnMetadata(
+                        schema_name=schema_name,
+                        table_name=row["table_name"],
+                        name=row["column_name"],
+                        ordinal_position=int(row["ordinal_position"]),
+                        data_type=row["data_type"],
+                        raw_data_type=row["raw_data_type"] or row["data_type"],
+                        collation=row["collation"],
+                        is_nullable=bool(row["is_nullable"]),
+                        is_primary_key=bool(row["is_primary_key"]),
+                        is_foreign_key=bool(row["is_foreign_key"]),
+                        default_value=row["default_value"],
+                        source_description=row["source_description"],
+                    )
+                    for row in col_res.mappings().all()
+                ]
+
+                # Foreign Keys
+                fk_res = await conn.execute(text(self.QUERIES["FOREIGN_KEYS"]), {"schema_name": schema_name})
+                foreign_keys = [
+                    ForeignKeyMetadata(
+                        schema_name=schema_name,
+                        table_name=row["table_name"],
+                        column_name=row["column_name"],
+                        foreign_schema_name=row["foreign_schema_name"],
+                        foreign_table_name=row["foreign_table_name"],
+                        foreign_column_name=row["foreign_column_name"],
+                        constraint_name=row["constraint_name"],
+                    )
+                    for row in fk_res.mappings().all()
+                ]
+
+                # Statistics
+                stat_res = await conn.execute(text(self.QUERIES["STATISTICS"]), {"schema_name": schema_name})
+                statistics = [
+                    TableStatisticsMetadata(
+                        schema_name=schema_name,
+                        table_name=row["table_name"],
+                        row_count_estimate=int(row["row_count_estimate"] or 0),
+                        size_bytes=int(row["size_bytes"] or 0),
+                    )
+                    for row in stat_res.mappings().all()
+                ]
+
+                # Indexes
+                idx_res = await conn.execute(text(self.QUERIES["INDEXES"]), {"schema_name": schema_name})
+                indexes = [
+                    IndexMetadata(
+                        schema_name=schema_name,
+                        table_name=row["table_name"],
+                        name=row["index_name"],
+                        is_unique=bool(row["is_unique"]),
+                        is_primary=bool(row["is_primary"]),
+                        index_type=row["index_type"] or "BTREE",
+                        columns_list=[c.strip() for c in (row["column_names"] or "").split(",") if c.strip()],
+                    )
+                    for row in idx_res.mappings().all()
+                ]
+
+                # Routines
+                rt_res = await conn.execute(text(self.QUERIES["ROUTINES"]), {"schema_name": schema_name})
+                routines = [
+                    RoutineMetadata(
+                        schema_name=schema_name,
+                        name=row["routine_name"],
+                        routine_type=row["routine_type"],
+                        language=row["language"] or "sql",
+                        source_description=row["source_description"],
+                    )
+                    for row in rt_res.mappings().all()
+                ]
+
+                return SchemaExtractionResult(
+                    schema=SchemaMetadata(name=schema_name),
+                    tables=tables,
+                    columns=columns,
+                    foreign_keys=foreign_keys,
+                    statistics=statistics,
+                    indexes=indexes,
+                    routines=routines,
+                    success=True,
+                )
+        finally:
+            if should_dispose:
+                await engine.dispose()
+
+
+# Auto-register with default registry
+default_connector_registry.register(DatabaseEngine.MSSQL, MSSQLConnector)
+default_connector_registry.register("MSSQL", MSSQLConnector)
+
+=== FILE: D:\datacatalog\backend\src\services\connectors\mysql.py ===
+from __future__ import annotations
+
+import asyncio
+import logging
+import time
+import urllib.parse
+from typing import Any, Dict, List, Optional, Type
+
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
+from sqlalchemy.pool import NullPool, Pool
+
+from backend.src.models.connections import DatabaseEngine
+from backend.src.services.connectors.base import (
+    BaseMetadataConnector,
+    ColumnMetadata,
+    ConnectionTestResult,
+    ForeignKeyMetadata,
+    IndexMetadata,
+    MissingDriverError,
+    RoutineMetadata,
+    SchemaExtractionResult,
+    SchemaMetadata,
+    TableMetadata,
+    TableStatisticsMetadata,
+)
+from backend.src.services.connectors.registry import default_connector_registry
+
+logger = logging.getLogger(__name__)
+
+
+def _detect_mysql_driver() -> Optional[str]:
+    """Detects available async MySQL drivers."""
+    try:
+        import aiomysql  # noqa: F401
+        return "aiomysql"
+    except ImportError:
+        pass
+    try:
+        import asyncmy  # noqa: F401
+        return "asyncmy"
+    except ImportError:
+        pass
+    return None
+
+
+class MySQLConnector(BaseMetadataConnector):
+    """
+    Enterprise MySQL metadata connector.
+
+    Uses ephemeral connections with NullPool, strict timeouts, and read-only session controls.
+    Gracefully detects and falls back between aiomysql and asyncmy.
+    """
+
+    STATEMENT_TIMEOUT_MS: int = 30000
+
+    QUERIES: Dict[str, str] = {
+        "TEST": """
+            SELECT VERSION() AS server_version, DATABASE() AS current_database;
+        """,
+        "DISCOVER_DATABASES": """
+            SELECT SCHEMA_NAME 
+            FROM INFORMATION_SCHEMA.SCHEMATA 
+            WHERE SCHEMA_NAME NOT IN ('information_schema', 'mysql', 'performance_schema', 'sys')
+            ORDER BY SCHEMA_NAME;
+        """,
+        "COLLATION": """
+            SELECT DEFAULT_COLLATION_NAME 
+            FROM INFORMATION_SCHEMA.SCHEMATA 
+            WHERE SCHEMA_NAME = DATABASE();
+        """,
+        "SCHEMAS": """
+            SELECT 
+                SCHEMA_NAME AS schema_name, 
+                DEFAULT_COLLATION_NAME AS collation_name 
+            FROM INFORMATION_SCHEMA.SCHEMATA 
+            WHERE SCHEMA_NAME NOT IN ('information_schema', 'mysql', 'performance_schema', 'sys')
+            ORDER BY SCHEMA_NAME;
+        """,
+        "TABLES": """
+            SELECT 
+                TABLE_NAME AS table_name,
+                CASE TABLE_TYPE WHEN 'VIEW' THEN 'VIEW' ELSE 'TABLE' END AS table_type,
+                COALESCE(TABLE_ROWS, 0) AS row_count_estimate,
+                COALESCE(DATA_LENGTH + INDEX_LENGTH, 0) AS size_bytes,
+                TABLE_COMMENT AS source_description
+            FROM INFORMATION_SCHEMA.TABLES
+            WHERE TABLE_SCHEMA = :schema_name
+            ORDER BY TABLE_NAME;
+        """,
+        "COLUMNS": """
+            SELECT 
+                TABLE_NAME AS table_name,
+                COLUMN_NAME AS column_name,
+                ORDINAL_POSITION AS ordinal_position,
+                DATA_TYPE AS data_type,
+                COLUMN_TYPE AS raw_data_type,
+                COLLATION_NAME AS collation,
+                CASE WHEN IS_NULLABLE = 'YES' THEN 1 ELSE 0 END AS is_nullable,
+                CASE WHEN COLUMN_KEY = 'PRI' THEN 1 ELSE 0 END AS is_primary_key,
+                CASE WHEN COLUMN_KEY = 'MUL' THEN 1 ELSE 0 END AS is_foreign_key,
+                COLUMN_DEFAULT AS default_value,
+                COLUMN_COMMENT AS source_description
+            FROM INFORMATION_SCHEMA.COLUMNS
+            WHERE TABLE_SCHEMA = :schema_name
+            ORDER BY TABLE_NAME, ORDINAL_POSITION;
+        """,
+        "FOREIGN_KEYS": """
+            SELECT 
+                kcu.TABLE_NAME AS table_name,
+                kcu.COLUMN_NAME AS column_name,
+                kcu.REFERENCED_TABLE_SCHEMA AS foreign_schema_name,
+                kcu.REFERENCED_TABLE_NAME AS foreign_table_name,
+                kcu.REFERENCED_COLUMN_NAME AS foreign_column_name,
+                kcu.CONSTRAINT_NAME AS constraint_name
+            FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE kcu
+            WHERE kcu.TABLE_SCHEMA = :schema_name 
+              AND kcu.REFERENCED_TABLE_NAME IS NOT NULL
+            ORDER BY kcu.TABLE_NAME, kcu.CONSTRAINT_NAME;
+        """,
+        "STATISTICS": """
+            SELECT 
+                TABLE_NAME AS table_name,
+                COALESCE(TABLE_ROWS, 0) AS row_count_estimate,
+                COALESCE(DATA_LENGTH + INDEX_LENGTH, 0) AS size_bytes
+            FROM INFORMATION_SCHEMA.TABLES
+            WHERE TABLE_SCHEMA = :schema_name
+            ORDER BY TABLE_NAME;
+        """,
+        "INDEXES": """
+            SELECT 
+                TABLE_NAME AS table_name,
+                INDEX_NAME AS index_name,
+                CASE WHEN NON_UNIQUE = 0 THEN 1 ELSE 0 END AS is_unique,
+                CASE WHEN INDEX_NAME = 'PRIMARY' THEN 1 ELSE 0 END AS is_primary,
+                INDEX_TYPE AS index_type,
+                GROUP_CONCAT(COLUMN_NAME ORDER BY SEQ_IN_INDEX SEPARATOR ', ') AS column_names
+            FROM INFORMATION_SCHEMA.STATISTICS
+            WHERE TABLE_SCHEMA = :schema_name
+            GROUP BY TABLE_NAME, INDEX_NAME, NON_UNIQUE, INDEX_TYPE
+            ORDER BY TABLE_NAME, INDEX_NAME;
+        """,
+        "ROUTINES": """
+            SELECT 
+                ROUTINE_NAME AS routine_name,
+                ROUTINE_TYPE AS routine_type,
+                ROUTINE_BODY AS language,
+                ROUTINE_COMMENT AS source_description,
+                DTD_IDENTIFIER AS return_type
+            FROM INFORMATION_SCHEMA.ROUTINES
+            WHERE ROUTINE_SCHEMA = :schema_name
+            ORDER BY ROUTINE_NAME;
+        """,
+    }
+
+    def __init__(self, connection_config: Dict[str, Any]) -> None:
+        super().__init__(connection_config)
+        self._engine: Optional[AsyncEngine] = None
+
+    def get_pool_class(self) -> Type[Pool]:
+        return NullPool
+
+    def get_session_setup_statements(self) -> List[str]:
+        return [
+            "SET SESSION TRANSACTION READ ONLY;",
+            f"SET SESSION max_execution_time = {self.STATEMENT_TIMEOUT_MS};",
+        ]
+
+    def build_connection_url(self) -> str:
+        """Constructs an async driver connection URL."""
+        if "url" in self.config:
+            return self.config["url"]
+
+        driver = _detect_mysql_driver()
+        if not driver:
+            raise MissingDriverError(
+                engine="MYSQL",
+                package_name="aiomysql",
+                message="ط¨ط±ط§غŒ ط§طھطµط§ظ„ ط¨ظ‡ ظ¾ط§غŒع¯ط§ظ‡â€Œط¯ط§ط¯ظ‡ MySQLطŒ ظ„ط·ظپط§ظ‹ ظ¾ع©غŒط¬ 'aiomysql' غŒط§ 'asyncmy' ط±ط§ ظ†طµط¨ ظ†ظ…ط§غŒغŒط¯.",
+            )
+
+        host = self.config.get("host", "127.0.0.1")
+        port = self.config.get("port", 3306)
+        database = self.config.get("database") or self.config.get("database_name", "information_schema")
+        username = self.config.get("username") or self.config.get("user", "root")
+        password = self.config.get("password", "")
+
+        quoted_username = urllib.parse.quote_plus(str(username))
+        quoted_password = urllib.parse.quote_plus(str(password)) if password else ""
+        auth = f"{quoted_username}:{quoted_password}@" if quoted_password else f"{quoted_username}@"
+
+        return f"mysql+{driver}://{auth}{host}:{port}/{database}"
+
+    def _create_engine(self) -> AsyncEngine:
+        url = self.build_connection_url()
+        return create_async_engine(
+            url,
+            poolclass=self.get_pool_class(),
+            connect_args={"connect_timeout": 10},
+            echo=False,
+        )
+
+    async def __aenter__(self) -> "MySQLConnector":
+        self._is_closed = False
+        if self._engine is None:
+            self._engine = self._create_engine()
+        return self
+
+    async def __aexit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
+        if self._engine is not None:
+            await self._engine.dispose()
+            self._engine = None
+        self._is_closed = True
+
+    async def test_connection(self) -> ConnectionTestResult:
+        """5s timeout ping returning SELECT VERSION()."""
+        start_time = time.monotonic()
+        try:
+            return await asyncio.wait_for(self._run_connection_test(start_time), timeout=5.0)
+        except asyncio.TimeoutError:
+            elapsed_ms = round((time.monotonic() - start_time) * 1000, 2)
+            return ConnectionTestResult(
+                success=False,
+                latency_ms=elapsed_ms,
+                dialect="MYSQL",
+                server_version=None,
+                message="Connection probe timed out after 5.0 seconds.",
+                diagnostic_details={"error_type": "TimeoutError", "timeout_seconds": 5.0},
+            )
+        except Exception as exc:
+            elapsed_ms = round((time.monotonic() - start_time) * 1000, 2)
+            return ConnectionTestResult(
+                success=False,
+                latency_ms=elapsed_ms,
+                dialect="MYSQL",
+                server_version=None,
+                message=str(exc),
+                diagnostic_details={"error_type": type(exc).__name__, "error": str(exc)},
+            )
+
+    async def _run_connection_test(self, start_time: float) -> ConnectionTestResult:
+        engine = self._engine or self._create_engine()
+        should_dispose = self._engine is None
+        try:
+            async with engine.connect() as conn:
+                for stmt in self.get_session_setup_statements():
+                    try:
+                        await conn.execute(text(stmt))
+                    except Exception:
+                        pass  # Some older MySQL engines do not support max_execution_time
+
+                result = await conn.execute(text(self.QUERIES["TEST"]))
+                row = result.fetchone()
+                server_ver = row[0] if row else None
+                db_name = row[1] if row else ""
+                elapsed_ms = round((time.monotonic() - start_time) * 1000, 2)
+
+                return ConnectionTestResult(
+                    success=True,
+                    latency_ms=elapsed_ms,
+                    dialect="MYSQL",
+                    server_version=server_ver,
+                    message=f"Successfully connected to MySQL database '{db_name}'.",
+                    diagnostic_details={
+                        "version_string": server_ver or "",
+                        "database": db_name,
+                        "session_read_only": True,
+                        "tcp_reachable": True,
+                        "auth_valid": True,
+                    },
+                )
+        finally:
+            if should_dispose:
+                await engine.dispose()
+
+    async def discover_databases(self) -> List[str]:
+        """Query INFORMATION_SCHEMA.SCHEMATA excluding system schemas."""
+        engine = self._engine or self._create_engine()
+        should_dispose = self._engine is None
+        try:
+            async with engine.connect() as conn:
+                result = await conn.execute(text(self.QUERIES["DISCOVER_DATABASES"]))
+                return [r[0] for r in result.fetchall()]
+        finally:
+            if should_dispose:
+                await engine.dispose()
+
+    async def _run_database_discovery(self, start_time: float) -> Dict[str, Any]:
+        engine = self._engine or self._create_engine()
+        should_dispose = self._engine is None
+        try:
+            async with engine.connect() as conn:
+                ver_res = await conn.execute(text(self.QUERIES["TEST"]))
+                ver_row = ver_res.fetchone()
+                server_ver = ver_row[0] if ver_row else None
+
+                db_res = await conn.execute(text(self.QUERIES["DISCOVER_DATABASES"]))
+                databases = [r[0] for r in db_res.fetchall()]
+                elapsed_ms = round((time.monotonic() - start_time) * 1000, 2)
+                return {
+                    "success": True,
+                    "databases": databases,
+                    "latency_ms": elapsed_ms,
+                    "server_version": server_ver,
+                    "message": f"Successfully discovered {len(databases)} databases.",
+                }
+        finally:
+            if should_dispose:
+                await engine.dispose()
+
+    async def extract_database_collation(self) -> Optional[str]:
+        """Extracts MySQL database default collation."""
+        engine = self._engine or self._create_engine()
+        should_dispose = self._engine is None
+        try:
+            async with engine.connect() as conn:
+                result = await conn.execute(text(self.QUERIES["COLLATION"]))
+                row = result.fetchone()
+                return str(row[0]) if row and row[0] else None
+        except Exception as exc:
+            logger.debug("MySQL database collation extraction failed: %s", exc)
+            return None
+        finally:
+            if should_dispose:
+                await engine.dispose()
+
+    async def extract_schemas(self) -> List[SchemaMetadata]:
+        """Lists accessible schemas excluding system schemas."""
+        engine = self._engine or self._create_engine()
+        should_dispose = self._engine is None
+        try:
+            async with engine.connect() as conn:
+                result = await conn.execute(text(self.QUERIES["SCHEMAS"]))
+                return [
+                    SchemaMetadata(name=row["schema_name"])
+                    for row in result.mappings().all()
+                ]
+        finally:
+            if should_dispose:
+                await engine.dispose()
+
+    async def extract_schema_metadata(self, schema_name: str) -> SchemaExtractionResult:
+        """Bulk extracts tables, columns, constraints, statistics, indexes, and routines."""
+        engine = self._engine or self._create_engine()
+        should_dispose = self._engine is None
+        try:
+            async with engine.connect() as conn:
+                for stmt in self.get_session_setup_statements():
+                    try:
+                        await conn.execute(text(stmt))
+                    except Exception:
+                        pass
+
+                # Tables
+                tbl_res = await conn.execute(text(self.QUERIES["TABLES"]), {"schema_name": schema_name})
+                tables = [
+                    TableMetadata(
+                        schema_name=schema_name,
+                        name=row["table_name"],
+                        table_type=row["table_type"],
+                        row_count_estimate=int(row["row_count_estimate"] or 0),
+                        size_bytes=int(row["size_bytes"] or 0),
+                        source_description=row["source_description"],
+                    )
+                    for row in tbl_res.mappings().all()
+                ]
+
+                # Columns
+                col_res = await conn.execute(text(self.QUERIES["COLUMNS"]), {"schema_name": schema_name})
+                columns = [
+                    ColumnMetadata(
+                        schema_name=schema_name,
+                        table_name=row["table_name"],
+                        name=row["column_name"],
+                        ordinal_position=int(row["ordinal_position"]),
+                        data_type=row["data_type"],
+                        raw_data_type=row["raw_data_type"] or row["data_type"],
+                        collation=row["collation"],
+                        is_nullable=bool(row["is_nullable"]),
+                        is_primary_key=bool(row["is_primary_key"]),
+                        is_foreign_key=bool(row["is_foreign_key"]),
+                        default_value=row["default_value"],
+                        source_description=row["source_description"],
+                    )
+                    for row in col_res.mappings().all()
+                ]
+
+                # Foreign Keys
+                fk_res = await conn.execute(text(self.QUERIES["FOREIGN_KEYS"]), {"schema_name": schema_name})
+                foreign_keys = [
+                    ForeignKeyMetadata(
+                        schema_name=schema_name,
+                        table_name=row["table_name"],
+                        column_name=row["column_name"],
+                        foreign_schema_name=row["foreign_schema_name"],
+                        foreign_table_name=row["foreign_table_name"],
+                        foreign_column_name=row["foreign_column_name"],
+                        constraint_name=row["constraint_name"],
+                    )
+                    for row in fk_res.mappings().all()
+                ]
+
+                # Statistics
+                stat_res = await conn.execute(text(self.QUERIES["STATISTICS"]), {"schema_name": schema_name})
+                statistics = [
+                    TableStatisticsMetadata(
+                        schema_name=schema_name,
+                        table_name=row["table_name"],
+                        row_count_estimate=int(row["row_count_estimate"] or 0),
+                        size_bytes=int(row["size_bytes"] or 0),
+                    )
+                    for row in stat_res.mappings().all()
+                ]
+
+                # Indexes
+                idx_res = await conn.execute(text(self.QUERIES["INDEXES"]), {"schema_name": schema_name})
+                indexes = [
+                    IndexMetadata(
+                        schema_name=schema_name,
+                        table_name=row["table_name"],
+                        name=row["index_name"],
+                        is_unique=bool(row["is_unique"]),
+                        is_primary=bool(row["is_primary"]),
+                        index_type=row["index_type"] or "BTREE",
+                        columns_list=[c.strip() for c in (row["column_names"] or "").split(",") if c.strip()],
+                    )
+                    for row in idx_res.mappings().all()
+                ]
+
+                # Routines
+                rt_res = await conn.execute(text(self.QUERIES["ROUTINES"]), {"schema_name": schema_name})
+                routines = [
+                    RoutineMetadata(
+                        schema_name=schema_name,
+                        name=row["routine_name"],
+                        routine_type=row["routine_type"],
+                        language=row["language"] or "sql",
+                        source_description=row["source_description"],
+                    )
+                    for row in rt_res.mappings().all()
+                ]
+
+                return SchemaExtractionResult(
+                    schema=SchemaMetadata(name=schema_name),
+                    tables=tables,
+                    columns=columns,
+                    foreign_keys=foreign_keys,
+                    statistics=statistics,
+                    indexes=indexes,
+                    routines=routines,
+                    success=True,
+                )
+        finally:
+            if should_dispose:
+                await engine.dispose()
+
+
+# Auto-register with default registry
+default_connector_registry.register(DatabaseEngine.MYSQL, MySQLConnector)
+default_connector_registry.register("MYSQL", MySQLConnector)
+
+=== FILE: D:\datacatalog\backend\src\services\connectors\oracle.py ===
+from __future__ import annotations
+
+import asyncio
+import logging
+import time
+from typing import Any, Dict, List, Optional
+
+from backend.src.models.connections import DatabaseEngine
+from backend.src.services.connectors.base import (
+    BaseMetadataConnector,
+    ColumnMetadata,
+    ConnectionTestResult,
+    ForeignKeyMetadata,
+    IndexMetadata,
+    MissingDriverError,
+    RoutineMetadata,
+    SchemaExtractionResult,
+    SchemaMetadata,
+    TableMetadata,
+    TableStatisticsMetadata,
+)
+from backend.src.services.connectors.registry import default_connector_registry
+
+logger = logging.getLogger(__name__)
+
+
+def _has_oracledb() -> bool:
+    """Checks whether the oracledb package is installed."""
+    try:
+        import oracledb  # noqa: F401
+        return True
+    except ImportError:
+        return False
+
+
+class OracleConnector(BaseMetadataConnector):
+    """
+    Enterprise Oracle Database metadata connector.
+
+    Uses oracledb thin mode async connections with strict 5.0-second timeouts.
+    Supports both service_name and SID connection modes.
+    Introspects ALL_TABLES, ALL_VIEWS, ALL_TAB_COLUMNS, ALL_CONSTRAINTS,
+    ALL_INDEXES, and ALL_PROCEDURES with zero N+1 queries.
+    """
+
+    STATEMENT_TIMEOUT_MS: int = 30000
+
+    QUERIES: Dict[str, str] = {
+        "TEST": """
+            SELECT banner FROM v$version WHERE ROWNUM = 1
+        """,
+        "TEST_FALLBACK": """
+            SELECT 'Oracle Database' AS banner FROM DUAL
+        """,
+        "CURRENT_SCHEMA": """
+            SELECT SYS_CONTEXT('USERENV', 'CURRENT_SCHEMA') AS current_schema FROM DUAL
+        """,
+        "DISCOVER_SCHEMAS": """
+            SELECT USERNAME 
+            FROM ALL_USERS 
+            WHERE ORACLE_MAINTAINED = 'N' 
+            ORDER BY USERNAME
+        """,
+        "DISCOVER_SCHEMAS_FALLBACK": """
+            SELECT USERNAME 
+            FROM ALL_USERS 
+            WHERE USERNAME NOT IN (
+                'SYS', 'SYSTEM', 'ANONYMOUS', 'APEX_PUBLIC_USER', 'APPQOSSYS',
+                'AUDSYS', 'CTXSYS', 'DBSNMP', 'DIP', 'GSMADMIN_INTERNAL', 'GSMCATUSER',
+                'GSMUSER', 'LBACSYS', 'MDDATA', 'MDSYS', 'OJVMSYS', 'OLAPSYS',
+                'ORACLE_OCM', 'ORDDATA', 'ORDPLUGINS', 'ORDSYS', 'OUTLN', 'SI_INFORMTN_SCHEMA',
+                'SPATIAL_CSW_ADMIN_USR', 'SPATIAL_WFS_ADMIN_USR', 'WMSYS', 'XDB', 'XS$NULL'
+            )
+            ORDER BY USERNAME
+        """,
+        "COLLATION": """
+            SELECT VALUE FROM NLS_DATABASE_PARAMETERS WHERE PARAMETER = 'NLS_SORT'
+        """,
+        "TABLES": """
+            SELECT 
+                t.TABLE_NAME AS table_name,
+                'TABLE' AS table_type,
+                NVL(t.NUM_ROWS, 0) AS row_count_estimate,
+                NVL(t.BLOCKS * 8192, 0) AS size_bytes,
+                c.COMMENTS AS source_description,
+                t.OWNER AS owner
+            FROM ALL_TABLES t
+            LEFT JOIN ALL_TAB_COMMENTS c ON t.OWNER = c.OWNER AND t.TABLE_NAME = c.TABLE_NAME AND c.TABLE_TYPE = 'TABLE'
+            WHERE t.OWNER = :schema_name
+            UNION ALL
+            SELECT 
+                v.VIEW_NAME AS table_name,
+                'VIEW' AS table_type,
+                0 AS row_count_estimate,
+                0 AS size_bytes,
+                c.COMMENTS AS source_description,
+                v.OWNER AS owner
+            FROM ALL_VIEWS v
+            LEFT JOIN ALL_TAB_COMMENTS c ON v.OWNER = c.OWNER AND v.VIEW_NAME = c.TABLE_NAME AND c.TABLE_TYPE = 'VIEW'
+            WHERE v.OWNER = :schema_name
+            ORDER BY table_name
+        """,
+        "COLUMNS": """
+            SELECT 
+                col.TABLE_NAME AS table_name,
+                col.COLUMN_NAME AS column_name,
+                col.COLUMN_ID AS ordinal_position,
+                col.DATA_TYPE AS data_type,
+                col.DATA_TYPE || CASE 
+                    WHEN col.DATA_TYPE IN ('VARCHAR2', 'CHAR', 'NVARCHAR2', 'NCHAR') THEN '(' || col.CHAR_LENGTH || ')'
+                    WHEN col.DATA_TYPE = 'NUMBER' AND col.DATA_PRECISION IS NOT NULL THEN '(' || col.DATA_PRECISION || NVL2(col.DATA_SCALE, ',' || col.DATA_SCALE, '') || ')'
+                    ELSE ''
+                END AS raw_data_type,
+                NULL AS collation,
+                CASE WHEN col.NULLABLE = 'Y' THEN 1 ELSE 0 END AS is_nullable,
+                CASE WHEN pk.COLUMN_NAME IS NOT NULL THEN 1 ELSE 0 END AS is_primary_key,
+                CASE WHEN fk.COLUMN_NAME IS NOT NULL THEN 1 ELSE 0 END AS is_foreign_key,
+                col.DATA_DEFAULT AS default_value,
+                comm.COMMENTS AS source_description
+            FROM ALL_TAB_COLUMNS col
+            LEFT JOIN ALL_COL_COMMENTS comm 
+                ON col.OWNER = comm.OWNER AND col.TABLE_NAME = comm.TABLE_NAME AND col.COLUMN_NAME = comm.COLUMN_NAME
+            LEFT JOIN (
+                SELECT cc.OWNER, cc.TABLE_NAME, cc.COLUMN_NAME
+                FROM ALL_CONSTRAINTS c
+                JOIN ALL_CONS_COLUMNS cc ON c.OWNER = cc.OWNER AND c.CONSTRAINT_NAME = cc.CONSTRAINT_NAME
+                WHERE c.CONSTRAINT_TYPE = 'P' AND c.OWNER = :schema_name
+            ) pk ON col.OWNER = pk.OWNER AND col.TABLE_NAME = pk.TABLE_NAME AND col.COLUMN_NAME = pk.COLUMN_NAME
+            LEFT JOIN (
+                SELECT cc.OWNER, cc.TABLE_NAME, cc.COLUMN_NAME
+                FROM ALL_CONSTRAINTS c
+                JOIN ALL_CONS_COLUMNS cc ON c.OWNER = cc.OWNER AND c.CONSTRAINT_NAME = cc.CONSTRAINT_NAME
+                WHERE c.CONSTRAINT_TYPE = 'R' AND c.OWNER = :schema_name
+            ) fk ON col.OWNER = fk.OWNER AND col.TABLE_NAME = fk.TABLE_NAME AND col.COLUMN_NAME = fk.COLUMN_NAME
+            WHERE col.OWNER = :schema_name
+            ORDER BY col.TABLE_NAME, col.COLUMN_ID
+        """,
+        "FOREIGN_KEYS": """
+            SELECT 
+                c.TABLE_NAME AS table_name,
+                cc.COLUMN_NAME AS column_name,
+                r.OWNER AS foreign_schema_name,
+                r.TABLE_NAME AS foreign_table_name,
+                rc.COLUMN_NAME AS foreign_column_name,
+                c.CONSTRAINT_NAME AS constraint_name
+            FROM ALL_CONSTRAINTS c
+            JOIN ALL_CONS_COLUMNS cc ON c.OWNER = cc.OWNER AND c.CONSTRAINT_NAME = cc.CONSTRAINT_NAME
+            JOIN ALL_CONSTRAINTS r ON c.R_OWNER = r.OWNER AND c.R_CONSTRAINT_NAME = r.CONSTRAINT_NAME
+            JOIN ALL_CONS_COLUMNS rc ON r.OWNER = rc.OWNER AND r.CONSTRAINT_NAME = rc.CONSTRAINT_NAME AND cc.POSITION = rc.POSITION
+            WHERE c.CONSTRAINT_TYPE = 'R' AND c.OWNER = :schema_name
+            ORDER BY c.TABLE_NAME, c.CONSTRAINT_NAME
+        """,
+        "STATISTICS": """
+            SELECT 
+                TABLE_NAME AS table_name,
+                NVL(NUM_ROWS, 0) AS row_count_estimate,
+                NVL(BLOCKS * 8192, 0) AS size_bytes
+            FROM ALL_TABLES
+            WHERE OWNER = :schema_name
+            ORDER BY TABLE_NAME
+        """,
+        "INDEXES": """
+            SELECT 
+                i.TABLE_NAME AS table_name,
+                i.INDEX_NAME AS index_name,
+                CASE WHEN i.UNIQUENESS = 'UNIQUE' THEN 1 ELSE 0 END AS is_unique,
+                CASE WHEN c.CONSTRAINT_TYPE = 'P' THEN 1 ELSE 0 END AS is_primary,
+                i.INDEX_TYPE AS index_type,
+                LISTAGG(ic.COLUMN_NAME, ', ') WITHIN GROUP (ORDER BY ic.COLUMN_POSITION) AS column_names
+            FROM ALL_INDEXES i
+            JOIN ALL_IND_COLUMNS ic ON i.OWNER = ic.INDEX_OWNER AND i.INDEX_NAME = ic.INDEX_NAME
+            LEFT JOIN ALL_CONSTRAINTS c ON i.OWNER = c.OWNER AND i.INDEX_NAME = c.CONSTRAINT_NAME
+            WHERE i.OWNER = :schema_name
+            GROUP BY i.TABLE_NAME, i.INDEX_NAME, i.UNIQUENESS, c.CONSTRAINT_TYPE, i.INDEX_TYPE
+            ORDER BY i.TABLE_NAME, i.INDEX_NAME
+        """,
+        "ROUTINES": """
+            SELECT 
+                OBJECT_NAME AS routine_name,
+                OBJECT_TYPE AS routine_type,
+                'PL/SQL' AS language,
+                NULL AS source_description
+            FROM ALL_PROCEDURES
+            WHERE OWNER = :schema_name AND OBJECT_TYPE IN ('PROCEDURE', 'FUNCTION')
+            ORDER BY OBJECT_NAME
+        """,
+    }
+
+    def __init__(self, connection_config: Dict[str, Any]) -> None:
+        super().__init__(connection_config)
+        self._connection: Any = None
+
+    def _ensure_driver(self) -> None:
+        if not _has_oracledb():
+            raise MissingDriverError(
+                engine="ORACLE",
+                package_name="oracledb",
+                message="ط¨ط±ط§غŒ ط§طھطµط§ظ„ ط¨ظ‡ ظ¾ط§غŒع¯ط§ظ‡â€Œط¯ط§ط¯ظ‡ OracleطŒ ظ„ط·ظپط§ظ‹ ظ¾ع©غŒط¬ 'oracledb' ط±ط§ ظ†طµط¨ ظ†ظ…ط§غŒغŒط¯.",
+            )
+
+    async def _get_oracle_connection(self) -> Any:
+        self._ensure_driver()
+        import oracledb
+
+        host = self.config.get("host", "127.0.0.1")
+        port = int(self.config.get("port", 1521))
+        username = self.config.get("username") or self.config.get("user", "system")
+        password = self.config.get("password", "")
+        custom_params = self.config.get("custom_params") or {}
+
+        service_name = (
+            custom_params.get("service_name")
+            or self.config.get("database_name")
+            or self.config.get("database")
+            or "ORCLCDB"
+        )
+        sid = custom_params.get("sid")
+
+        connect_kwargs: Dict[str, Any] = {
+            "user": username,
+            "password": password,
+            "host": host,
+            "port": port,
+        }
+        if sid:
+            connect_kwargs["sid"] = sid
+        else:
+            connect_kwargs["service_name"] = service_name
+
+        return await oracledb.connect_async(**connect_kwargs)
+
+    async def _get_cursor(self, conn: Any) -> Any:
+        raw = conn.cursor()
+        if asyncio.iscoroutine(raw):
+            raw = await raw
+        return raw
+
+    async def _close_cursor(self, cursor: Any) -> None:
+        if cursor is not None and hasattr(cursor, "close"):
+            res = cursor.close()
+            if asyncio.iscoroutine(res):
+                await res
+
+    async def __aenter__(self) -> "OracleConnector":
+        self._is_closed = False
+        if self._connection is None:
+            self._connection = await self._get_oracle_connection()
+        return self
+
+    async def __aexit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
+        if self._connection is not None:
+            try:
+                await self._connection.close()
+            except Exception:
+                pass
+            self._connection = None
+        self._is_closed = True
+
+    async def test_connection(self) -> ConnectionTestResult:
+        """5s timeout ping querying SELECT banner FROM v$version or DUAL."""
+        start_time = time.monotonic()
+        try:
+            return await asyncio.wait_for(self._run_connection_test(start_time), timeout=5.0)
+        except asyncio.TimeoutError:
+            elapsed_ms = round((time.monotonic() - start_time) * 1000, 2)
+            return ConnectionTestResult(
+                success=False,
+                latency_ms=elapsed_ms,
+                dialect="ORACLE",
+                server_version=None,
+                message="Connection probe timed out after 5.0 seconds.",
+                diagnostic_details={"error_type": "TimeoutError", "timeout_seconds": 5.0},
+            )
+        except Exception as exc:
+            elapsed_ms = round((time.monotonic() - start_time) * 1000, 2)
+            return ConnectionTestResult(
+                success=False,
+                latency_ms=elapsed_ms,
+                dialect="ORACLE",
+                server_version=None,
+                message=str(exc),
+                diagnostic_details={"error_type": type(exc).__name__, "error": str(exc)},
+            )
+
+    async def _run_connection_test(self, start_time: float) -> ConnectionTestResult:
+        conn = self._connection
+        should_close = False
+        if conn is None:
+            conn = await self._get_oracle_connection()
+            should_close = True
+
+        cursor = None
+        try:
+            cursor = await self._get_cursor(conn)
+            server_ver = None
+            try:
+                await cursor.execute(self.QUERIES["TEST"])
+                row = await cursor.fetchone()
+                if row:
+                    server_ver = str(row[0])
+            except Exception:
+                await cursor.execute(self.QUERIES["TEST_FALLBACK"])
+                row = await cursor.fetchone()
+                if row:
+                    server_ver = str(row[0])
+
+            current_schema = ""
+            try:
+                await cursor.execute(self.QUERIES["CURRENT_SCHEMA"])
+                row = await cursor.fetchone()
+                if row:
+                    current_schema = str(row[0])
+            except Exception:
+                pass
+
+            elapsed_ms = round((time.monotonic() - start_time) * 1000, 2)
+            return ConnectionTestResult(
+                success=True,
+                latency_ms=elapsed_ms,
+                dialect="ORACLE",
+                server_version=server_ver,
+                message=f"Successfully connected to Oracle database (schema '{current_schema}').",
+                diagnostic_details={
+                    "version_string": server_ver or "",
+                    "current_schema": current_schema,
+                    "session_read_only": True,
+                    "tcp_reachable": True,
+                    "auth_valid": True,
+                },
+            )
+        finally:
+            await self._close_cursor(cursor)
+            if should_close:
+                await conn.close()
+
+    async def discover_databases(self) -> List[str]:
+        """Query accessible non-system schemas (ALL_USERS where ORACLE_MAINTAINED = 'N')."""
+        conn = self._connection
+        should_close = False
+        if conn is None:
+            conn = await self._get_oracle_connection()
+            should_close = True
+
+        cursor = None
+        try:
+            cursor = await self._get_cursor(conn)
+            try:
+                await cursor.execute(self.QUERIES["DISCOVER_SCHEMAS"])
+                rows = await cursor.fetchall()
+                return [r[0] for r in rows]
+            except Exception:
+                await cursor.execute(self.QUERIES["DISCOVER_SCHEMAS_FALLBACK"])
+                rows = await cursor.fetchall()
+                return [r[0] for r in rows]
+        finally:
+            await self._close_cursor(cursor)
+            if should_close:
+                await conn.close()
+
+    async def _run_database_discovery(self, start_time: float) -> Dict[str, Any]:
+        conn = self._connection
+        should_close = False
+        if conn is None:
+            conn = await self._get_oracle_connection()
+            should_close = True
+
+        cursor = None
+        try:
+            cursor = await self._get_cursor(conn)
+            server_ver = None
+            try:
+                await cursor.execute(self.QUERIES["TEST"])
+                row = await cursor.fetchone()
+                if row:
+                    server_ver = str(row[0])
+            except Exception:
+                pass
+
+            dbs: List[str] = []
+            try:
+                await cursor.execute(self.QUERIES["DISCOVER_SCHEMAS"])
+                rows = await cursor.fetchall()
+                dbs = [r[0] for r in rows]
+            except Exception:
+                await cursor.execute(self.QUERIES["DISCOVER_SCHEMAS_FALLBACK"])
+                rows = await cursor.fetchall()
+                dbs = [r[0] for r in rows]
+
+            elapsed_ms = round((time.monotonic() - start_time) * 1000, 2)
+            return {
+                "success": True,
+                "databases": dbs,
+                "latency_ms": elapsed_ms,
+                "server_version": server_ver,
+                "message": f"Successfully discovered {len(dbs)} Oracle schemas.",
+            }
+        finally:
+            await self._close_cursor(cursor)
+            if should_close:
+                await conn.close()
+    async def extract_database_collation(self) -> Optional[str]:
+        """Extracts Oracle NLS collation/sort parameter."""
+        conn = self._connection
+        should_close = False
+        if conn is None:
+            conn = await self._get_oracle_connection()
+            should_close = True
+
+        cursor = None
+        try:
+            cursor = await self._get_cursor(conn)
+            await cursor.execute(self.QUERIES["COLLATION"])
+            row = await cursor.fetchone()
+            return str(row[0]) if row and row[0] else None
+        except Exception:
+            return None
+        finally:
+            await self._close_cursor(cursor)
+            if should_close:
+                await conn.close()
+
+    async def extract_schemas(self) -> List[SchemaMetadata]:
+        """Lists discoverable non-system user schemas."""
+        dbs = await self.discover_databases()
+        return [SchemaMetadata(name=name) for name in dbs]
+
+    async def extract_schema_metadata(self, schema_name: str) -> SchemaExtractionResult:
+        """Bulk extracts Oracle tables, columns, constraints, statistics, indexes, and routines."""
+        conn = self._connection
+        should_close = False
+        if conn is None:
+            conn = await self._get_oracle_connection()
+            should_close = True
+
+        cursor = None
+        try:
+            cursor = await self._get_cursor(conn)
+            # Tables
+            await cursor.execute(self.QUERIES["TABLES"], schema_name=schema_name)
+            tbl_rows = await cursor.fetchall()
+            tables = [
+                TableMetadata(
+                    schema_name=schema_name,
+                    name=r[0],
+                    table_type=r[1],
+                    row_count_estimate=int(r[2] or 0),
+                    size_bytes=int(r[3] or 0),
+                    source_description=r[4],
+                    owner=r[5],
+                )
+                for r in tbl_rows
+            ]
+
+            # Columns
+            await cursor.execute(self.QUERIES["COLUMNS"], schema_name=schema_name)
+            col_rows = await cursor.fetchall()
+            columns = [
+                ColumnMetadata(
+                    schema_name=schema_name,
+                    table_name=r[0],
+                    name=r[1],
+                    ordinal_position=int(r[2]),
+                    data_type=r[3],
+                    raw_data_type=r[4] or r[3],
+                    collation=r[5],
+                    is_nullable=bool(r[6]),
+                    is_primary_key=bool(r[7]),
+                    is_foreign_key=bool(r[8]),
+                    default_value=str(r[9]) if r[9] is not None else None,
+                    source_description=r[10],
+                )
+                for r in col_rows
+            ]
+
+            # Foreign Keys
+            await cursor.execute(self.QUERIES["FOREIGN_KEYS"], schema_name=schema_name)
+            fk_rows = await cursor.fetchall()
+            foreign_keys = [
+                ForeignKeyMetadata(
+                    schema_name=schema_name,
+                    table_name=r[0],
+                    column_name=r[1],
+                    foreign_schema_name=r[2],
+                    foreign_table_name=r[3],
+                    foreign_column_name=r[4],
+                    constraint_name=r[5],
+                )
+                for r in fk_rows
+            ]
+
+            # Statistics
+            await cursor.execute(self.QUERIES["STATISTICS"], schema_name=schema_name)
+            stat_rows = await cursor.fetchall()
+            statistics = [
+                TableStatisticsMetadata(
+                    schema_name=schema_name,
+                    table_name=r[0],
+                    row_count_estimate=int(r[1] or 0),
+                    size_bytes=int(r[2] or 0),
+                )
+                for r in stat_rows
+            ]
+
+            # Indexes
+            indexes: List[IndexMetadata] = []
+            try:
+                await cursor.execute(self.QUERIES["INDEXES"], schema_name=schema_name)
+                idx_rows = await cursor.fetchall()
+                indexes = [
+                    IndexMetadata(
+                        schema_name=schema_name,
+                        table_name=r[0],
+                        name=r[1],
+                        is_unique=bool(r[2]),
+                        is_primary=bool(r[3]),
+                        index_type=r[4] or "BTREE",
+                        columns_list=[c.strip() for c in (r[5] or "").split(",") if c.strip()],
+                    )
+                    for r in idx_rows
+                ]
+            except Exception:
+                pass
+
+            # Routines
+            routines: List[RoutineMetadata] = []
+            try:
+                await cursor.execute(self.QUERIES["ROUTINES"], schema_name=schema_name)
+                rt_rows = await cursor.fetchall()
+                routines = [
+                    RoutineMetadata(
+                        schema_name=schema_name,
+                        name=r[0],
+                        routine_type=r[1],
+                        language=r[2] or "PL/SQL",
+                        source_description=r[3],
+                    )
+                    for r in rt_rows
+                ]
+            except Exception:
+                pass
+
+            return SchemaExtractionResult(
+                schema=SchemaMetadata(name=schema_name),
+                tables=tables,
+                columns=columns,
+                foreign_keys=foreign_keys,
+                statistics=statistics,
+                indexes=indexes,
+                routines=routines,
+                success=True,
+            )
+        finally:
+            await self._close_cursor(cursor)
+            if should_close:
+                await conn.close()
+
+
+# Auto-register with default registry
+default_connector_registry.register(DatabaseEngine.ORACLE, OracleConnector)
+default_connector_registry.register("ORACLE", OracleConnector)
 
 === FILE: D:\datacatalog\backend\src\services\connectors\postgres.py ===
 from __future__ import annotations
@@ -14987,6 +17359,9 @@ from backend.src.services.connectors.base import (
     ConnectionTestResult,
     ConnectorEngine,
     ForeignKeyMetadata,
+    IndexMetadata,
+    MissingDriverError,
+    RoutineMetadata,
     SchemaExtractionResult,
     SchemaMetadata,
     TableMetadata,
@@ -14996,7 +17371,21 @@ from backend.src.services.connectors.registry import (
     ConnectorRegistry,
     default_connector_registry,
 )
+
+# Auto-register all concrete dialect connectors
 import backend.src.services.connectors.postgres  # Auto-registers PostgresConnector
+import backend.src.services.connectors.mssql     # Auto-registers MSSQLConnector
+import backend.src.services.connectors.mysql     # Auto-registers MySQLConnector
+import backend.src.services.connectors.oracle    # Auto-registers OracleConnector
+import backend.src.services.connectors.clickhouse  # Auto-registers ClickHouseConnector
+import backend.src.services.connectors.mongodb   # Auto-registers MongoDBConnector
+
+from backend.src.services.connectors.postgres import PostgresConnector
+from backend.src.services.connectors.mssql import MSSQLConnector
+from backend.src.services.connectors.mysql import MySQLConnector
+from backend.src.services.connectors.oracle import OracleConnector
+from backend.src.services.connectors.clickhouse import ClickHouseConnector
+from backend.src.services.connectors.mongodb import MongoDBConnector
 
 __all__ = [
     "BaseMetadataConnector",
@@ -15005,11 +17394,20 @@ __all__ = [
     "ConnectorEngine",
     "ConnectorRegistry",
     "ForeignKeyMetadata",
+    "IndexMetadata",
+    "MissingDriverError",
+    "RoutineMetadata",
     "SchemaExtractionResult",
     "SchemaMetadata",
     "TableMetadata",
     "TableStatisticsMetadata",
     "default_connector_registry",
+    "PostgresConnector",
+    "MSSQLConnector",
+    "MySQLConnector",
+    "OracleConnector",
+    "ClickHouseConnector",
+    "MongoDBConnector",
 ]
 
 === FILE: D:\datacatalog\backend\src\services\crypto\envelope.py ===
@@ -21834,6 +24232,26 @@ export class TableStatsService {
   background-color: #dbeafe;
   color: #1e40af;
 }
+.engine-badge[data-engine="MSSQL"] {
+  background-color: #fce7f3;
+  color: #9d174d;
+}
+.engine-badge[data-engine="ORACLE"] {
+  background-color: #fee2e2;
+  color: #991b1b;
+}
+.engine-badge[data-engine="MYSQL"] {
+  background-color: #ffedd5;
+  color: #9a3412;
+}
+.engine-badge[data-engine="CLICKHOUSE"] {
+  background-color: #fef9c3;
+  color: #854d0e;
+}
+.engine-badge[data-engine="MONGODB"] {
+  background-color: #d1fae5;
+  color: #065f46;
+}
 .status-indicator-dot {
   width: 8px;
   height: 8px;
@@ -22268,6 +24686,60 @@ export class TableStatsService {
   color: #64748b;
 }
 
+/* --- Unsupported Engine State --- */
+.unsupported-engine-container {
+  background-color: #ffffff;
+  border-radius: 10px;
+  border: 1px solid #e2e8f0;
+  padding: 48px 24px;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  color: #475569;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+}
+.unsupported-icon-circle {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background-color: #eff6ff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 4px;
+}
+.unsupported-icon {
+  font-size: 28px;
+  color: #3b82f6;
+}
+.unsupported-title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+  color: #1e293b;
+}
+.unsupported-desc {
+  margin: 0;
+  font-size: 14px;
+  color: #64748b;
+  max-width: 520px;
+  line-height: 1.6;
+}
+.unsupported-meta-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  padding: 8px 14px;
+  background-color: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  font-size: 12px;
+  color: #64748b;
+}
+
 /* Monospace & Text Helpers */
 .td-mono {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
@@ -22619,8 +25091,23 @@ export class TableStatsService {
           </div>
         </div>
 
-        <!-- Filter Bar -->
-        <div class="table-card">
+        @if (isUnsupportedEngine()) {
+          <div class="unsupported-engine-container">
+            <div class="unsupported-icon-circle">
+              <i class="pi pi-info-circle unsupported-icon"></i>
+            </div>
+            <h3 class="unsupported-title">ط¹ط¯ظ… ظ¾ط´طھغŒط¨ط§ظ†غŒ ط§ط² ظ¾ط§غŒط´ ط²ظ†ط¯ظ‡ ع©ط§ط±ط¨ط±ط§ظ†</h3>
+            <p class="unsupported-desc">
+              {{ unsupportedEngineMessage() || 'ظ‚ط§ط¨ظ„غŒطھ ظ¾ط§غŒط´ ط²ظ†ط¯ظ‡ ع©ط§ط±ط¨ط±ط§ظ† ظˆ ظ†ظ‚ط´â€Œظ‡ط§ ط¨ط±ط§غŒ ظ…ظˆطھظˆط± ظ¾ط§غŒع¯ط§ظ‡ ط¯ط§ط¯ظ‡ ' + conn.engine_type + ' ظ¾غŒط§ط¯ظ‡â€Œط³ط§ط²غŒ ظ†ط´ط¯ظ‡ ط§ط³طھ.' }}
+            </p>
+            <div class="unsupported-meta-badge">
+              <span class="engine-badge" [attr.data-engine]="conn.engine_type">{{ conn.engine_type }}</span>
+              <span>ط¯ط± ط­ط§ظ„ ط­ط§ط¶ط± ظ¾ط§غŒط´ ظˆ ظ…ط¯غŒط±غŒطھ ظ…ط³طھظ‚غŒظ… ع©ط§ط±ط¨ط±ط§ظ† ظˆ ظ†ظ‚ط´â€Œظ‡ط§ ط¨ط±ط§غŒ ظ¾ط§غŒع¯ط§ظ‡ ط¯ط§ط¯ظ‡â€Œظ‡ط§غŒ PostgreSQL ط¨ظ‡غŒظ†ظ‡â€Œط³ط§ط²غŒ ط´ط¯ظ‡ ط§ط³طھ.</span>
+            </div>
+          </div>
+        } @else {
+          <!-- Filter Bar -->
+          <div class="table-card">
           <div class="table-card-header">
             <div class="filter-pills">
               <button
@@ -22808,6 +25295,7 @@ export class TableStatsService {
             </table>
           </div>
         </div>
+        }
       } @else {
         <div class="empty-state-container">
           <i class="pi pi-database empty-hero-icon"></i>
@@ -23081,6 +25569,8 @@ export class DbUserMonitorComponent implements OnInit {
   // Users list state
   users = signal<DatabaseUserItem[]>([]);
   isLoadingUsers = signal<boolean>(false);
+  isUnsupportedEngine = signal<boolean>(false);
+  unsupportedEngineMessage = signal<string | null>(null);
   userSearchQuery = signal<string>('');
   userTypeFilter = signal<UserFilterType>('ALL');
 
@@ -23371,10 +25861,10 @@ export class DbUserMonitorComponent implements OnInit {
           }
         }
 
-        // Auto-select first PostgreSQL connection or first connection
+        // Auto-select first active connection or fallback to first
         if (connections.length > 0) {
-          const firstPg = connections.find((c) => c.engine_type === 'POSTGRESQL') || connections[0];
-          this.selectConnection(firstPg);
+          const autoConn = connections.find((c) => c.is_active) || connections[0];
+          this.selectConnection(autoConn);
         }
       },
       error: (err) => {
@@ -23392,6 +25882,8 @@ export class DbUserMonitorComponent implements OnInit {
   loadUsers(connectionId: string): void {
     this.isLoadingUsers.set(true);
     this.users.set([]);
+    this.isUnsupportedEngine.set(false);
+    this.unsupportedEngineMessage.set(null);
     this.errorMessage.set(null);
 
     this.dbUserService.getDatabaseUsers(connectionId).subscribe({
@@ -23401,7 +25893,19 @@ export class DbUserMonitorComponent implements OnInit {
       },
       error: (err) => {
         this.isLoadingUsers.set(false);
-        this.showError('ط®ط·ط§ ط¯ط± ط¯ط±غŒط§ظپطھ ظ„غŒط³طھ ع©ط§ط±ط¨ط±ط§ظ† ظ¾ط§غŒع¯ط§ظ‡ ط¯ط§ط¯ظ‡: ' + (err.error?.detail || err.message));
+        const detail: string = err.error?.detail || err.message || '';
+        // If database engine does not support live DB-user management, display informational card instead of red error alert
+        if (
+          err.status === 400 &&
+          (detail.includes('ظ¾غŒط§ط¯ظ‡â€Œط³ط§ط²غŒ ظ†ط´ط¯ظ‡') ||
+           detail.includes('ظ¾غŒط§ط¯ظ‡ط³ط§ط²غŒ ظ†ط´ط¯ظ‡') ||
+           detail.includes('ظ¾غŒط§ط¯ظ‡ ط³ط§ط²غŒ ظ†ط´ط¯ظ‡'))
+        ) {
+          this.isUnsupportedEngine.set(true);
+          this.unsupportedEngineMessage.set(detail);
+        } else {
+          this.showError('ط®ط·ط§ ط¯ط± ط¯ط±غŒط§ظپطھ ظ„غŒط³طھ ع©ط§ط±ط¨ط±ط§ظ† ظ¾ط§غŒع¯ط§ظ‡ ط¯ط§ط¯ظ‡: ' + detail);
+        }
       },
     });
   }
@@ -24941,10 +27445,8 @@ export interface DatabaseUserActionResponse {
             طھط¹ط±غŒظپ ظ†ظ‚ط´ ط³ط§ط²ظ…ط§ظ†غŒ ط¬ط¯غŒط¯
           } @else if (isEditMode()) {
             ظˆغŒط±ط§غŒط´ ظ†ظ‚ط´
-            <!-- : {{ selectedRole()?.description || selectedRole()?.name }} -->
           } @else {
             ط§ط·ظ„ط§ط¹ط§طھ ظ†ظ‚ط´
-            <!-- : {{ selectedRole()?.description || selectedRole()?.name }} -->
           }
         </h3>
 
@@ -25073,8 +27575,6 @@ export interface DatabaseUserActionResponse {
                           <div class="perm-info">
                             <div class="perm-header">
                               <span class="perm-name font-bold">{{ p.name }}</span>
-                              <!-- <span class="perm-code-tag">{{ p.action }}</span>
-                              <span class="perm-module-tag">{{ p.moduleName }}</span> -->
                             </div>
                             <span class="perm-desc">{{ p.description }}</span>
                           </div>
@@ -27830,7 +30330,6 @@ export class UserManagementService {
                         />
                         <i class="pi pi-key node-icon"></i>
                         <span class="node-name font-bold">{{ perm.label }}</span>
-                        <!-- <code class="font-mono" style="font-size: 11px; color: #64748b;">({{ perm.action }})</code> -->
                       </div>
                     </td>
                     <td>
@@ -36700,6 +39199,18 @@ export interface FlattenedCategoryNode {
             </div>
           </div>
 
+          <!-- Contextual Dialect Helper Hint -->
+          @if (engineHint()) {
+            <div class="form-row">
+              <div class="form-group col-span-full">
+                <div class="dialect-hint-card">
+                  <i class="pi pi-info-circle dialect-hint-icon"></i>
+                  <span class="dialect-hint-text">{{ engineHint() }}</span>
+                </div>
+              </div>
+            </div>
+          }
+
           <!-- Row 4 (2 Equal Columns: 1fr 1fr): Username (Right) & Password (Left) -->
           <div class="form-row row-credentials">
             <div class="form-group">
@@ -36982,6 +39493,25 @@ export interface FlattenedCategoryNode {
                     dir="ltr"
                     placeholder='{ "sslmode": "prefer", "connect_timeout": 10 }'
                   ></textarea>
+
+                  <!-- Contextual Dialect Quick Parameters -->
+                  <div class="dialect-quick-params">
+                    <span class="quick-params-label">ط§ظ„ع¯ظˆظ‡ط§غŒ ط³ط±غŒط¹ ط¨ط± ط§ط³ط§ط³ ظ…ظˆطھظˆط± ط§ظ†طھط®ط§ط¨غŒ:</span>
+                    <div class="quick-chips">
+                      @if (selectedEngine() === 'ORACLE') {
+                        <button type="button" class="btn-quick-chip" (click)="applyQuickParam('{ &quot;service_name&quot;: &quot;ORCLPDB1&quot; }')">Service Name: ORCLPDB1</button>
+                        <button type="button" class="btn-quick-chip" (click)="applyQuickParam('{ &quot;sid&quot;: &quot;ORCL&quot; }')">SID: ORCL</button>
+                      } @else if (selectedEngine() === 'MSSQL') {
+                        <button type="button" class="btn-quick-chip" (click)="applyQuickParam('{ &quot;driver&quot;: &quot;ODBC Driver 18 for SQL Server&quot;, &quot;TrustServerCertificate&quot;: &quot;yes&quot; }')">Driver &amp; TrustServerCertificate</button>
+                      } @else if (selectedEngine() === 'MONGODB') {
+                        <button type="button" class="btn-quick-chip" (click)="applyQuickParam('{ &quot;authSource&quot;: &quot;admin&quot; }')">Auth Source: admin</button>
+                      } @else if (selectedEngine() === 'MYSQL') {
+                        <button type="button" class="btn-quick-chip" (click)="applyQuickParam('{ &quot;charset&quot;: &quot;utf8mb4&quot; }')">Charset: utf8mb4</button>
+                      } @else if (selectedEngine() === 'POSTGRESQL') {
+                        <button type="button" class="btn-quick-chip" (click)="applyQuickParam('{ &quot;sslmode&quot;: &quot;prefer&quot; }')">SSL Mode: prefer</button>
+                      }
+                    </div>
+                  </div>
 
                   @if (
                     form.controls.custom_params_json.touched &&
@@ -37833,6 +40363,53 @@ export interface FlattenedCategoryNode {
         opacity: 0.5;
         cursor: not-allowed;
       }
+      .dialect-hint-card {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 12px;
+        background: #f0fdf4;
+        border: 1px solid #bbf7d0;
+        border-radius: 6px;
+        color: #166534;
+        font-size: 12px;
+        line-height: 1.4;
+      }
+      .dialect-hint-icon {
+        color: #15803d;
+        font-size: 14px;
+        flex-shrink: 0;
+      }
+      .dialect-quick-params {
+        margin-top: 8px;
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+      .quick-params-label {
+        font-size: 11px;
+        color: #64748b;
+      }
+      .quick-chips {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+      }
+      .btn-quick-chip {
+        background: #e2e8f0;
+        border: 1px solid #cbd5e1;
+        border-radius: 4px;
+        padding: 3px 8px;
+        font-size: 11px;
+        font-family: inherit;
+        color: #334155;
+        cursor: pointer;
+        transition: all 0.2s ease;
+      }
+      .btn-quick-chip:hover {
+        background: #cbd5e1;
+        color: #0f172a;
+      }
     `,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -37882,6 +40459,27 @@ export class ConnectionDialogComponent implements OnInit {
   readonly isSubmitting = signal<boolean>(false);
   readonly errorMessage = signal<string | null>(null);
   readonly isCustomParamsOpen = signal<boolean>(false);
+  readonly selectedEngine = signal<DatabaseEngine>("POSTGRESQL");
+
+  readonly engineHint = computed<string>(() => {
+    const engine = this.selectedEngine();
+    switch (engine) {
+      case "POSTGRESQL":
+        return "ظ¾ظˆط±طھ ط§ط³طھط§ظ†ط¯ط§ط±ط¯: غµغ´غ³غ² | ط·ط±ط­â€Œظˆط§ط±ظ‡ ظ¾غŒط´â€Œظپط±ط¶: public | ط§طھطµط§ظ„ ظ…ظ‚غŒط¯ ط¨ظ‡ ط²ظ…ط§ظ† ط¨ط§ NullPool";
+      case "MSSQL":
+        return "ظ¾ظˆط±طھ ط§ط³طھط§ظ†ط¯ط§ط±ط¯: غ±غ´غ³غ³ | ط¯ط±ط§غŒظˆط± aioodbc/pymssql | ظ¾ط´طھغŒط¨ط§ظ†غŒ ط§ط² ظ¾ط§ط±ط§ظ…طھط±ظ‡ط§غŒ Driver ظˆ TrustServerCertificate";
+      case "MYSQL":
+        return "ظ¾ظˆط±طھ ط§ط³طھط§ظ†ط¯ط§ط±ط¯: غ³غ³غ°غ¶ | ط´ظ†ط§ط³ط§غŒغŒ ط¨ط± ظ…ط¨ظ†ط§غŒ INFORMATION_SCHEMA | ظ¾ط´طھغŒط¨ط§ظ†غŒ ط§ط² aiomysql/asyncmy";
+      case "ORACLE":
+        return "ظ¾ظˆط±طھ ط§ط³طھط§ظ†ط¯ط§ط±ط¯: غ±غµغ²غ± | ط­ط§ظ„طھ ط§طھطµط§ظ„: Service Name غŒط§ SID (ط¯ط± طھظ†ط¸غŒظ…ط§طھ ط§ط¶ط§ظپغŒ: service_name / sid)";
+      case "CLICKHOUSE":
+        return "ظ¾ظˆط±طھ ط§ط³طھط§ظ†ط¯ط§ط±ط¯ HTTP: غ¸غ±غ²غ³ | ط§ط±طھط¨ط§ط· ظ…ط³طھظ‚غŒظ… ط¨ط± ط¨ط³طھط± JSON HTTP ط¨ط¯ظˆظ† ظ†غŒط§ط² ط¨ظ‡ ط¯ط±ط§غŒظˆط± ط¨ط§غŒظ†ط±غŒ";
+      case "MONGODB":
+        return "ظ¾ظˆط±طھ ط§ط³طھط§ظ†ط¯ط§ط±ط¯: غ²غ·غ°غ±غ· | ظ¾ط´طھغŒط¨ط§ظ†غŒ ط§ط² ظ…ظ†ط¨ط¹ ط§ط¹طھط¨ط§ط±ط³ظ†ط¬غŒ (Auth Source: admin) | ظ†ظ…ظˆظ†ظ‡â€Œط¨ط±ط¯ط§ط±غŒ غµغ° ط³ظ†ط¯";
+      default:
+        return "";
+    }
+  });
 
   // Category Tree Signals
   readonly rawCategories = signal<CategoryTreeNode[]>([]);
@@ -37993,6 +40591,18 @@ export class ConnectionDialogComponent implements OnInit {
 
   ngOnInit(): void {
     this.loadCategoryTree();
+
+    // Auto-update port when engine_type changes
+    this.form.controls.engine_type.valueChanges
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe((engine) => {
+        if (engine) {
+          this.selectedEngine.set(engine);
+          if (this.defaultPorts[engine]) {
+            this.form.controls.port.setValue(this.defaultPorts[engine]);
+          }
+        }
+      });
 
     // Auto-discover databases when host, port, username, password are all filled (debounced 600ms)
     merge(
@@ -38153,9 +40763,17 @@ export class ConnectionDialogComponent implements OnInit {
 
   onEngineChange(): void {
     const engine = this.form.controls.engine_type.value;
-    if (engine && this.defaultPorts[engine]) {
-      this.form.controls.port.setValue(this.defaultPorts[engine]);
+    if (engine) {
+      this.selectedEngine.set(engine);
+      if (this.defaultPorts[engine]) {
+        this.form.controls.port.setValue(this.defaultPorts[engine]);
+      }
     }
+  }
+
+  applyQuickParam(paramJson: string): void {
+    this.form.controls.custom_params_json.setValue(paramJson);
+    this.form.controls.custom_params_json.markAsDirty();
   }
 
   onBackdropClick(event: MouseEvent): void {

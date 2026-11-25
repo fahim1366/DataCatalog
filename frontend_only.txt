@@ -1466,6 +1466,26 @@ export class TableStatsService {
   background-color: #dbeafe;
   color: #1e40af;
 }
+.engine-badge[data-engine="MSSQL"] {
+  background-color: #fce7f3;
+  color: #9d174d;
+}
+.engine-badge[data-engine="ORACLE"] {
+  background-color: #fee2e2;
+  color: #991b1b;
+}
+.engine-badge[data-engine="MYSQL"] {
+  background-color: #ffedd5;
+  color: #9a3412;
+}
+.engine-badge[data-engine="CLICKHOUSE"] {
+  background-color: #fef9c3;
+  color: #854d0e;
+}
+.engine-badge[data-engine="MONGODB"] {
+  background-color: #d1fae5;
+  color: #065f46;
+}
 .status-indicator-dot {
   width: 8px;
   height: 8px;
@@ -1900,6 +1920,60 @@ export class TableStatsService {
   color: #64748b;
 }
 
+/* --- Unsupported Engine State --- */
+.unsupported-engine-container {
+  background-color: #ffffff;
+  border-radius: 10px;
+  border: 1px solid #e2e8f0;
+  padding: 48px 24px;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  color: #475569;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+}
+.unsupported-icon-circle {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background-color: #eff6ff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 4px;
+}
+.unsupported-icon {
+  font-size: 28px;
+  color: #3b82f6;
+}
+.unsupported-title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+  color: #1e293b;
+}
+.unsupported-desc {
+  margin: 0;
+  font-size: 14px;
+  color: #64748b;
+  max-width: 520px;
+  line-height: 1.6;
+}
+.unsupported-meta-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  padding: 8px 14px;
+  background-color: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  font-size: 12px;
+  color: #64748b;
+}
+
 /* Monospace & Text Helpers */
 .td-mono {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
@@ -2251,8 +2325,23 @@ export class TableStatsService {
           </div>
         </div>
 
-        <!-- Filter Bar -->
-        <div class="table-card">
+        @if (isUnsupportedEngine()) {
+          <div class="unsupported-engine-container">
+            <div class="unsupported-icon-circle">
+              <i class="pi pi-info-circle unsupported-icon"></i>
+            </div>
+            <h3 class="unsupported-title">ط¹ط¯ظ… ظ¾ط´طھغŒط¨ط§ظ†غŒ ط§ط² ظ¾ط§غŒط´ ط²ظ†ط¯ظ‡ ع©ط§ط±ط¨ط±ط§ظ†</h3>
+            <p class="unsupported-desc">
+              {{ unsupportedEngineMessage() || 'ظ‚ط§ط¨ظ„غŒطھ ظ¾ط§غŒط´ ط²ظ†ط¯ظ‡ ع©ط§ط±ط¨ط±ط§ظ† ظˆ ظ†ظ‚ط´â€Œظ‡ط§ ط¨ط±ط§غŒ ظ…ظˆطھظˆط± ظ¾ط§غŒع¯ط§ظ‡ ط¯ط§ط¯ظ‡ ' + conn.engine_type + ' ظ¾غŒط§ط¯ظ‡â€Œط³ط§ط²غŒ ظ†ط´ط¯ظ‡ ط§ط³طھ.' }}
+            </p>
+            <div class="unsupported-meta-badge">
+              <span class="engine-badge" [attr.data-engine]="conn.engine_type">{{ conn.engine_type }}</span>
+              <span>ط¯ط± ط­ط§ظ„ ط­ط§ط¶ط± ظ¾ط§غŒط´ ظˆ ظ…ط¯غŒط±غŒطھ ظ…ط³طھظ‚غŒظ… ع©ط§ط±ط¨ط±ط§ظ† ظˆ ظ†ظ‚ط´â€Œظ‡ط§ ط¨ط±ط§غŒ ظ¾ط§غŒع¯ط§ظ‡ ط¯ط§ط¯ظ‡â€Œظ‡ط§غŒ PostgreSQL ط¨ظ‡غŒظ†ظ‡â€Œط³ط§ط²غŒ ط´ط¯ظ‡ ط§ط³طھ.</span>
+            </div>
+          </div>
+        } @else {
+          <!-- Filter Bar -->
+          <div class="table-card">
           <div class="table-card-header">
             <div class="filter-pills">
               <button
@@ -2440,6 +2529,7 @@ export class TableStatsService {
             </table>
           </div>
         </div>
+        }
       } @else {
         <div class="empty-state-container">
           <i class="pi pi-database empty-hero-icon"></i>
@@ -2713,6 +2803,8 @@ export class DbUserMonitorComponent implements OnInit {
   // Users list state
   users = signal<DatabaseUserItem[]>([]);
   isLoadingUsers = signal<boolean>(false);
+  isUnsupportedEngine = signal<boolean>(false);
+  unsupportedEngineMessage = signal<string | null>(null);
   userSearchQuery = signal<string>('');
   userTypeFilter = signal<UserFilterType>('ALL');
 
@@ -3003,10 +3095,10 @@ export class DbUserMonitorComponent implements OnInit {
           }
         }
 
-        // Auto-select first PostgreSQL connection or first connection
+        // Auto-select first active connection or fallback to first
         if (connections.length > 0) {
-          const firstPg = connections.find((c) => c.engine_type === 'POSTGRESQL') || connections[0];
-          this.selectConnection(firstPg);
+          const autoConn = connections.find((c) => c.is_active) || connections[0];
+          this.selectConnection(autoConn);
         }
       },
       error: (err) => {
@@ -3024,6 +3116,8 @@ export class DbUserMonitorComponent implements OnInit {
   loadUsers(connectionId: string): void {
     this.isLoadingUsers.set(true);
     this.users.set([]);
+    this.isUnsupportedEngine.set(false);
+    this.unsupportedEngineMessage.set(null);
     this.errorMessage.set(null);
 
     this.dbUserService.getDatabaseUsers(connectionId).subscribe({
@@ -3033,7 +3127,19 @@ export class DbUserMonitorComponent implements OnInit {
       },
       error: (err) => {
         this.isLoadingUsers.set(false);
-        this.showError('ط®ط·ط§ ط¯ط± ط¯ط±غŒط§ظپطھ ظ„غŒط³طھ ع©ط§ط±ط¨ط±ط§ظ† ظ¾ط§غŒع¯ط§ظ‡ ط¯ط§ط¯ظ‡: ' + (err.error?.detail || err.message));
+        const detail: string = err.error?.detail || err.message || '';
+        // If database engine does not support live DB-user management, display informational card instead of red error alert
+        if (
+          err.status === 400 &&
+          (detail.includes('ظ¾غŒط§ط¯ظ‡â€Œط³ط§ط²غŒ ظ†ط´ط¯ظ‡') ||
+           detail.includes('ظ¾غŒط§ط¯ظ‡ط³ط§ط²غŒ ظ†ط´ط¯ظ‡') ||
+           detail.includes('ظ¾غŒط§ط¯ظ‡ ط³ط§ط²غŒ ظ†ط´ط¯ظ‡'))
+        ) {
+          this.isUnsupportedEngine.set(true);
+          this.unsupportedEngineMessage.set(detail);
+        } else {
+          this.showError('ط®ط·ط§ ط¯ط± ط¯ط±غŒط§ظپطھ ظ„غŒط³طھ ع©ط§ط±ط¨ط±ط§ظ† ظ¾ط§غŒع¯ط§ظ‡ ط¯ط§ط¯ظ‡: ' + detail);
+        }
       },
     });
   }
@@ -4573,10 +4679,8 @@ export interface DatabaseUserActionResponse {
             طھط¹ط±غŒظپ ظ†ظ‚ط´ ط³ط§ط²ظ…ط§ظ†غŒ ط¬ط¯غŒط¯
           } @else if (isEditMode()) {
             ظˆغŒط±ط§غŒط´ ظ†ظ‚ط´
-            <!-- : {{ selectedRole()?.description || selectedRole()?.name }} -->
           } @else {
             ط§ط·ظ„ط§ط¹ط§طھ ظ†ظ‚ط´
-            <!-- : {{ selectedRole()?.description || selectedRole()?.name }} -->
           }
         </h3>
 
@@ -4705,8 +4809,6 @@ export interface DatabaseUserActionResponse {
                           <div class="perm-info">
                             <div class="perm-header">
                               <span class="perm-name font-bold">{{ p.name }}</span>
-                              <!-- <span class="perm-code-tag">{{ p.action }}</span>
-                              <span class="perm-module-tag">{{ p.moduleName }}</span> -->
                             </div>
                             <span class="perm-desc">{{ p.description }}</span>
                           </div>
@@ -7462,7 +7564,6 @@ export class UserManagementService {
                         />
                         <i class="pi pi-key node-icon"></i>
                         <span class="node-name font-bold">{{ perm.label }}</span>
-                        <!-- <code class="font-mono" style="font-size: 11px; color: #64748b;">({{ perm.action }})</code> -->
                       </div>
                     </td>
                     <td>
@@ -15270,6 +15371,18 @@ export interface FlattenedCategoryNode {
             </div>
           </div>
 
+          <!-- Contextual Dialect Helper Hint -->
+          @if (engineHint()) {
+            <div class="form-row">
+              <div class="form-group col-span-full">
+                <div class="dialect-hint-card">
+                  <i class="pi pi-info-circle dialect-hint-icon"></i>
+                  <span class="dialect-hint-text">{{ engineHint() }}</span>
+                </div>
+              </div>
+            </div>
+          }
+
           <!-- Row 4 (2 Equal Columns: 1fr 1fr): Username (Right) & Password (Left) -->
           <div class="form-row row-credentials">
             <div class="form-group">
@@ -15552,6 +15665,25 @@ export interface FlattenedCategoryNode {
                     dir="ltr"
                     placeholder='{ "sslmode": "prefer", "connect_timeout": 10 }'
                   ></textarea>
+
+                  <!-- Contextual Dialect Quick Parameters -->
+                  <div class="dialect-quick-params">
+                    <span class="quick-params-label">ط§ظ„ع¯ظˆظ‡ط§غŒ ط³ط±غŒط¹ ط¨ط± ط§ط³ط§ط³ ظ…ظˆطھظˆط± ط§ظ†طھط®ط§ط¨غŒ:</span>
+                    <div class="quick-chips">
+                      @if (selectedEngine() === 'ORACLE') {
+                        <button type="button" class="btn-quick-chip" (click)="applyQuickParam('{ &quot;service_name&quot;: &quot;ORCLPDB1&quot; }')">Service Name: ORCLPDB1</button>
+                        <button type="button" class="btn-quick-chip" (click)="applyQuickParam('{ &quot;sid&quot;: &quot;ORCL&quot; }')">SID: ORCL</button>
+                      } @else if (selectedEngine() === 'MSSQL') {
+                        <button type="button" class="btn-quick-chip" (click)="applyQuickParam('{ &quot;driver&quot;: &quot;ODBC Driver 18 for SQL Server&quot;, &quot;TrustServerCertificate&quot;: &quot;yes&quot; }')">Driver &amp; TrustServerCertificate</button>
+                      } @else if (selectedEngine() === 'MONGODB') {
+                        <button type="button" class="btn-quick-chip" (click)="applyQuickParam('{ &quot;authSource&quot;: &quot;admin&quot; }')">Auth Source: admin</button>
+                      } @else if (selectedEngine() === 'MYSQL') {
+                        <button type="button" class="btn-quick-chip" (click)="applyQuickParam('{ &quot;charset&quot;: &quot;utf8mb4&quot; }')">Charset: utf8mb4</button>
+                      } @else if (selectedEngine() === 'POSTGRESQL') {
+                        <button type="button" class="btn-quick-chip" (click)="applyQuickParam('{ &quot;sslmode&quot;: &quot;prefer&quot; }')">SSL Mode: prefer</button>
+                      }
+                    </div>
+                  </div>
 
                   @if (
                     form.controls.custom_params_json.touched &&
@@ -16403,6 +16535,53 @@ export interface FlattenedCategoryNode {
         opacity: 0.5;
         cursor: not-allowed;
       }
+      .dialect-hint-card {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 12px;
+        background: #f0fdf4;
+        border: 1px solid #bbf7d0;
+        border-radius: 6px;
+        color: #166534;
+        font-size: 12px;
+        line-height: 1.4;
+      }
+      .dialect-hint-icon {
+        color: #15803d;
+        font-size: 14px;
+        flex-shrink: 0;
+      }
+      .dialect-quick-params {
+        margin-top: 8px;
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+      .quick-params-label {
+        font-size: 11px;
+        color: #64748b;
+      }
+      .quick-chips {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+      }
+      .btn-quick-chip {
+        background: #e2e8f0;
+        border: 1px solid #cbd5e1;
+        border-radius: 4px;
+        padding: 3px 8px;
+        font-size: 11px;
+        font-family: inherit;
+        color: #334155;
+        cursor: pointer;
+        transition: all 0.2s ease;
+      }
+      .btn-quick-chip:hover {
+        background: #cbd5e1;
+        color: #0f172a;
+      }
     `,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -16452,6 +16631,27 @@ export class ConnectionDialogComponent implements OnInit {
   readonly isSubmitting = signal<boolean>(false);
   readonly errorMessage = signal<string | null>(null);
   readonly isCustomParamsOpen = signal<boolean>(false);
+  readonly selectedEngine = signal<DatabaseEngine>("POSTGRESQL");
+
+  readonly engineHint = computed<string>(() => {
+    const engine = this.selectedEngine();
+    switch (engine) {
+      case "POSTGRESQL":
+        return "ظ¾ظˆط±طھ ط§ط³طھط§ظ†ط¯ط§ط±ط¯: غµغ´غ³غ² | ط·ط±ط­â€Œظˆط§ط±ظ‡ ظ¾غŒط´â€Œظپط±ط¶: public | ط§طھطµط§ظ„ ظ…ظ‚غŒط¯ ط¨ظ‡ ط²ظ…ط§ظ† ط¨ط§ NullPool";
+      case "MSSQL":
+        return "ظ¾ظˆط±طھ ط§ط³طھط§ظ†ط¯ط§ط±ط¯: غ±غ´غ³غ³ | ط¯ط±ط§غŒظˆط± aioodbc/pymssql | ظ¾ط´طھغŒط¨ط§ظ†غŒ ط§ط² ظ¾ط§ط±ط§ظ…طھط±ظ‡ط§غŒ Driver ظˆ TrustServerCertificate";
+      case "MYSQL":
+        return "ظ¾ظˆط±طھ ط§ط³طھط§ظ†ط¯ط§ط±ط¯: غ³غ³غ°غ¶ | ط´ظ†ط§ط³ط§غŒغŒ ط¨ط± ظ…ط¨ظ†ط§غŒ INFORMATION_SCHEMA | ظ¾ط´طھغŒط¨ط§ظ†غŒ ط§ط² aiomysql/asyncmy";
+      case "ORACLE":
+        return "ظ¾ظˆط±طھ ط§ط³طھط§ظ†ط¯ط§ط±ط¯: غ±غµغ²غ± | ط­ط§ظ„طھ ط§طھطµط§ظ„: Service Name غŒط§ SID (ط¯ط± طھظ†ط¸غŒظ…ط§طھ ط§ط¶ط§ظپغŒ: service_name / sid)";
+      case "CLICKHOUSE":
+        return "ظ¾ظˆط±طھ ط§ط³طھط§ظ†ط¯ط§ط±ط¯ HTTP: غ¸غ±غ²غ³ | ط§ط±طھط¨ط§ط· ظ…ط³طھظ‚غŒظ… ط¨ط± ط¨ط³طھط± JSON HTTP ط¨ط¯ظˆظ† ظ†غŒط§ط² ط¨ظ‡ ط¯ط±ط§غŒظˆط± ط¨ط§غŒظ†ط±غŒ";
+      case "MONGODB":
+        return "ظ¾ظˆط±طھ ط§ط³طھط§ظ†ط¯ط§ط±ط¯: غ²غ·غ°غ±غ· | ظ¾ط´طھغŒط¨ط§ظ†غŒ ط§ط² ظ…ظ†ط¨ط¹ ط§ط¹طھط¨ط§ط±ط³ظ†ط¬غŒ (Auth Source: admin) | ظ†ظ…ظˆظ†ظ‡â€Œط¨ط±ط¯ط§ط±غŒ غµغ° ط³ظ†ط¯";
+      default:
+        return "";
+    }
+  });
 
   // Category Tree Signals
   readonly rawCategories = signal<CategoryTreeNode[]>([]);
@@ -16563,6 +16763,18 @@ export class ConnectionDialogComponent implements OnInit {
 
   ngOnInit(): void {
     this.loadCategoryTree();
+
+    // Auto-update port when engine_type changes
+    this.form.controls.engine_type.valueChanges
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe((engine) => {
+        if (engine) {
+          this.selectedEngine.set(engine);
+          if (this.defaultPorts[engine]) {
+            this.form.controls.port.setValue(this.defaultPorts[engine]);
+          }
+        }
+      });
 
     // Auto-discover databases when host, port, username, password are all filled (debounced 600ms)
     merge(
@@ -16723,9 +16935,17 @@ export class ConnectionDialogComponent implements OnInit {
 
   onEngineChange(): void {
     const engine = this.form.controls.engine_type.value;
-    if (engine && this.defaultPorts[engine]) {
-      this.form.controls.port.setValue(this.defaultPorts[engine]);
+    if (engine) {
+      this.selectedEngine.set(engine);
+      if (this.defaultPorts[engine]) {
+        this.form.controls.port.setValue(this.defaultPorts[engine]);
+      }
     }
+  }
+
+  applyQuickParam(paramJson: string): void {
+    this.form.controls.custom_params_json.setValue(paramJson);
+    this.form.controls.custom_params_json.markAsDirty();
   }
 
   onBackdropClick(event: MouseEvent): void {

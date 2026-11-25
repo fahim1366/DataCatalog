@@ -393,6 +393,26 @@
   background-color: #dbeafe;
   color: #1e40af;
 }
+.engine-badge[data-engine="MSSQL"] {
+  background-color: #fce7f3;
+  color: #9d174d;
+}
+.engine-badge[data-engine="ORACLE"] {
+  background-color: #fee2e2;
+  color: #991b1b;
+}
+.engine-badge[data-engine="MYSQL"] {
+  background-color: #ffedd5;
+  color: #9a3412;
+}
+.engine-badge[data-engine="CLICKHOUSE"] {
+  background-color: #fef9c3;
+  color: #854d0e;
+}
+.engine-badge[data-engine="MONGODB"] {
+  background-color: #d1fae5;
+  color: #065f46;
+}
 .status-indicator-dot {
   width: 8px;
   height: 8px;
@@ -824,6 +844,60 @@
   flex-direction: column;
   align-items: center;
   gap: 12px;
+  color: #64748b;
+}
+
+/* --- Unsupported Engine State --- */
+.unsupported-engine-container {
+  background-color: #ffffff;
+  border-radius: 10px;
+  border: 1px solid #e2e8f0;
+  padding: 48px 24px;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  color: #475569;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+}
+.unsupported-icon-circle {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background-color: #eff6ff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 4px;
+}
+.unsupported-icon {
+  font-size: 28px;
+  color: #3b82f6;
+}
+.unsupported-title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+  color: #1e293b;
+}
+.unsupported-desc {
+  margin: 0;
+  font-size: 14px;
+  color: #64748b;
+  max-width: 520px;
+  line-height: 1.6;
+}
+.unsupported-meta-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  padding: 8px 14px;
+  background-color: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  font-size: 12px;
   color: #64748b;
 }
 

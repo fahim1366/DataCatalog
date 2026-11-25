@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from backend.src.api.v1.connections import format_connection_error_persian
+from backend.src.api.v1.connections import format_connection_error_persian, sanitize_uri_credentials
 
 
 def test_format_connection_error_persian_timeout():
@@ -65,3 +65,22 @@ def test_format_connection_error_persian_fallback():
     msg_test = format_connection_error_persian("Unknown dialect error xyz", "test")
     assert "خطا در برقراری اتصال به پایگاه‌داده" in msg_test
     assert "تست اتصال" in msg_test
+
+
+def test_sanitize_uri_credentials():
+    mongo_uri = "Failed connecting to mongodb://superadmin:MySecretP@ss123@mongo.prod.corp:27017/admin"
+    sanitized = sanitize_uri_credentials(mongo_uri)
+    assert "MySecretP@ss123" not in sanitized
+    assert "mongodb://superadmin:***@mongo.prod.corp:27017/admin" in sanitized
+
+    pg_uri = "postgresql+asyncpg://app_user:ultra_secure_password@10.0.1.20:5432/finance_db"
+    assert "ultra_secure_password" not in sanitize_uri_credentials(pg_uri)
+    assert "postgresql+asyncpg://app_user:***@10.0.1.20:5432/finance_db" in sanitize_uri_credentials(pg_uri)
+
+
+def test_format_connection_error_persian_sanitizes_uri():
+    raw = "پکیج درایور مربوط به mongodb://admin:verySecretPassword@host:27017 نصب نیست."
+    res = format_connection_error_persian(raw, "discovery")
+    assert "verySecretPassword" not in res
+    assert "mongodb://admin:***@host:27017" in res
+

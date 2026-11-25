@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import asyncio
 import enum
 import logging
+import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -10,6 +12,19 @@ from typing import Any, Dict, List, Optional, Type
 from sqlalchemy.pool import NullPool, Pool
 
 logger = logging.getLogger(__name__)
+
+
+class MissingDriverError(ImportError):
+    """Raised when an engine's optional driver package is missing."""
+
+    def __init__(self, engine: str, package_name: str, message: Optional[str] = None) -> None:
+        self.engine = engine
+        self.package_name = package_name
+        msg = (
+            message
+            or f"درایور '{package_name}' برای اتصال به دیتابیس '{engine}' بر روی سیستم نصب نیست. لطفاً پکیج مربوطه را نصب نمایید."
+        )
+        super().__init__(msg)
 
 
 class ConnectorEngine(str, enum.Enum):
@@ -203,6 +218,50 @@ class BaseMetadataConnector(ABC):
     async def extract_database_collation(self) -> Optional[str]:
         """Extracts default database collation if supported by the engine."""
         return None
+
+    async def discover_databases(self) -> List[str]:
+        """Lists accessible non-system databases for this engine."""
+        return []
+
+    @classmethod
+    async def discover_databases_from_config(cls, config: Dict[str, Any]) -> Dict[str, Any]:
+        """Classmethod helper to execute discover_databases with a 5.0s timeout."""
+        start_time = time.monotonic()
+        connector = cls(config)
+        try:
+            return await asyncio.wait_for(connector._run_database_discovery(start_time), timeout=5.0)
+        except asyncio.TimeoutError:
+            elapsed_ms = round((time.monotonic() - start_time) * 1000, 2)
+            return {
+                "success": False,
+                "databases": [],
+                "latency_ms": elapsed_ms,
+                "server_version": None,
+                "message": "Database discovery probe timed out after 5.0 seconds.",
+            }
+        except Exception as exc:
+            elapsed_ms = round((time.monotonic() - start_time) * 1000, 2)
+            return {
+                "success": False,
+                "databases": [],
+                "latency_ms": elapsed_ms,
+                "server_version": None,
+                "message": f"Database discovery failed: {str(exc)}",
+            }
+
+    async def _run_database_discovery(self, start_time: float) -> Dict[str, Any]:
+        """Default discovery runner implementation."""
+        async with self:
+            dbs = await self.discover_databases()
+            test_res = await self.test_connection()
+            elapsed_ms = round((time.monotonic() - start_time) * 1000, 2)
+            return {
+                "success": True,
+                "databases": dbs,
+                "latency_ms": elapsed_ms,
+                "server_version": test_res.server_version,
+                "message": f"Successfully discovered {len(dbs)} databases.",
+            }
 
     @abstractmethod
     async def extract_schema_metadata(self, schema_name: str) -> SchemaExtractionResult:

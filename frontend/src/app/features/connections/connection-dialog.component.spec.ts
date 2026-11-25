@@ -72,18 +72,39 @@ describe('ConnectionDialogComponent', () => {
     component.form.controls.engine_type.setValue('CLICKHOUSE');
     component.onEngineChange();
     expect(component.form.controls.port.value).toBe(8123);
+    expect(component.engineHint()).toContain('۸۱۲۳');
 
     component.form.controls.engine_type.setValue('MSSQL');
     component.onEngineChange();
     expect(component.form.controls.port.value).toBe(1433);
+    expect(component.engineHint()).toContain('۱۴۳۳');
 
     component.form.controls.engine_type.setValue('ORACLE');
     component.onEngineChange();
     expect(component.form.controls.port.value).toBe(1521);
+    expect(component.engineHint()).toContain('۱۵۲۱');
 
     component.form.controls.engine_type.setValue('MYSQL');
     component.onEngineChange();
     expect(component.form.controls.port.value).toBe(3306);
+    expect(component.engineHint()).toContain('۳۳۰۶');
+
+    component.form.controls.engine_type.setValue('MONGODB');
+    component.onEngineChange();
+    expect(component.form.controls.port.value).toBe(27017);
+    expect(component.engineHint()).toContain('۲۷۰۱۷');
+
+    component.form.controls.engine_type.setValue('POSTGRESQL');
+    component.onEngineChange();
+    expect(component.form.controls.port.value).toBe(5432);
+    expect(component.engineHint()).toContain('۵۴۳۲');
+  });
+
+  it('should apply quick parameters template to custom_params_json', () => {
+    const template = '{ "service_name": "ORCLPDB1" }';
+    component.applyQuickParam(template);
+    expect(component.form.controls.custom_params_json.value).toBe(template);
+    expect(component.form.controls.custom_params_json.dirty).toBe(true);
   });
 
   it('should only allow selecting leaf nodes in category tree and expand parent branches', () => {

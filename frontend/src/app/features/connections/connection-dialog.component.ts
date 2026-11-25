@@ -307,6 +307,18 @@ export interface FlattenedCategoryNode {
             </div>
           </div>
 
+          <!-- Contextual Dialect Helper Hint -->
+          @if (engineHint()) {
+            <div class="form-row">
+              <div class="form-group col-span-full">
+                <div class="dialect-hint-card">
+                  <i class="pi pi-info-circle dialect-hint-icon"></i>
+                  <span class="dialect-hint-text">{{ engineHint() }}</span>
+                </div>
+              </div>
+            </div>
+          }
+
           <!-- Row 4 (2 Equal Columns: 1fr 1fr): Username (Right) & Password (Left) -->
           <div class="form-row row-credentials">
             <div class="form-group">
@@ -589,6 +601,25 @@ export interface FlattenedCategoryNode {
                     dir="ltr"
                     placeholder='{ "sslmode": "prefer", "connect_timeout": 10 }'
                   ></textarea>
+
+                  <!-- Contextual Dialect Quick Parameters -->
+                  <div class="dialect-quick-params">
+                    <span class="quick-params-label">الگوهای سریع بر اساس موتور انتخابی:</span>
+                    <div class="quick-chips">
+                      @if (selectedEngine() === 'ORACLE') {
+                        <button type="button" class="btn-quick-chip" (click)="applyQuickParam('{ &quot;service_name&quot;: &quot;ORCLPDB1&quot; }')">Service Name: ORCLPDB1</button>
+                        <button type="button" class="btn-quick-chip" (click)="applyQuickParam('{ &quot;sid&quot;: &quot;ORCL&quot; }')">SID: ORCL</button>
+                      } @else if (selectedEngine() === 'MSSQL') {
+                        <button type="button" class="btn-quick-chip" (click)="applyQuickParam('{ &quot;driver&quot;: &quot;ODBC Driver 18 for SQL Server&quot;, &quot;TrustServerCertificate&quot;: &quot;yes&quot; }')">Driver &amp; TrustServerCertificate</button>
+                      } @else if (selectedEngine() === 'MONGODB') {
+                        <button type="button" class="btn-quick-chip" (click)="applyQuickParam('{ &quot;authSource&quot;: &quot;admin&quot; }')">Auth Source: admin</button>
+                      } @else if (selectedEngine() === 'MYSQL') {
+                        <button type="button" class="btn-quick-chip" (click)="applyQuickParam('{ &quot;charset&quot;: &quot;utf8mb4&quot; }')">Charset: utf8mb4</button>
+                      } @else if (selectedEngine() === 'POSTGRESQL') {
+                        <button type="button" class="btn-quick-chip" (click)="applyQuickParam('{ &quot;sslmode&quot;: &quot;prefer&quot; }')">SSL Mode: prefer</button>
+                      }
+                    </div>
+                  </div>
 
                   @if (
                     form.controls.custom_params_json.touched &&
@@ -1440,6 +1471,53 @@ export interface FlattenedCategoryNode {
         opacity: 0.5;
         cursor: not-allowed;
       }
+      .dialect-hint-card {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 12px;
+        background: #f0fdf4;
+        border: 1px solid #bbf7d0;
+        border-radius: 6px;
+        color: #166534;
+        font-size: 12px;
+        line-height: 1.4;
+      }
+      .dialect-hint-icon {
+        color: #15803d;
+        font-size: 14px;
+        flex-shrink: 0;
+      }
+      .dialect-quick-params {
+        margin-top: 8px;
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+      .quick-params-label {
+        font-size: 11px;
+        color: #64748b;
+      }
+      .quick-chips {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+      }
+      .btn-quick-chip {
+        background: #e2e8f0;
+        border: 1px solid #cbd5e1;
+        border-radius: 4px;
+        padding: 3px 8px;
+        font-size: 11px;
+        font-family: inherit;
+        color: #334155;
+        cursor: pointer;
+        transition: all 0.2s ease;
+      }
+      .btn-quick-chip:hover {
+        background: #cbd5e1;
+        color: #0f172a;
+      }
     `,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -1489,6 +1567,27 @@ export class ConnectionDialogComponent implements OnInit {
   readonly isSubmitting = signal<boolean>(false);
   readonly errorMessage = signal<string | null>(null);
   readonly isCustomParamsOpen = signal<boolean>(false);
+  readonly selectedEngine = signal<DatabaseEngine>("POSTGRESQL");
+
+  readonly engineHint = computed<string>(() => {
+    const engine = this.selectedEngine();
+    switch (engine) {
+      case "POSTGRESQL":
+        return "پورت استاندارد: ۵۴۳۲ | طرح‌واره پیش‌فرض: public | اتصال مقید به زمان با NullPool";
+      case "MSSQL":
+        return "پورت استاندارد: ۱۴۳۳ | درایور aioodbc/pymssql | پشتیبانی از پارامترهای Driver و TrustServerCertificate";
+      case "MYSQL":
+        return "پورت استاندارد: ۳۳۰۶ | شناسایی بر مبنای INFORMATION_SCHEMA | پشتیبانی از aiomysql/asyncmy";
+      case "ORACLE":
+        return "پورت استاندارد: ۱۵۲۱ | حالت اتصال: Service Name یا SID (در تنظیمات اضافی: service_name / sid)";
+      case "CLICKHOUSE":
+        return "پورت استاندارد HTTP: ۸۱۲۳ | ارتباط مستقیم بر بستر JSON HTTP بدون نیاز به درایور باینری";
+      case "MONGODB":
+        return "پورت استاندارد: ۲۷۰۱۷ | پشتیبانی از منبع اعتبارسنجی (Auth Source: admin) | نمونه‌برداری ۵۰ سند";
+      default:
+        return "";
+    }
+  });
 
   // Category Tree Signals
   readonly rawCategories = signal<CategoryTreeNode[]>([]);
@@ -1600,6 +1699,18 @@ export class ConnectionDialogComponent implements OnInit {
 
   ngOnInit(): void {
     this.loadCategoryTree();
+
+    // Auto-update port when engine_type changes
+    this.form.controls.engine_type.valueChanges
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe((engine) => {
+        if (engine) {
+          this.selectedEngine.set(engine);
+          if (this.defaultPorts[engine]) {
+            this.form.controls.port.setValue(this.defaultPorts[engine]);
+          }
+        }
+      });
 
     // Auto-discover databases when host, port, username, password are all filled (debounced 600ms)
     merge(
@@ -1760,9 +1871,17 @@ export class ConnectionDialogComponent implements OnInit {
 
   onEngineChange(): void {
     const engine = this.form.controls.engine_type.value;
-    if (engine && this.defaultPorts[engine]) {
-      this.form.controls.port.setValue(this.defaultPorts[engine]);
+    if (engine) {
+      this.selectedEngine.set(engine);
+      if (this.defaultPorts[engine]) {
+        this.form.controls.port.setValue(this.defaultPorts[engine]);
+      }
     }
+  }
+
+  applyQuickParam(paramJson: string): void {
+    this.form.controls.custom_params_json.setValue(paramJson);
+    this.form.controls.custom_params_json.markAsDirty();
   }
 
   onBackdropClick(event: MouseEvent): void {

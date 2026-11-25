@@ -356,10 +356,9 @@ export class DbUserMonitorComponent implements OnInit {
           }
         }
 
-        // Auto-select first PostgreSQL connection or first connection
+        // Auto-select first available connection
         if (connections.length > 0) {
-          const firstPg = connections.find((c) => c.engine_type === 'POSTGRESQL') || connections[0];
-          this.selectConnection(firstPg);
+          this.selectConnection(connections[0]);
         }
       },
       error: (err) => {

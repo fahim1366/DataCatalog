@@ -75,6 +75,40 @@ def format_connection_error_persian(raw_error: str, context: str = "discovery") 
     """
     err_lower = (raw_error or "").lower()
 
+    # Missing Driver / Package
+    if any(
+        k in err_lower
+        for k in [
+            "missingdrivererror",
+            "aioodbc",
+            "pymssql",
+            "aiomysql",
+            "asyncmy",
+            "oracledb",
+            "motor",
+            "pymongo",
+            "clickhouse-connect",
+            "clickhouse_connect",
+            "no module named",
+            "driver not found",
+            "cannot import name",
+        ]
+    ) or ("نصب" in raw_error and ("درایور" in raw_error or "پکیج" in raw_error)):
+        if any("\u0600" <= c <= "\u06FF" for c in raw_error) and ("نصب" in raw_error or "پکیج" in raw_error):
+            return raw_error
+        pkg = "مربوطه"
+        if "aioodbc" in err_lower or "pymssql" in err_lower or "mssql" in err_lower:
+            pkg = "'aioodbc' یا 'pymssql'"
+        elif "aiomysql" in err_lower or "asyncmy" in err_lower or "mysql" in err_lower:
+            pkg = "'aiomysql' یا 'asyncmy'"
+        elif "oracledb" in err_lower or "oracle" in err_lower:
+            pkg = "'oracledb'"
+        elif "motor" in err_lower or "pymongo" in err_lower or "mongo" in err_lower:
+            pkg = "'motor' یا 'pymongo'"
+        elif "clickhouse" in err_lower:
+            pkg = "'clickhouse-connect'"
+        return f"درایور ارتباطی پایگاه داده بر روی سرور نصب نیست: لطفاً پکیج {pkg} را نصب نمایید."
+
     # Network / Timeout
     if any(k in err_lower for k in ["timeout", "timed out", "time out"]):
         if context == "discovery":
@@ -363,8 +397,9 @@ async def discover_databases(
         "custom_params": payload.custom_params or {},
     }
 
-    if payload.engine_type == DatabaseEngine.POSTGRESQL or str(payload.engine_type).upper() == "POSTGRESQL":
-        result = await PostgresConnector.discover_databases_from_config(config)
+    try:
+        connector_cls = default_connector_registry.get_connector_class(payload.engine_type)
+        result = await connector_cls.discover_databases_from_config(config)
         if result.get("success"):
             db_count = len(result.get("databases", []))
             persian_msg = f"شناسایی پایگاه‌های داده با موفقیت انجام شد ({db_count} پایگاه‌داده یافت شد)."
@@ -377,7 +412,7 @@ async def discover_databases(
             server_version=result.get("server_version"),
             message=persian_msg,
         )
-    else:
+    except NotImplementedError:
         return DiscoverDatabasesResponse(
             success=False,
             databases=[],
@@ -387,6 +422,15 @@ async def discover_databases(
                 f"شناسایی خودکار پایگاه‌داده برای موتور «{payload.engine_type}» در حال حاضر پشتیبانی نمی‌شود. "
                 "لطفاً نام دیتابیس را به صورت دستی وارد کرده و از «تست اتصال» استفاده نمایید."
             ),
+        )
+    except Exception as exc:
+        logger.warning("Database discovery failed for %s:%s: %s", payload.host, payload.port, exc)
+        return DiscoverDatabasesResponse(
+            success=False,
+            databases=[],
+            latency_ms=0.0,
+            server_version=None,
+            message=format_connection_error_persian(str(exc), context="discovery"),
         )
 
 

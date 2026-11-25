@@ -58,6 +58,18 @@
   display: inline-block;
 }
 
+@media (max-width: 768px) {
+  .modal-dialog {
+    width: 100%;
+    max-width: calc(100vw - 24px);
+    max-height: 85vh;
+  }
+  .modal-body {
+    max-height: 85vh;
+    overflow-y: auto;
+  }
+}
+
 .btn-close {
   background: transparent;
   border: none;

@@ -23,7 +23,7 @@
 }
 
 .dashboard-title {
-  font-size: 1.75rem;
+  font-size: 1.15rem;
   font-weight: 700;
   color: #0f172a;
   margin: 0 0 0.375rem;
@@ -653,7 +653,7 @@
 
 .db-name-cell {
   color: #0f172a;
-  font-family: monospace;
+  font-family: var(--font-family-mono);
 }
 
 .pct-cell {

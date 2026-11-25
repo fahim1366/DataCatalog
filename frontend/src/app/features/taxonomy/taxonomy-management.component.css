@@ -36,8 +36,8 @@
   flex-shrink: 0;
 }
 .page-title {
-  font-size: 1.4rem;
-  font-weight: 800;
+  font-size: 1.15rem;
+  font-weight: 700;
   color: var(--slate-900, #0f172a);
   margin-bottom: 0.35rem;
   display: flex;

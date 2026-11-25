@@ -39,14 +39,14 @@
 .diff-cell,.category-table td{padding:.75rem 1rem;vertical-align:top;text-align:center}
 .cell-empty{color:#94a3b8;font-size:1.125rem;background:#f8fafc}
 .col-name,.cell-name{font-weight:600;color:#0f172a}
-.font-mono{font-family:monospace}
+.font-mono{font-family:var(--font-family-mono)}
 .type-tag,.pk-badge,.fk-badge,.not-null-badge{display:inline-block;padding:.1rem .35rem;border-radius:.25rem;font-size:.6875rem;font-weight:600;width:fit-content}
-.type-tag{background:#f1f5f9;border:1px solid #cbd5e1;font-size:.75rem;color:#475569;font-family:monospace}
+.type-tag{background:#f1f5f9;border:1px solid #cbd5e1;font-size:.72rem;color:#475569;font-family:var(--font-family-mono)}
 .pk-badge{background:#dbeafe;color:#1e40af;font-weight:700}
 .fk-badge{background:#e0e7ff;color:#4338ca;font-weight:700}
 .not-null-badge{background:#f3f4f6;color:#374151}
 .attribute-diffs-container{display:flex;flex-wrap:wrap;gap:.35rem;margin-top:.25rem}
-.attribute-diff-chip{display:inline-flex;align-items:center;gap:.3rem;padding:.15rem .5rem;background:#fffbeb;border:1px solid #fcd34d;border-radius:.25rem;font-size:.75rem;font-family:monospace}
+.attribute-diff-chip{display:inline-flex;align-items:center;gap:.3rem;padding:.15rem .5rem;background:#fffbeb;border:1px solid #fcd34d;border-radius:.25rem;font-size:.72rem;font-family:var(--font-family-mono)}
 .attr-name{color:#78350f;font-weight:600}
 .old-attr{color:#dc2626;text-decoration:line-through}
 .attr-arrow{color:#d97706}

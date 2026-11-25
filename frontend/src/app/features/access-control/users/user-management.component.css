@@ -52,6 +52,8 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
   border-bottom: 1px solid #e2e8f0;
   padding-bottom: 8px;
 }
@@ -59,6 +61,7 @@
 .subnav-tabs {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 6px;
 }
 
@@ -110,8 +113,8 @@
   align-items: center;
   justify-content: center;
   gap: 6px;
-  padding: 8px 16px;
-  font-size: 13px;
+  padding: 7px 14px;
+  font-size: 0.82rem;
   font-weight: 600;
   border-radius: 6px;
   border: 1px solid transparent;
@@ -120,12 +123,12 @@
 }
 
 .btn-primary {
-  background-color: #6366f1;
+  background-color: var(--primary-600, #2563eb);
   color: #ffffff;
-  box-shadow: 0 1px 3px rgba(99, 102, 241, 0.3);
+  box-shadow: 0 1px 2px rgba(37, 99, 235, 0.2);
 }
 .btn-primary:hover {
-  background-color: #4f46e5;
+  background-color: var(--primary-700, #1d4ed8);
 }
 
 .btn-save {
@@ -178,6 +181,7 @@
 .table-toolbar {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 12px;
 }
 
@@ -185,7 +189,9 @@
   position: relative;
   display: flex;
   align-items: center;
-  width: 270px;
+  width: 100%;
+  max-width: 280px;
+  min-width: 0;
 }
 
 .search-icon {
@@ -377,7 +383,7 @@
 }
 
 .td-code {
-  font-family: monospace;
+  font-family: var(--font-family-mono);
   direction: ltr;
   text-align: left;
   color: #0f172a;
@@ -888,8 +894,8 @@
 }
 
 .engine-tag {
-  font-size: 10px;
-  font-family: monospace;
+  font-size: 0.72rem;
+  font-family: var(--font-family-mono);
   padding: 2px 6px;
   background-color: #f1f5f9;
   color: #475569;
@@ -1185,4 +1191,35 @@
 
 .btn-danger-solid:hover {
   background: #b91c1c;
+}
+
+/* --- Responsive Breakpoints --- */
+@media (max-width: 768px) {
+  .user-management-view {
+    padding: 12px 14px 48px;
+  }
+  .subnav-tabs {
+    width: 100%;
+    overflow-x: auto;
+    padding-bottom: 4px;
+  }
+  .confirm-card {
+    max-width: calc(100vw - 24px);
+    max-height: 85vh;
+    display: flex;
+    flex-direction: column;
+  }
+  .confirm-body {
+    max-height: 85vh;
+    overflow-y: auto;
+  }
+}
+
+@media (max-width: 640px) {
+  .table-toolbar {
+    width: 100%;
+  }
+  .search-box {
+    max-width: 100%;
+  }
 }

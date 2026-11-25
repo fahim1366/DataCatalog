@@ -21,7 +21,7 @@
 }
 
 .page-title {
-  font-size: 1.5rem;
+  font-size: 1.15rem;
   font-weight: 700;
   color: #0f172a;
   margin: 0 0 0.35rem 0;
@@ -42,13 +42,13 @@
 }
 
 .btn-primary {
-  padding: 0.6rem 1.25rem;
-  background: #2563eb;
+  padding: 7px 14px;
+  background: var(--primary-600, #2563eb);
   color: #fff;
   border: none;
   border-radius: 6px;
   font-weight: 600;
-  font-size: 0.875rem;
+  font-size: 0.82rem;
   font-family: inherit;
   cursor: pointer;
   transition: background-color 0.15s;
@@ -56,16 +56,17 @@
 }
 
 .btn-primary:hover {
-  background: #1d4ed8;
+  background: var(--primary-700, #1d4ed8);
 }
 
 .btn-secondary {
-  padding: 0.5rem 1rem;
+  padding: 7px 14px;
   background: #f1f5f9;
   color: #475569;
   border: 1px solid #cbd5e1;
   border-radius: 6px;
   font-weight: 600;
+  font-size: 0.82rem;
   font-family: inherit;
   cursor: pointer;
 }

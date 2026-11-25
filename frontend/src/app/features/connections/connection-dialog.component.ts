@@ -750,6 +750,15 @@ export interface FlattenedCategoryNode {
         display: flex;
         flex-direction: column;
       }
+      @media (max-width: 768px) {
+        .modal-backdrop {
+          padding: 12px;
+        }
+        .modal-card {
+          max-width: calc(100vw - 24px);
+          max-height: 85vh;
+        }
+      }
       .modal-header {
         display: flex;
         justify-content: space-between;

@@ -64,12 +64,6 @@ export class UserManagementComponent implements OnInit {
   searchTerm = signal<string>('');
   filterStatus = signal<string>('ALL');
 
-  // Column search filters (legacy / direct signals)
-  filterFirstName = signal<string>('');
-  filterLastName = signal<string>('');
-  filterUsername = signal<string>('');
-  filterEmail = signal<string>('');
-
   isLoading = signal<boolean>(false);
   isSaving = signal<boolean>(false);
   errorMessage = signal<string | null>(null);
@@ -83,7 +77,6 @@ export class UserManagementComponent implements OnInit {
   categoryTree = signal<any[]>([]);
   allConnections = signal<any[]>([]);
   physicalTree = signal<PhysicalDatabaseNode[]>([]);
-  expandedDbNodes = signal<Set<string>>(new Set());
   expandedCategoryIds = signal<Set<string>>(new Set());
 
   // Virtual branch for uncategorized databases
@@ -171,10 +164,6 @@ export class UserManagementComponent implements OnInit {
     const list = this.rawUsers() || [];
     const search = this.searchTerm().trim().toLowerCase();
     const status = this.filterStatus();
-    const fnFilter = this.filterFirstName().trim().toLowerCase();
-    const lnFilter = this.filterLastName().trim().toLowerCase();
-    const unFilter = this.filterUsername().trim().toLowerCase();
-    const emFilter = this.filterEmail().trim().toLowerCase();
 
     return list
       .map((u) => {
@@ -194,10 +183,6 @@ export class UserManagementComponent implements OnInit {
             (row.user.full_name || '').toLowerCase().includes(search);
           if (!matchSearch) return false;
         }
-        if (fnFilter && !(row.firstName || '').toLowerCase().includes(fnFilter)) return false;
-        if (lnFilter && !(row.lastName || '').toLowerCase().includes(lnFilter)) return false;
-        if (unFilter && !(row.user.username || '').toLowerCase().includes(unFilter)) return false;
-        if (emFilter && !(row.user.email || '').toLowerCase().includes(emFilter)) return false;
         return true;
       });
   });
@@ -294,9 +279,6 @@ export class UserManagementComponent implements OnInit {
     this.userService.getPhysicalTree().subscribe({
       next: (tree) => {
         this.physicalTree.set(tree);
-        const initial = new Set<string>();
-        tree.forEach((db) => initial.add(`db:${db.id}`));
-        this.expandedDbNodes.set(initial);
       },
       error: () => {},
     });
@@ -459,21 +441,7 @@ export class UserManagementComponent implements OnInit {
     return this.allRoles().filter((r) => !assigned.has(r.id));
   }
 
-  // --- Database Tree Toggle & Checkbox Actions ---
-  toggleNodeExpanded(key: string): void {
-    const current = new Set(this.expandedDbNodes());
-    if (current.has(key)) {
-      current.delete(key);
-    } else {
-      current.add(key);
-    }
-    this.expandedDbNodes.set(current);
-  }
-
-  isNodeExpanded(key: string): boolean {
-    return this.expandedDbNodes().has(key);
-  }
-
+  // --- Database Tree Checkbox Actions ---
   isDatabaseSelected(dbId: string): boolean {
     return this.formSelectedDatabaseIds().has(dbId);
   }

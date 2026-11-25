@@ -51,11 +51,9 @@
 }
 
 .filter-label {
-  font-size: 0.75rem;
+  font-size: 0.78rem;
   font-weight: 600;
   color: #475569;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
 }
 
 .filter-control {
@@ -411,6 +409,7 @@
   padding: 1.25rem 1.5rem;
   border-bottom: 1px solid #e2e8f0;
   background-color: #f8fafc;
+  flex-shrink: 0;
 }
 
 .drawer-title-group {
@@ -442,6 +441,7 @@
 
 .drawer-body {
   flex: 1;
+  min-height: 0;
   padding: 1.5rem;
   overflow-y: auto;
   display: flex;
@@ -523,5 +523,6 @@
   background-color: #f8fafc;
   display: flex;
   justify-content: flex-end;
+  flex-shrink: 0;
 }
 

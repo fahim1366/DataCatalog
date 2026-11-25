@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 import uuid
 from typing import Any, Dict, List, Optional
@@ -95,8 +96,15 @@ async def get_database_users(
         async with connector:
             users_raw = await connector.extract_database_users()
         return [DatabaseUserResponse(**u) for u in users_raw]
+    except asyncio.TimeoutError:
+        logger.error("Timeout extracting database users for connection %s", connection_id)
+        raise HTTPException(
+            status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+            detail="زمان انتظار برای استخراج کاربران از پایگاه داده به پایان رسید (Timeout). لطفاً از دسترس‌پذیری سرور پایگاه داده اطمینان حاصل کنید.",
+        )
     except Exception as exc:
-        safe_err = sanitize_uri_credentials(str(exc))
+        raw_err = str(exc).strip() or type(exc).__name__
+        safe_err = sanitize_uri_credentials(raw_err)
         logger.error("Error extracting database users for connection %s: %s", connection_id, safe_err)
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,

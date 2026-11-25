@@ -325,7 +325,7 @@ class ClickHouseConnector(BaseMetadataConnector):
         Extracts live ClickHouse users, role grants, and active processes
         from system.users, system.role_grants, system.roles, and system.processes.
         """
-        return await asyncio.wait_for(self._run_extract_database_users(), timeout=5.0)
+        return await asyncio.wait_for(self._run_extract_database_users(), timeout=15.0)
 
     async def _run_extract_database_users(self) -> List[Dict[str, Any]]:
         user_rows = await self._query_json(

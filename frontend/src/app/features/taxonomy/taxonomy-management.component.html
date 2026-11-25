@@ -119,7 +119,22 @@
               <div class="category-row-cell">
                 <p-treeTableToggler [rowNode]="rowNode" />
 
-                <!-- Operations: Add Child (+), Edit, Delete (leaf-only) — before category name -->
+                <!-- Category Name & Hierarchy -->
+                <span class="category-title-cell">
+                  <i
+                    class="pi node-icon"
+                    [ngClass]="
+                      rowNode.node.children && rowNode.node.children.length
+                        ? rowNode.node.expanded
+                          ? 'pi-folder-open'
+                          : 'pi-folder'
+                        : 'pi-file'
+                    "
+                  ></i>
+                  <span class="cat-name-text">{{ rowData.name }}</span>
+                </span>
+
+                <!-- Operations: Fixed left-aligned action column -->
                 <div class="row-operations row-operations-inline">
                   <button
                     type="button"
@@ -150,21 +165,6 @@
                     </button>
                   }
                 </div>
-
-                <!-- Category Name & Hierarchy -->
-                <span class="category-title-cell">
-                  <i
-                    class="pi node-icon"
-                    [ngClass]="
-                      rowNode.node.children && rowNode.node.children.length
-                        ? rowNode.node.expanded
-                          ? 'pi-folder-open'
-                          : 'pi-folder'
-                        : 'pi-file'
-                    "
-                  ></i>
-                  <span class="cat-name-text">{{ rowData.name }}</span>
-                </span>
               </div>
             </td>
           </tr>

@@ -376,7 +376,7 @@ class MongoDBConnector(BaseMetadataConnector):
         Extracts live MongoDB users via usersInfo on admin (and target DB)
         and active operations/sessions via currentOp.
         """
-        return await asyncio.wait_for(self._run_extract_database_users(), timeout=5.0)
+        return await asyncio.wait_for(self._run_extract_database_users(), timeout=15.0)
 
     async def _run_extract_database_users(self) -> List[Dict[str, Any]]:
         client = self._client or await self._get_client()

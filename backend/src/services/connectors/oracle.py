@@ -559,7 +559,7 @@ class OracleConnector(BaseMetadataConnector):
         Extracts live Oracle database users from DBA_USERS (fallback ALL_USERS),
         role memberships from DBA_ROLE_PRIVS, and active sessions from V$SESSION.
         """
-        return await asyncio.wait_for(self._run_extract_database_users(), timeout=5.0)
+        return await asyncio.wait_for(self._run_extract_database_users(), timeout=15.0)
 
     async def _run_extract_database_users(self) -> List[Dict[str, Any]]:
         conn = self._connection or await self._get_oracle_connection()

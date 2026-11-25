@@ -173,8 +173,8 @@ describe('DbUserMonitorComponent (Hierarchical Category Tree & Clarified User Fi
     expect(uncat?.connections[0].id).toBe('conn-3');
   });
 
-  it('should filter tree by Connection Name and auto-expand matching category', () => {
-    component.filterConnectionName.set('Finance');
+  it('should filter tree by unified quickTreeSearch and auto-expand matching category', () => {
+    component.quickTreeSearch.set('Finance');
     expect(component.hasActiveTreeFilters()).toBe(true);
 
     const tree = component.displayTree();
@@ -190,10 +190,18 @@ describe('DbUserMonitorComponent (Hierarchical Category Tree & Clarified User Fi
 
     // Uncategorized does not match 'Finance'
     expect(component.uncategorizedNode()).toBeNull();
+
+    // Matches database_name and owner as well
+    component.quickTreeSearch.set('sales_db');
+    expect(component.displayTree()[0].connections.length).toBe(1);
+
+    component.quickTreeSearch.set('infra_team');
+    expect(component.displayTree().length).toBe(0);
+    expect(component.uncategorizedNode()?.connections[0].id).toBe('conn-3');
   });
 
-  it('should filter tree by Host and Engine Type', () => {
-    component.filterHost.set('192.168.1.30');
+  it('should filter tree by Host via quickTreeSearch and Engine Type', () => {
+    component.quickTreeSearch.set('192.168.1.30');
     component.filterEngineType.set('MYSQL');
 
     const tree = component.displayTree();
@@ -206,17 +214,14 @@ describe('DbUserMonitorComponent (Hierarchical Category Tree & Clarified User Fi
   });
 
   it('should clear tree filters when clearTreeFilters is invoked', () => {
-    component.filterConnectionName.set('Test');
-    component.filterDatabaseName.set('db');
-    component.filterHost.set('1.2.3.4');
-    component.filterOwner.set('owner');
+    component.quickTreeSearch.set('Test');
     component.filterEngineType.set('POSTGRESQL');
     expect(component.hasActiveTreeFilters()).toBe(true);
 
     component.clearTreeFilters();
     expect(component.hasActiveTreeFilters()).toBe(false);
-    expect(component.filterConnectionName()).toBe('');
-    expect(component.filterHost()).toBe('');
+    expect(component.quickTreeSearch()).toBe('');
+    expect(component.filterEngineType()).toBe('');
   });
 
   it('should filter users table correctly with clarified ALL, LOGIN, and ROLES pills without duplication', () => {

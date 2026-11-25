@@ -459,7 +459,7 @@ class MySQLConnector(BaseMetadataConnector):
         Extracts live MySQL users, privileges, role edges, and active sessions
         from mysql.user, mysql.role_edges, and information_schema.PROCESSLIST.
         """
-        return await asyncio.wait_for(self._run_extract_database_users(), timeout=5.0)
+        return await asyncio.wait_for(self._run_extract_database_users(), timeout=15.0)
 
     async def _run_extract_database_users(self) -> List[Dict[str, Any]]:
         engine = self._engine or self._create_engine()

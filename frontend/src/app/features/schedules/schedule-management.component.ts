@@ -78,11 +78,8 @@ export class ScheduleManagementComponent implements OnInit {
   readonly rawCategories = signal<CategoryTreeNode[]>([]);
   readonly connections = signal<DatabaseConnection[]>([]);
 
-  // Multi-criteria tree filtering (matching DbUserMonitorComponent and CatalogExplorerComponent)
-  readonly filterConnectionName = signal<string>('');
-  readonly filterDatabaseName = signal<string>('');
-  readonly filterHost = signal<string>('');
-  readonly filterOwner = signal<string>('');
+  // Unified quick search & engine filter (matching DbUserMonitorComponent)
+  readonly quickTreeSearch = signal<string>('');
   readonly filterEngineType = signal<string>('');
 
   // Tree expansion state
@@ -90,35 +87,21 @@ export class ScheduleManagementComponent implements OnInit {
 
   // Check whether any tree filter is active
   readonly hasActiveTreeFilters = computed<boolean>(() => {
-    return Boolean(
-      this.filterConnectionName().trim() ||
-      this.filterDatabaseName().trim() ||
-      this.filterHost().trim() ||
-      this.filterOwner().trim() ||
-      this.filterEngineType()
-    );
+    return Boolean(this.quickTreeSearch().trim() || this.filterEngineType());
   });
 
-  // Predicate to verify if a connection matches all active multi-criteria filters
+  // Predicate to verify if a connection matches unified quick search and engine filter
   matchesConnection(conn: DatabaseConnection): boolean {
-    const nameQ = this.filterConnectionName().trim().toLowerCase();
-    if (nameQ && !conn.name.toLowerCase().includes(nameQ)) {
-      return false;
-    }
-
-    const dbNameQ = this.filterDatabaseName().trim().toLowerCase();
-    if (dbNameQ && !conn.database_name.toLowerCase().includes(dbNameQ)) {
-      return false;
-    }
-
-    const hostQ = this.filterHost().trim().toLowerCase();
-    if (hostQ && !conn.host.toLowerCase().includes(hostQ)) {
-      return false;
-    }
-
-    const ownerQ = this.filterOwner().trim().toLowerCase();
-    if (ownerQ && (!conn.owner || !conn.owner.toLowerCase().includes(ownerQ))) {
-      return false;
+    const q = this.quickTreeSearch().trim().toLowerCase();
+    if (q) {
+      const matchesText =
+        conn.name.toLowerCase().includes(q) ||
+        conn.database_name.toLowerCase().includes(q) ||
+        conn.host.toLowerCase().includes(q) ||
+        (conn.owner ? conn.owner.toLowerCase().includes(q) : false);
+      if (!matchesText) {
+        return false;
+      }
     }
 
     const engine = this.filterEngineType();
@@ -385,10 +368,7 @@ export class ScheduleManagementComponent implements OnInit {
   }
 
   clearTreeFilters(): void {
-    this.filterConnectionName.set('');
-    this.filterDatabaseName.set('');
-    this.filterHost.set('');
-    this.filterOwner.set('');
+    this.quickTreeSearch.set('');
     this.filterEngineType.set('');
   }
 

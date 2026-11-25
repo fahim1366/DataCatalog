@@ -33,12 +33,16 @@
   justify-content: space-between;
   align-items: flex-start;
   background: #f8fafc;
+  direction: rtl;
 }
 
 .header-titles {
   display: flex;
   flex-direction: column;
   gap: 4px;
+  flex: 1;
+  min-width: 0;
+  text-align: right;
 }
 
 .diag-modal-title {
@@ -94,6 +98,16 @@
   font-size: 1.2rem;
   color: #94a3b8;
   cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 6px;
+  margin-right: auto;
+  flex-shrink: 0;
+  transition: all 0.2s;
+}
+
+.btn-close:hover {
+  background: #e2e8f0;
+  color: #0f172a;
 }
 
 .modal-body {

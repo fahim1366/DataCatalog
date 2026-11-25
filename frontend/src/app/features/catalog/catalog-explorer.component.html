@@ -98,8 +98,8 @@
               <div class="tree-group">
                 <div class="tree-node node-db" (click)="filterByDatabase(conn.name)">
                   <span class="node-icon"><i class="pi pi-database"></i></span>
-                  <div class="node-db-meta">
-                    <span class="node-label mono-font">{{ conn.name }}</span>
+                  <div class="node-db-meta" [title]="conn.name">
+                    <span class="node-label mono-font" [title]="conn.name">{{ conn.name }}</span>
                     @if (conn.host || conn.owner) {
                       <div class="node-sub-meta">
                         @if (conn.host) {

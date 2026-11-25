@@ -15,7 +15,7 @@
     <div class="filter-toolbar">
       <div class="filter-group">
         <label for="filter-entity-type" class="filter-label"
-          >نوع موجودیت (Entity Type)</label
+          >نوع موجودیت</label
         >
         <select
           id="filter-entity-type"
@@ -23,7 +23,7 @@
           [ngModel]="filterEntityType()"
           (ngModelChange)="filterEntityType.set($event)"
         >
-          <option value="">همه موارد (All Entities)</option>
+          <option value="">همه موارد</option>
           <option value="DATABASE">DATABASE</option>
           <option value="SCHEMA">SCHEMA</option>
           <option value="TABLE">TABLE</option>
@@ -33,13 +33,13 @@
 
       <div class="filter-group">
         <label for="filter-action" class="filter-label"
-          >نوع عملیات (Action)</label
+          >نوع عملیات</label
         >
         <input
           id="filter-action"
           type="text"
           class="filter-control text-control"
-          placeholder="e.g. UPDATE_DESCRIPTION"
+          placeholder="مثلاً UPDATE_DESCRIPTION"
           [ngModel]="filterAction()"
           (ngModelChange)="filterAction.set($event)"
         />
@@ -47,7 +47,7 @@
 
       <div class="filter-group">
         <label for="filter-actor-id" class="filter-label"
-          >شناسه کاربر (Actor ID)</label
+          >شناسه کاربر</label
         >
         <input
           id="filter-actor-id"
@@ -61,7 +61,7 @@
 
       <div class="filter-group">
         <label for="filter-entity-id" class="filter-label"
-          >شناسه موجودیت (Entity ID)</label
+          >شناسه موجودیت</label
         >
         <input
           id="filter-entity-id"
@@ -75,7 +75,7 @@
 
       <div class="filter-group">
         <label for="filter-start-time" class="filter-label"
-          >از تاریخ (Start Time)</label
+          >از تاریخ</label
         >
         <input
           id="filter-start-time"
@@ -88,7 +88,7 @@
 
       <div class="filter-group">
         <label for="filter-end-time" class="filter-label"
-          >تا تاریخ (End Time)</label
+          >تا تاریخ</label
         >
         <input
           id="filter-end-time"
@@ -106,7 +106,7 @@
           (click)="applyFilters()"
           [disabled]="isLoading()"
         >
-          🔍 اعمال فیلتر (Apply)
+          🔍 اعمال فیلتر
         </button>
         <button
           type="button"
@@ -114,7 +114,7 @@
           (click)="resetFilters()"
           [disabled]="isLoading()"
         >
-          🔄 بازنشانی (Reset)
+          🔄 بازنشانی
         </button>
       </div>
     </div>
@@ -293,7 +293,7 @@
       </div>
       <div class="drawer-footer">
         <button type="button" class="btn-secondary" (click)="closeDetail()">
-          بستن (Close)
+          بستن
         </button>
       </div>
     </aside>

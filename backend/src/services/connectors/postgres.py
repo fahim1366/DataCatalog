@@ -599,9 +599,9 @@ class PostgresConnector(BaseMetadataConnector):
         """
         Extracts live database users/roles and their attributes, privileges,
         role memberships, and active sessions from pg_catalog.
-        Runs inside NullPool, READ ONLY session, and 5-second timeout ceiling.
+        Runs inside NullPool, READ ONLY session, and 15-second timeout ceiling.
         """
-        return await asyncio.wait_for(self._run_extract_database_users(), timeout=5.0)
+        return await asyncio.wait_for(self._run_extract_database_users(), timeout=15.0)
 
     async def _run_extract_database_users(self) -> List[Dict[str, Any]]:
         engine = self._engine or self._create_engine()

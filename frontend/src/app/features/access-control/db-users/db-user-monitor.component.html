@@ -54,52 +54,17 @@
           </span>
         </div>
 
-        <!-- Multi-criteria filter panel -->
+        <!-- Unified Quick Search & Engine Filter -->
         <div class="tree-filter-panel">
-          <div class="filter-row">
-            <div class="filter-input-group">
-              <i class="pi pi-link input-icon"></i>
-              <input
-                type="text"
-                class="sidebar-filter-input"
-                placeholder="نام اتصال..."
-                [ngModel]="filterConnectionName()"
-                (ngModelChange)="filterConnectionName.set($event)"
-              />
-            </div>
-            <div class="filter-input-group">
-              <i class="pi pi-database input-icon"></i>
-              <input
-                type="text"
-                class="sidebar-filter-input td-mono"
-                placeholder="نام دیتابیس..."
-                [ngModel]="filterDatabaseName()"
-                (ngModelChange)="filterDatabaseName.set($event)"
-              />
-            </div>
-          </div>
-
-          <div class="filter-row">
-            <div class="filter-input-group">
-              <i class="pi pi-globe input-icon"></i>
-              <input
-                type="text"
-                class="sidebar-filter-input td-mono td-ltr"
-                placeholder="IP / هاست..."
-                [ngModel]="filterHost()"
-                (ngModelChange)="filterHost.set($event)"
-              />
-            </div>
-            <div class="filter-input-group">
-              <i class="pi pi-user input-icon"></i>
-              <input
-                type="text"
-                class="sidebar-filter-input"
-                placeholder="مالک..."
-                [ngModel]="filterOwner()"
-                (ngModelChange)="filterOwner.set($event)"
-              />
-            </div>
+          <div class="filter-input-group quick-search-group">
+            <i class="pi pi-search input-icon"></i>
+            <input
+              type="text"
+              class="sidebar-filter-input"
+              placeholder="جستجو در نام اتصال، دیتابیس، IP یا مالک..."
+              [ngModel]="quickTreeSearch()"
+              (ngModelChange)="quickTreeSearch.set($event)"
+            />
           </div>
 
           <div class="filter-row engine-row">
@@ -388,7 +353,7 @@
 
   <!-- Recursive RTL Category -> Subcategories -> Databases Tree Node Template -->
   <ng-template #categoryNodeTpl let-node="node" let-depth="depth" let-isUncat="isUncategorized">
-    <div class="tree-category-item" [style.padding-right.px]="depth * 14">
+    <div class="tree-category-item">
       <!-- Category Header Row -->
       <div
         class="category-header-row"
@@ -424,21 +389,32 @@
               [class.active]="selectedConnection()?.id === conn.id"
               (click)="selectConnection(conn)"
             >
-              <div class="card-top-row">
+              <div class="card-line-1">
+                <div class="card-title-group">
+                  <span
+                    class="status-indicator-dot"
+                    [class.online]="conn.is_active"
+                    [title]="conn.is_active ? 'فعال' : 'غیرفعال'"
+                  ></span>
+                  <span class="card-name" [title]="conn.name">{{ conn.name }}</span>
+                </div>
                 <span class="engine-badge" [attr.data-engine]="conn.engine_type">
                   {{ conn.engine_type }}
                 </span>
-                <span class="status-indicator-dot" [class.online]="conn.is_active" title="وضعیت فعال"></span>
               </div>
-              <div class="card-name">{{ conn.name }}</div>
-              <div class="card-endpoint td-mono td-ltr">{{ conn.host }}:{{ conn.port }}</div>
-              <div class="card-db-name td-mono">{{ conn.database_name }}</div>
-              @if (conn.owner) {
-                <div class="card-owner">
-                  <i class="pi pi-user me-1"></i>
-                  <span>{{ conn.owner }}</span>
-                </div>
-              }
+              <div class="card-line-2">
+                <span class="card-endpoint td-mono td-ltr">{{ conn.host }}:{{ conn.port }}</span>
+                @if (conn.database_name && conn.database_name !== conn.name) {
+                  <span class="card-meta-sep">&bull;</span>
+                  <span class="card-db-name td-mono" [title]="conn.database_name">{{ conn.database_name }}</span>
+                }
+                @if (conn.owner) {
+                  <span class="card-owner" [title]="conn.owner">
+                    <i class="pi pi-user"></i>
+                    <span>{{ conn.owner }}</span>
+                  </span>
+                }
+              </div>
             </button>
           }
         </div>

@@ -252,7 +252,7 @@
   width: 100%;
   border-collapse: collapse;
   font-size: 0.82rem;
-  text-align: center;
+  text-align: right;
 }
 
 .master-table thead {
@@ -266,6 +266,7 @@
   color: #475569;
   border-bottom: 1px solid #e2e8f0;
   white-space: nowrap;
+  text-align: right;
 }
 
 .sort-arrows {
@@ -340,30 +341,47 @@
   padding: 10px 12px;
   color: #334155;
   vertical-align: middle;
-  text-align: center;
+  text-align: right;
 }
 
+.master-table tbody td.td-num,
 .td-num {
   text-align: center;
   color: #64748b;
   font-weight: 500;
 }
 
+.master-table tbody td.td-text,
 .td-text {
   font-weight: 500;
+  text-align: right;
 }
 
+.master-table tbody td.td-code,
 .td-code {
   font-family: var(--font-family-mono);
   direction: ltr;
-  text-align: center;
+  text-align: left;
   color: #0f172a;
   font-weight: 600;
 }
 
+.master-table tbody td.td-ltr,
 .td-ltr {
   direction: ltr;
+  text-align: left;
+}
+
+.master-table tbody td.th-center,
+.header-titles-row th.th-center,
+.th-center {
   text-align: center;
+}
+
+.master-table tbody td.td-actions,
+.td-actions {
+  text-align: center;
+  white-space: nowrap;
 }
 
 .users-count-badge {

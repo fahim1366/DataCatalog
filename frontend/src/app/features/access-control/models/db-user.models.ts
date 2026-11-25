@@ -10,14 +10,3 @@ export interface DatabaseUserItem {
   member_of_roles: string[];
   active_sessions: number;
 }
-
-export interface DatabaseUserUpdateRequest {
-  can_login?: boolean | null;
-  connection_limit?: number | null;
-  valid_until?: string | null;
-}
-
-export interface DatabaseUserActionResponse {
-  success: boolean;
-  message: string;
-}

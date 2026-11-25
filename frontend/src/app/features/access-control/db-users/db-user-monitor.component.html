@@ -1,14 +1,5 @@
 <div class="db-user-monitor-view" dir="rtl">
   <!-- Notifications -->
-  @if (successMessage()) {
-    <div class="alert alert-success animate-fade">
-      <i class="pi pi-check-circle alert-icon"></i>
-      <span>{{ successMessage() }}</span>
-      <button type="button" class="alert-close" (click)="successMessage.set(null)" aria-label="بستن">
-        <i class="pi pi-times"></i>
-      </button>
-    </div>
-  }
   @if (errorMessage()) {
     <div class="alert alert-danger animate-fade">
       <i class="pi pi-exclamation-triangle alert-icon"></i>
@@ -219,7 +210,6 @@
             </p>
             <div class="unsupported-meta-badge">
               <span class="engine-badge" [attr.data-engine]="conn.engine_type">{{ conn.engine_type }}</span>
-              <span>در حال حاضر پایش و مدیریت مستقیم کاربران و نقش‌ها برای پایگاه داده‌های PostgreSQL بهینه‌سازی شده است.</span>
             </div>
           </div>
         } @else {
@@ -276,13 +266,12 @@
                   <th>نقش‌های منتسب</th>
                   <th style="width: 170px;">نشست‌های فعال / سقف</th>
                   <th style="width: 150px;">تاریخ انقضا</th>
-                  <th style="width: 120px;" class="text-center">عملیات</th>
                 </tr>
               </thead>
               <tbody>
                 @if (isLoadingUsers()) {
                   <tr>
-                    <td colspan="7" class="td-loading">
+                    <td colspan="6" class="td-loading">
                       <div class="loading-state">
                         <i class="pi pi-spin pi-spinner"></i>
                         <span>در حال استخراج زنده کاربران از کاتالوگ پایگاه داده...</span>
@@ -291,7 +280,7 @@
                   </tr>
                 } @else if (filteredUsers().length === 0) {
                   <tr>
-                    <td colspan="7" class="td-empty">
+                    <td colspan="6" class="td-empty">
                       <div class="empty-state-card">
                         <i class="pi pi-users empty-icon"></i>
                         <span>هیچ کاربری با فیلترهای مشخص‌شده یافت نشد.</span>
@@ -379,32 +368,6 @@
                           {{ formatDate(user.valid_until) }}
                         </span>
                       </td>
-
-                      <td class="td-actions text-center">
-                        <div class="actions-group" *hasPermission="'MANAGE_DB_USERS'">
-                          <!-- Toggle Login -->
-                          <button
-                            type="button"
-                            class="action-btn"
-                            [class.btn-action-disable]="user.can_login"
-                            [class.btn-action-enable]="!user.can_login"
-                            (click)="openToggleLoginModal(user)"
-                            [title]="user.can_login ? 'غیرفعال‌سازی ورود کاربر' : 'فعال‌سازی ورود کاربر'"
-                          >
-                            <i class="pi" [ngClass]="user.can_login ? 'pi-lock' : 'pi-lock-open'"></i>
-                          </button>
-
-                          <!-- Edit Settings -->
-                          <button
-                            type="button"
-                            class="action-btn btn-action-edit"
-                            (click)="openEditModal(user)"
-                            title="ویرایش سقف اتصال و تاریخ انقضا"
-                          >
-                            <i class="pi pi-pencil"></i>
-                          </button>
-                        </div>
-                      </td>
                     </tr>
                   }
                 }
@@ -417,144 +380,11 @@
         <div class="empty-state-container">
           <i class="pi pi-database empty-hero-icon"></i>
           <h3>پایگاه داده‌ای انتخاب نشده است</h3>
-          <p>لطفاً از منوی سمت راست یک پایگاه داده را برای بازبینی و مدیریت کاربران انتخاب نمایید.</p>
+          <p>لطفاً از منوی سمت راست یک پایگاه داده را برای بازبینی و پایش کاربران انتخاب نمایید.</p>
         </div>
       }
     </main>
   </div>
-
-  <!-- Modal 1: Confirmation for Toggle Login -->
-  @if (toggleLoginTarget(); as target) {
-    <div class="modal-backdrop" (click)="closeToggleLoginModal()">
-      <div class="modal-dialog" (click)="$event.stopPropagation()">
-        <header class="modal-header">
-          <div class="modal-title-box">
-            <i
-              class="pi"
-              [ngClass]="target.can_login ? 'pi-exclamation-triangle text-danger' : 'pi-check-circle text-success'"
-            ></i>
-            <h3>{{ target.can_login ? 'غیرفعال‌سازی ورود کاربر' : 'فعال‌سازی ورود کاربر' }}</h3>
-          </div>
-          <button type="button" class="modal-close" (click)="closeToggleLoginModal()">&times;</button>
-        </header>
-
-        <div class="modal-body">
-          <p class="modal-desc">
-            آیا از
-            <strong>{{ target.can_login ? 'غیرفعال‌سازی' : 'فعال‌سازی' }}</strong>
-            امکان ورود برای کاربر
-            <strong class="td-mono text-primary">«{{ target.username }}»</strong>
-            روی پایگاه داده
-            <strong>«{{ selectedConnection()?.name }}»</strong>
-            اطمینان دارید؟
-          </p>
-          @if (target.can_login) {
-            <div class="warning-callout">
-              <i class="pi pi-info-circle"></i>
-              <span>با غیرفعال‌سازی ورود، نشست‌های جدید توسط این کاربر رد خواهند شد.</span>
-            </div>
-          }
-        </div>
-
-        <footer class="modal-footer">
-          <button type="button" class="btn btn-secondary" (click)="closeToggleLoginModal()" [disabled]="isTogglingLogin()">
-            انصراف
-          </button>
-          <button
-            type="button"
-            class="btn"
-            [ngClass]="target.can_login ? 'btn-danger' : 'btn-primary'"
-            (click)="confirmToggleLogin()"
-            [disabled]="isTogglingLogin()"
-          >
-            @if (isTogglingLogin()) {
-              <i class="pi pi-spin pi-spinner"></i>
-              <span>در حال اعمال...</span>
-            } @else {
-              <span>{{ target.can_login ? 'تایید و غیرفعال‌سازی' : 'تایید و فعال‌سازی' }}</span>
-            }
-          </button>
-        </footer>
-      </div>
-    </div>
-  }
-
-  <!-- Modal 2: Edit Settings (Connection Limit / Valid Until) -->
-  @if (editTarget(); as target) {
-    <div class="modal-backdrop" (click)="closeEditModal()">
-      <div class="modal-dialog" (click)="$event.stopPropagation()">
-        <header class="modal-header">
-          <div class="modal-title-box">
-            <i class="pi pi-sliders-h text-primary"></i>
-            <h3>ویرایش تنظیمات کاربر «{{ target.username }}»</h3>
-          </div>
-          <button type="button" class="modal-close" (click)="closeEditModal()">&times;</button>
-        </header>
-
-        <div class="modal-body form-body">
-          <div class="form-group">
-            <label class="form-label">حداکثر سقف نشست‌های همزمان:</label>
-            <div class="input-with-hint">
-              <input
-                type="number"
-                class="form-control"
-                [ngModel]="editConnectionLimit()"
-                (ngModelChange)="editConnectionLimit.set($event)"
-                min="-1"
-                max="1000"
-              />
-              <span class="field-hint">مقدار ۱- به معنی اتصال نامحدود است.</span>
-            </div>
-          </div>
-
-          <div class="form-group">
-            <label class="form-label">تاریخ انقضای دسترسی:</label>
-            <div class="checkbox-row">
-              <label class="checkbox-label">
-                <input
-                  type="checkbox"
-                  [checked]="editIsUnlimited()"
-                  (change)="editIsUnlimited.set($any($event.target).checked)"
-                />
-                <span>دسترسی دائمی و نامحدود (بدون انقضا)</span>
-              </label>
-            </div>
-
-            @if (!editIsUnlimited()) {
-              <div class="date-input-box animate-fade">
-                <input
-                  type="date"
-                  class="form-control td-ltr"
-                  [ngModel]="editValidUntil()"
-                  (ngModelChange)="editValidUntil.set($event)"
-                />
-              </div>
-            }
-          </div>
-        </div>
-
-        <footer class="modal-footer">
-          <button type="button" class="btn btn-secondary" (click)="closeEditModal()" [disabled]="isSavingSettings()">
-            انصراف
-          </button>
-          <button
-            type="button"
-            class="btn btn-primary"
-            (click)="saveSettings()"
-            [disabled]="isSavingSettings()"
-          >
-            @if (isSavingSettings()) {
-              <i class="pi pi-spin pi-spinner"></i>
-              <span>در حال ذخیره...</span>
-            } @else {
-              <i class="pi pi-check"></i>
-              <span>ذخیره تغییرات</span>
-            }
-          </button>
-        </footer>
-      </div>
-    </div>
-  }
 
   <!-- Recursive RTL Category -> Subcategories -> Databases Tree Node Template -->
   <ng-template #categoryNodeTpl let-node="node" let-depth="depth" let-isUncat="isUncategorized">

@@ -15,7 +15,6 @@ import { DatabaseConnection } from '../../connections/models/connection.models';
 import { CategoryTreeNode } from '../../catalog/models/catalog.models';
 import { DbUserService } from '../services/db-user.service';
 import { DatabaseUserItem } from '../models/db-user.models';
-import { HasPermissionDirective } from '../../../core/directives/has-permission.directive';
 
 export type UserFilterType = 'ALL' | 'LOGIN' | 'ROLES';
 
@@ -33,7 +32,7 @@ export interface DbTreeCategoryNode {
 @Component({
   selector: 'app-db-user-monitor',
   standalone: true,
-  imports: [CommonModule, FormsModule, RouterModule, HasPermissionDirective],
+  imports: [CommonModule, FormsModule, RouterModule],
   templateUrl: './db-user-monitor.component.html',
   styleUrls: ['./db-user-monitor.component.css'],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -44,7 +43,6 @@ export class DbUserMonitorComponent implements OnInit {
   private readonly route = inject(ActivatedRoute);
 
   // Notifications
-  successMessage = signal<string | null>(null);
   errorMessage = signal<string | null>(null);
 
   // Backend state
@@ -316,17 +314,6 @@ export class DbUserMonitorComponent implements OnInit {
     };
   });
 
-  // Confirmation modal state for Login Toggle
-  toggleLoginTarget = signal<DatabaseUserItem | null>(null);
-  isTogglingLogin = signal<boolean>(false);
-
-  // Edit settings modal state
-  editTarget = signal<DatabaseUserItem | null>(null);
-  editConnectionLimit = signal<number>(-1);
-  editValidUntil = signal<string>('');
-  editIsUnlimited = signal<boolean>(true);
-  isSavingSettings = signal<boolean>(false);
-
   ngOnInit(): void {
     this.loadData();
   }
@@ -414,86 +401,6 @@ export class DbUserMonitorComponent implements OnInit {
     }
   }
 
-  // --- Toggle Login Modal ---
-  openToggleLoginModal(user: DatabaseUserItem): void {
-    this.toggleLoginTarget.set(user);
-  }
-
-  closeToggleLoginModal(): void {
-    this.toggleLoginTarget.set(null);
-  }
-
-  confirmToggleLogin(): void {
-    const user = this.toggleLoginTarget();
-    const conn = this.selectedConnection();
-    if (!user || !conn) return;
-
-    const newLoginState = !user.can_login;
-    this.isTogglingLogin.set(true);
-
-    this.dbUserService
-      .updateDatabaseUser(conn.id, user.username, { can_login: newLoginState })
-      .subscribe({
-        next: (res) => {
-          this.isTogglingLogin.set(false);
-          this.closeToggleLoginModal();
-          this.showSuccess(
-            `دسترسی ورود کاربر «${user.username}» با موفقیت ${newLoginState ? 'فعال' : 'غیرفعال'} شد.`
-          );
-          this.refreshCurrentUsers();
-        },
-        error: (err) => {
-          this.isTogglingLogin.set(false);
-          this.showError(err.error?.detail || 'خطا در تغییر وضعیت دسترسی ورود کاربر.');
-        },
-      });
-  }
-
-  // --- Edit Settings Modal ---
-  openEditModal(user: DatabaseUserItem): void {
-    this.editTarget.set(user);
-    this.editConnectionLimit.set(user.connection_limit ?? -1);
-    if (user.valid_until && user.valid_until.toLowerCase() !== 'infinity') {
-      this.editIsUnlimited.set(false);
-      const datePart = user.valid_until.split('T')[0].split(' ')[0];
-      this.editValidUntil.set(datePart);
-    } else {
-      this.editIsUnlimited.set(true);
-      this.editValidUntil.set('');
-    }
-  }
-
-  closeEditModal(): void {
-    this.editTarget.set(null);
-  }
-
-  saveSettings(): void {
-    const user = this.editTarget();
-    const conn = this.selectedConnection();
-    if (!user || !conn) return;
-
-    this.isSavingSettings.set(true);
-    const validUntilValue = this.editIsUnlimited() ? 'infinity' : this.editValidUntil();
-
-    this.dbUserService
-      .updateDatabaseUser(conn.id, user.username, {
-        connection_limit: this.editConnectionLimit(),
-        valid_until: validUntilValue,
-      })
-      .subscribe({
-        next: (res) => {
-          this.isSavingSettings.set(false);
-          this.closeEditModal();
-          this.showSuccess(`تنظیمات کاربر «${user.username}» با موفقیت به‌روزرسانی شد.`);
-          this.refreshCurrentUsers();
-        },
-        error: (err) => {
-          this.isSavingSettings.set(false);
-          this.showError(err.error?.detail || 'خطا در ذخیره تنظیمات کاربر.');
-        },
-      });
-  }
-
   formatDate(dateStr: string | null): string {
     if (!dateStr || dateStr.toLowerCase() === 'infinity') {
       return 'نامحدود (دائمی)';
@@ -509,11 +416,6 @@ export class DbUserMonitorComponent implements OnInit {
     } catch {
       return dateStr;
     }
-  }
-
-  private showSuccess(msg: string): void {
-    this.successMessage.set(msg);
-    setTimeout(() => this.successMessage.set(null), 5000);
   }
 
   private showError(msg: string): void {

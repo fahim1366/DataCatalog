@@ -301,6 +301,160 @@ class ClickHouseConnector(BaseMetadataConnector):
             success=True,
         )
 
+    async def _execute_ddl(self, sql: str) -> None:
+        """Executes a DDL statement against ClickHouse HTTP interface."""
+        base_url = self._get_base_url()
+        auth = self._get_auth()
+        client = self._http_client or httpx.AsyncClient(timeout=10.0)
+        should_close = self._http_client is None
+        try:
+            resp = await client.post(
+                base_url,
+                content=sql.strip().encode("utf-8"),
+                auth=auth,
+                headers={"Content-Type": "text/plain"},
+            )
+            if resp.status_code != 200:
+                raise RuntimeError(f"ClickHouse DDL error ({resp.status_code}): {resp.text.strip()}")
+        finally:
+            if should_close:
+                await client.aclose()
+
+    async def extract_database_users(self) -> List[Dict[str, Any]]:
+        """
+        Extracts live ClickHouse users, role grants, and active processes
+        from system.users, system.role_grants, system.roles, and system.processes.
+        """
+        return await asyncio.wait_for(self._run_extract_database_users(), timeout=5.0)
+
+    async def _run_extract_database_users(self) -> List[Dict[str, Any]]:
+        user_rows = await self._query_json(
+            "SELECT id, name, auth_type, host_ip, host_names FROM system.users ORDER BY name"
+        )
+
+        roles_by_user: Dict[str, List[str]] = {}
+        try:
+            grant_rows = await self._query_json(
+                "SELECT user_name, granted_role_name FROM system.role_grants WHERE user_name IS NOT NULL"
+            )
+            for g in grant_rows:
+                if g.get("user_name") and g.get("granted_role_name"):
+                    roles_by_user.setdefault(str(g["user_name"]), []).append(str(g["granted_role_name"]))
+        except Exception as exc:
+            logger.debug("ClickHouse system.role_grants query failed: %s", exc)
+
+        sessions_by_user: Dict[str, int] = {}
+        try:
+            proc_rows = await self._query_json(
+                "SELECT user, count() AS active_sessions FROM system.processes GROUP BY user"
+            )
+            for p in proc_rows:
+                if p.get("user"):
+                    sessions_by_user[str(p["user"])] = int(p.get("active_sessions") or 0)
+        except Exception as exc:
+            logger.debug("ClickHouse system.processes query failed: %s", exc)
+
+        users: List[Dict[str, Any]] = []
+        for row in user_rows:
+            uname = str(row["name"])
+            auth_type = str(row.get("auth_type") or "")
+            host_ip = row.get("host_ip")
+            can_login = (auth_type != "no_password") or bool(host_ip)
+            member_roles = roles_by_user.get(uname, [])
+            is_super = uname == "default" or any(r.lower() in ("admin", "superuser") for r in member_roles)
+
+            users.append({
+                "oid": str(row.get("id") or uname),
+                "username": uname,
+                "can_login": can_login,
+                "is_superuser": is_super,
+                "can_create_db": is_super,
+                "can_create_role": is_super,
+                "connection_limit": -1,
+                "valid_until": None,
+                "member_of_roles": member_roles,
+                "active_sessions": sessions_by_user.get(uname, 0),
+            })
+
+        try:
+            role_rows = await self._query_json("SELECT id, name FROM system.roles ORDER BY name")
+            for r in role_rows:
+                rname = str(r["name"])
+                users.append({
+                    "oid": str(r.get("id") or rname),
+                    "username": rname,
+                    "can_login": False,
+                    "is_superuser": rname.lower() in ("admin", "superuser"),
+                    "can_create_db": False,
+                    "can_create_role": False,
+                    "connection_limit": -1,
+                    "valid_until": None,
+                    "member_of_roles": [],
+                    "active_sessions": 0,
+                })
+        except Exception as exc:
+            logger.debug("ClickHouse system.roles query failed: %s", exc)
+
+        return users
+
+    async def update_database_user(
+        self,
+        username: str,
+        can_login: Optional[bool] = None,
+        connection_limit: Optional[int] = None,
+        valid_until: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """
+        Executes ALTER USER on ClickHouse for HOST ANY/NONE or VALID UNTIL.
+        Returns a clear Persian message if connection_limit is requested (managed via SETTINGS PROFILE).
+        """
+        if not username or not username.strip():
+            return {"success": False, "message": "نام کاربری نامعتبر است."}
+
+        clean_user = username.strip()
+        if any(ch in clean_user for ch in ("\x00", "`", ";", "\r", "\n")):
+            return {"success": False, "message": "نام کاربری حاوی نویسه‌های غیرمجاز است."}
+
+        if connection_limit is not None:
+            return {
+                "success": False,
+                "message": "تغییر سقف اتصال همزمان در ClickHouse از طریق پروفایل تنظیمات (SETTINGS PROFILE) انجام می‌شود و مستقیماً برای کاربر قابل اعمال نیست.",
+            }
+
+        clauses: List[str] = []
+        if can_login is not None:
+            clauses.append("HOST ANY" if can_login else "HOST NONE")
+        if valid_until is not None:
+            vu = valid_until.strip()
+            if not vu or vu.lower() in ("infinity", "none", "null"):
+                clauses.append("VALID UNTIL NULL")
+            else:
+                safe_vu = vu.replace("'", "''")
+                clauses.append(f"VALID UNTIL '{safe_vu}'")
+
+        if not clauses:
+            return {"success": True, "message": "هیچ تغییری برای اعمال ارسال نشده است."}
+
+        sql_stmt = f"ALTER USER `{clean_user}` {' '.join(clauses)}"
+        try:
+            await self._execute_ddl(sql_stmt)
+            return {
+                "success": True,
+                "message": f"تنظیمات کاربر «{clean_user}» با موفقیت به‌روزرسانی شد.",
+            }
+        except Exception as exc:
+            err_str = str(exc).lower()
+            if any(k in err_str for k in ("not enough privileges", "access denied", "497")):
+                return {
+                    "success": False,
+                    "message": "کاربر اتصال دیتابیس فاقد مجوز کافی (ALTER USER) برای تغییر کاربر در ClickHouse است.",
+                    "insufficient_privilege": True,
+                }
+            return {
+                "success": False,
+                "message": f"خطا در به‌روزرسانی کاربر ClickHouse: {str(exc)}",
+            }
+
 
 # Auto-register with default registry
 default_connector_registry.register(DatabaseEngine.CLICKHOUSE, ClickHouseConnector)

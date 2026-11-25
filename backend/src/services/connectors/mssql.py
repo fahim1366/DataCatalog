@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import time
 import urllib.parse
 from typing import Any, Dict, List, Optional, Type
@@ -524,6 +525,153 @@ class MSSQLConnector(BaseMetadataConnector):
                     routines=routines,
                     success=True,
                 )
+        finally:
+            if should_dispose:
+                await engine.dispose()
+
+    async def extract_database_users(self) -> List[Dict[str, Any]]:
+        """
+        Extracts live SQL Server logins/roles, role memberships, and active sessions
+        from sys.server_principals, sys.server_role_members, and sys.dm_exec_sessions.
+        """
+        return await asyncio.wait_for(self._run_extract_database_users(), timeout=5.0)
+
+    async def _run_extract_database_users(self) -> List[Dict[str, Any]]:
+        engine = self._engine or self._create_engine()
+        should_dispose = self._engine is None
+        try:
+            async with engine.connect() as conn:
+                for stmt in self.get_session_setup_statements():
+                    await conn.execute(text(stmt))
+
+                principals_sql = """
+                    SELECT
+                        sp.principal_id AS oid,
+                        sp.name AS username,
+                        sp.type AS principal_type,
+                        sp.is_disabled AS is_disabled,
+                        ISNULL(IS_SRVROLEMEMBER('sysadmin', sp.name), 0) AS is_superuser,
+                        ISNULL(IS_SRVROLEMEMBER('dbcreator', sp.name), 0) AS can_create_db,
+                        ISNULL(IS_SRVROLEMEMBER('securityadmin', sp.name), 0) AS can_create_role
+                    FROM sys.server_principals sp
+                    WHERE sp.type IN ('S', 'U', 'G', 'R')
+                      AND sp.name NOT LIKE '##%'
+                      AND sp.name NOT LIKE 'NT %'
+                    ORDER BY sp.name;
+                """
+                res = await conn.execute(text(principals_sql))
+                principals = res.mappings().all()
+
+                roles_by_member: Dict[str, List[str]] = {}
+                try:
+                    roles_sql = """
+                        SELECT
+                            m.name AS member_name,
+                            r.name AS role_name
+                        FROM sys.server_role_members srm
+                        JOIN sys.server_principals m ON srm.member_principal_id = m.principal_id
+                        JOIN sys.server_principals r ON srm.role_principal_id = r.principal_id;
+                    """
+                    roles_res = await conn.execute(text(roles_sql))
+                    for r in roles_res.mappings().all():
+                        roles_by_member.setdefault(str(r["member_name"]), []).append(str(r["role_name"]))
+                except Exception as exc:
+                    logger.debug("MSSQL server_role_members query failed: %s", exc)
+
+                sessions_by_user: Dict[str, int] = {}
+                try:
+                    sess_sql = """
+                        SELECT
+                            login_name AS username,
+                            COUNT(*) AS active_sessions
+                        FROM sys.dm_exec_sessions
+                        WHERE is_user_process = 1
+                        GROUP BY login_name;
+                    """
+                    sess_res = await conn.execute(text(sess_sql))
+                    for s in sess_res.mappings().all():
+                        if s["username"]:
+                            sessions_by_user[str(s["username"])] = int(s["active_sessions"] or 0)
+                except Exception as exc:
+                    logger.debug("MSSQL dm_exec_sessions query failed: %s", exc)
+
+                users: List[Dict[str, Any]] = []
+                for row in principals:
+                    uname = str(row["username"])
+                    ptype = str(row.get("principal_type") or "").strip().upper()
+                    is_disabled = bool(row.get("is_disabled"))
+                    can_login = False if ptype == "R" else (not is_disabled)
+                    users.append({
+                        "oid": str(row["oid"]),
+                        "username": uname,
+                        "can_login": can_login,
+                        "is_superuser": bool(row.get("is_superuser")),
+                        "can_create_db": bool(row.get("can_create_db")),
+                        "can_create_role": bool(row.get("can_create_role")),
+                        "connection_limit": -1,
+                        "valid_until": None,
+                        "member_of_roles": roles_by_member.get(uname, []),
+                        "active_sessions": sessions_by_user.get(uname, 0),
+                    })
+                return users
+        finally:
+            if should_dispose:
+                await engine.dispose()
+
+    async def update_database_user(
+        self,
+        username: str,
+        can_login: Optional[bool] = None,
+        connection_limit: Optional[int] = None,
+        valid_until: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """
+        Executes ALTER LOGIN [username] ENABLE/DISABLE on SQL Server.
+        Validates identifier characters to prevent SQL injection.
+        """
+        if not username or not username.strip():
+            return {"success": False, "message": "نام کاربری نامعتبر است."}
+
+        clean_user = username.strip()
+        if "\x00" in clean_user or not re.fullmatch(r"[A-Za-z0-9_.\\@\- $]+", clean_user):
+            return {"success": False, "message": "نام کاربری حاوی نویسه‌های غیرمجاز است."}
+
+        if connection_limit is not None or valid_until is not None:
+            return {
+                "success": False,
+                "message": "تغییر سقف اتصال همزمان یا تاریخ انقضا برای هر کاربر در SQL Server (T-SQL) پشتیبانی نمی‌شود.",
+            }
+
+        if can_login is None:
+            return {"success": True, "message": "هیچ تغییری برای اعمال ارسال نشده است."}
+
+        action = "ENABLE" if can_login else "DISABLE"
+        escaped_user = clean_user.replace("]", "]]")
+        sql_stmt = f"ALTER LOGIN [{escaped_user}] {action};"
+
+        engine = self._engine or self._create_engine()
+        should_dispose = self._engine is None
+        try:
+            async with engine.connect() as conn:
+                await conn.execute(text(f"SET LOCK_TIMEOUT {self.STATEMENT_TIMEOUT_MS};"))
+                await conn.execute(text(sql_stmt))
+                await conn.commit()
+                return {
+                    "success": True,
+                    "message": f"تنظیمات کاربر «{clean_user}» با موفقیت به‌روزرسانی شد.",
+                }
+        except Exception as exc:
+            err_str = str(exc).lower()
+            if any(k in err_str for k in ("permission", "alter any login", "15151", "15247")):
+                return {
+                    "success": False,
+                    "message": "کاربر اتصال دیتابیس فاقد مجوز کافی (ALTER ANY LOGIN یا sysadmin) برای تغییر وضعیت ورود در SQL Server است.",
+                    "insufficient_privilege": True,
+                }
+            return {
+                "success": False,
+                "message": f"خطا در به‌روزرسانی کاربر SQL Server: {str(exc)}",
+            }
         finally:
             if should_dispose:
                 await engine.dispose()

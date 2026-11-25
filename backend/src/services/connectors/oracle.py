@@ -554,6 +554,151 @@ class OracleConnector(BaseMetadataConnector):
             if should_close:
                 await conn.close()
 
+    async def extract_database_users(self) -> List[Dict[str, Any]]:
+        """
+        Extracts live Oracle database users from DBA_USERS (fallback ALL_USERS),
+        role memberships from DBA_ROLE_PRIVS, and active sessions from V$SESSION.
+        """
+        return await asyncio.wait_for(self._run_extract_database_users(), timeout=5.0)
+
+    async def _run_extract_database_users(self) -> List[Dict[str, Any]]:
+        conn = self._connection or await self._get_oracle_connection()
+        should_close = self._connection is None
+        cursor = None
+        try:
+            cursor = await self._get_cursor(conn)
+
+            has_dba_users = True
+            try:
+                await cursor.execute(
+                    "SELECT USER_ID, USERNAME, ACCOUNT_STATUS, EXPIRY_DATE FROM DBA_USERS ORDER BY USERNAME"
+                )
+                user_rows = await cursor.fetchall()
+            except Exception as exc:
+                logger.debug("Oracle DBA_USERS restricted, falling back to ALL_USERS: %s", exc)
+                has_dba_users = False
+                await cursor.execute(
+                    "SELECT USER_ID, USERNAME FROM ALL_USERS ORDER BY USERNAME"
+                )
+                user_rows = await cursor.fetchall()
+
+            roles_by_user: Dict[str, List[str]] = {}
+            try:
+                await cursor.execute("SELECT GRANTEE, GRANTED_ROLE FROM DBA_ROLE_PRIVS")
+                for r in await cursor.fetchall():
+                    roles_by_user.setdefault(str(r[0]), []).append(str(r[1]))
+            except Exception as exc:
+                logger.debug("Oracle DBA_ROLE_PRIVS restricted: %s", exc)
+
+            sessions_by_user: Dict[str, int] = {}
+            try:
+                await cursor.execute(
+                    "SELECT USERNAME, COUNT(*) FROM V$SESSION WHERE USERNAME IS NOT NULL GROUP BY USERNAME"
+                )
+                for s in await cursor.fetchall():
+                    if s[0]:
+                        sessions_by_user[str(s[0])] = int(s[1] or 0)
+            except Exception as exc:
+                logger.debug("Oracle V$SESSION restricted: %s", exc)
+
+            users: List[Dict[str, Any]] = []
+            for row in user_rows:
+                uid = str(row[0])
+                uname = str(row[1])
+                if has_dba_users:
+                    acct_status = str(row[2] or "OPEN").upper()
+                    expiry = row[3]
+                    can_login = "LOCKED" not in acct_status
+                    valid_until = (
+                        expiry.isoformat()
+                        if hasattr(expiry, "isoformat")
+                        else (str(expiry) if expiry is not None else None)
+                    )
+                else:
+                    can_login = True
+                    valid_until = None
+
+                member_roles = roles_by_user.get(uname, [])
+                is_dba = "DBA" in member_roles
+
+                users.append({
+                    "oid": uid,
+                    "username": uname,
+                    "can_login": can_login,
+                    "is_superuser": is_dba,
+                    "can_create_db": False,
+                    "can_create_role": is_dba,
+                    "connection_limit": -1,
+                    "valid_until": valid_until,
+                    "member_of_roles": member_roles,
+                    "active_sessions": sessions_by_user.get(uname, 0),
+                })
+            return users
+        finally:
+            await self._close_cursor(cursor)
+            if should_close:
+                await conn.close()
+
+    async def update_database_user(
+        self,
+        username: str,
+        can_login: Optional[bool] = None,
+        connection_limit: Optional[int] = None,
+        valid_until: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """
+        Executes ALTER USER "USERNAME" ACCOUNT UNLOCK/LOCK on Oracle.
+        """
+        if not username or not username.strip():
+            return {"success": False, "message": "نام کاربری نامعتبر است."}
+
+        clean_user = username.strip()
+        if any(ch in clean_user for ch in ("\x00", '"', ";", "\r", "\n")):
+            return {"success": False, "message": "نام کاربری حاوی نویسه‌های غیرمجاز است."}
+
+        if connection_limit is not None or valid_until is not None:
+            return {
+                "success": False,
+                "message": "تغییر سقف اتصال یا تاریخ انقضا در Oracle از این بخش پشتیبانی نمی‌شود؛ تنها قفل/بازگشایی حساب کاربری قابل انجام است.",
+            }
+
+        if can_login is None:
+            return {"success": True, "message": "هیچ تغییری برای اعمال ارسال نشده است."}
+
+        action = "ACCOUNT UNLOCK" if can_login else "ACCOUNT LOCK"
+        sql_stmt = f'ALTER USER "{clean_user}" {action}'
+
+        conn = self._connection or await self._get_oracle_connection()
+        should_close = self._connection is None
+        cursor = None
+        try:
+            cursor = await self._get_cursor(conn)
+            await cursor.execute(sql_stmt)
+            if hasattr(conn, "commit"):
+                commit_res = conn.commit()
+                if asyncio.iscoroutine(commit_res):
+                    await commit_res
+            return {
+                "success": True,
+                "message": f"تنظیمات کاربر «{clean_user}» با موفقیت به‌روزرسانی شد.",
+            }
+        except Exception as exc:
+            err_str = str(exc).lower()
+            if any(k in err_str for k in ("ora-01031", "insufficient privileges")):
+                return {
+                    "success": False,
+                    "message": "کاربر اتصال دیتابیس فاقد مجوز کافی (ALTER USER یا DBA) برای تغییر وضعیت حساب در Oracle است.",
+                    "insufficient_privilege": True,
+                }
+            return {
+                "success": False,
+                "message": f"خطا در به‌روزرسانی کاربر Oracle: {str(exc)}",
+            }
+        finally:
+            await self._close_cursor(cursor)
+            if should_close:
+                await conn.close()
+
 
 # Auto-register with default registry
 default_connector_registry.register(DatabaseEngine.ORACLE, OracleConnector)

@@ -371,6 +371,88 @@ class MongoDBConnector(BaseMetadataConnector):
             if should_close:
                 client.close()
 
+    async def extract_database_users(self) -> List[Dict[str, Any]]:
+        """
+        Extracts live MongoDB users via usersInfo on admin (and target DB)
+        and active operations/sessions via currentOp.
+        """
+        return await asyncio.wait_for(self._run_extract_database_users(), timeout=5.0)
+
+    async def _run_extract_database_users(self) -> List[Dict[str, Any]]:
+        client = self._client or await self._get_client()
+        should_close = self._client is None
+        try:
+            raw_users: List[Dict[str, Any]] = []
+            seen_ids: Set[str] = set()
+
+            target_db = self.config.get("database_name") or self.config.get("database") or "admin"
+            dbs_to_query = ["admin"] if target_db == "admin" else ["admin", target_db]
+
+            for db_name in dbs_to_query:
+                try:
+                    info = await client[db_name].command({"usersInfo": 1})
+                    for u in info.get("users", []):
+                        uid = str(u.get("_id") or f"{u.get('user', '')}@{u.get('db', db_name)}")
+                        if uid not in seen_ids:
+                            seen_ids.add(uid)
+                            raw_users.append(u)
+                except Exception as exc:
+                    logger.debug("MongoDB usersInfo failed on %s: %s", db_name, exc)
+
+            sessions_by_user: Dict[str, int] = {}
+            try:
+                curr_op = await client["admin"].command({"currentOp": 1})
+                for op in curr_op.get("inprog", []):
+                    for eff in op.get("effectiveUsers", []):
+                        uname = eff.get("user")
+                        if uname:
+                            sessions_by_user[str(uname)] = sessions_by_user.get(str(uname), 0) + 1
+            except Exception as exc:
+                logger.debug("MongoDB currentOp query failed: %s", exc)
+
+            users: List[Dict[str, Any]] = []
+            for u in raw_users:
+                uname = str(u.get("user", ""))
+                roles = [str(r.get("role")) for r in u.get("roles", []) if r.get("role")]
+                is_super = any(r in ("root", "__system") for r in roles)
+                can_create_db = is_super or any(
+                    r in ("dbAdminAnyDatabase", "dbAdmin", "readWriteAnyDatabase") for r in roles
+                )
+                can_create_role = is_super or any(
+                    r in ("userAdminAnyDatabase", "userAdmin") for r in roles
+                )
+                users.append({
+                    "oid": str(u.get("_id", uname)),
+                    "username": uname,
+                    "can_login": True,
+                    "is_superuser": is_super,
+                    "can_create_db": can_create_db,
+                    "can_create_role": can_create_role,
+                    "connection_limit": -1,
+                    "valid_until": None,
+                    "member_of_roles": roles,
+                    "active_sessions": sessions_by_user.get(uname, 0),
+                })
+            return users
+        finally:
+            if should_close:
+                client.close()
+
+    async def update_database_user(
+        self,
+        username: str,
+        can_login: Optional[bool] = None,
+        connection_limit: Optional[int] = None,
+        valid_until: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """
+        MongoDB manages login via user deletion or role revocation rather than toggleable lock flags.
+        """
+        return {
+            "success": False,
+            "message": "مدیریت قفل/بازگشایی ورود یا محدودیت اتصال در MongoDB از طریق حذف کاربر یا لغو نقش‌ها (Role Revocation) انجام می‌شود و تغییر وضعیت قفل به‌صورت مستقیم پشتیبانی نمی‌شود.",
+        }
+
 
 # Auto-register with default registry
 default_connector_registry.register(DatabaseEngine.MONGODB, MongoDBConnector)

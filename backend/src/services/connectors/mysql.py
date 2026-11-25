@@ -454,6 +454,165 @@ class MySQLConnector(BaseMetadataConnector):
             if should_dispose:
                 await engine.dispose()
 
+    async def extract_database_users(self) -> List[Dict[str, Any]]:
+        """
+        Extracts live MySQL users, privileges, role edges, and active sessions
+        from mysql.user, mysql.role_edges, and information_schema.PROCESSLIST.
+        """
+        return await asyncio.wait_for(self._run_extract_database_users(), timeout=5.0)
+
+    async def _run_extract_database_users(self) -> List[Dict[str, Any]]:
+        engine = self._engine or self._create_engine()
+        should_dispose = self._engine is None
+        try:
+            async with engine.connect() as conn:
+                for stmt in self.get_session_setup_statements():
+                    await conn.execute(text(stmt))
+
+                users_sql = """
+                    SELECT
+                        User,
+                        Host,
+                        account_locked,
+                        Super_priv,
+                        Create_db_priv,
+                        Create_user_priv,
+                        max_user_connections,
+                        password_lifetime
+                    FROM mysql.user
+                    ORDER BY User, Host;
+                """
+                res = await conn.execute(text(users_sql))
+                rows = res.mappings().all()
+
+                roles_by_target: Dict[tuple[str, str], List[str]] = {}
+                try:
+                    role_sql = """
+                        SELECT FROM_USER, FROM_HOST, TO_USER, TO_HOST
+                        FROM mysql.role_edges;
+                    """
+                    role_res = await conn.execute(text(role_sql))
+                    for r in role_res.mappings().all():
+                        key = (str(r["TO_USER"]), str(r["TO_HOST"]))
+                        from_u = str(r["FROM_USER"])
+                        from_h = str(r["FROM_HOST"])
+                        role_label = f"{from_u}@{from_h}" if from_h and from_h != "%" else from_u
+                        roles_by_target.setdefault(key, []).append(role_label)
+                except Exception as exc:
+                    logger.debug("MySQL role_edges query failed: %s", exc)
+
+                sessions_by_user: Dict[str, int] = {}
+                try:
+                    proc_sql = """
+                        SELECT USER, COUNT(*) AS active_sessions
+                        FROM information_schema.PROCESSLIST
+                        GROUP BY USER;
+                    """
+                    proc_res = await conn.execute(text(proc_sql))
+                    for p in proc_res.mappings().all():
+                        if p["USER"]:
+                            sessions_by_user[str(p["USER"])] = int(p["active_sessions"] or 0)
+                except Exception as exc:
+                    logger.debug("MySQL PROCESSLIST query failed: %s", exc)
+
+                users: List[Dict[str, Any]] = []
+                for row in rows:
+                    user_name = str(row["User"])
+                    host_name = str(row["Host"])
+                    formatted_name = f"{user_name}@{host_name}" if host_name and host_name != "%" else user_name
+                    max_conn = row.get("max_user_connections")
+                    conn_limit = int(max_conn) if max_conn is not None and int(max_conn) > 0 else -1
+                    pwd_lifetime = row.get("password_lifetime")
+
+                    users.append({
+                        "oid": f"{user_name}@{host_name}",
+                        "username": formatted_name,
+                        "can_login": str(row.get("account_locked") or "N").upper() != "Y",
+                        "is_superuser": str(row.get("Super_priv") or "N").upper() == "Y",
+                        "can_create_db": str(row.get("Create_db_priv") or "N").upper() == "Y",
+                        "can_create_role": str(row.get("Create_user_priv") or "N").upper() == "Y",
+                        "connection_limit": conn_limit,
+                        "valid_until": str(pwd_lifetime) if pwd_lifetime is not None else None,
+                        "member_of_roles": roles_by_target.get((user_name, host_name), []),
+                        "active_sessions": sessions_by_user.get(user_name, 0),
+                    })
+                return users
+        finally:
+            if should_dispose:
+                await engine.dispose()
+
+    async def update_database_user(
+        self,
+        username: str,
+        can_login: Optional[bool] = None,
+        connection_limit: Optional[int] = None,
+        valid_until: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """
+        Executes ALTER USER 'user'@'host' ACCOUNT LOCK/UNLOCK and/or WITH MAX_USER_CONNECTIONS N.
+        """
+        if not username or not username.strip():
+            return {"success": False, "message": "نام کاربری نامعتبر است."}
+
+        clean_user = username.strip()
+        if any(ch in clean_user for ch in ("\x00", ";", "\r", "\n")):
+            return {"success": False, "message": "نام کاربری حاوی نویسه‌های غیرمجاز است."}
+
+        if "@" in clean_user:
+            user_part, host_part = clean_user.rsplit("@", 1)
+        else:
+            user_part, host_part = clean_user, "%"
+
+        if not user_part or not host_part:
+            return {"success": False, "message": "فرمت نام کاربری MySQL نامعتبر است."}
+
+        safe_user = user_part.replace("'", "''")
+        safe_host = host_part.replace("'", "''")
+
+        clauses: List[str] = []
+        if can_login is not None:
+            clauses.append("ACCOUNT UNLOCK" if can_login else "ACCOUNT LOCK")
+        if connection_limit is not None:
+            limit_val = 0 if int(connection_limit) < 0 else int(connection_limit)
+            clauses.append(f"WITH MAX_USER_CONNECTIONS {limit_val}")
+
+        if not clauses:
+            if valid_until is not None:
+                return {
+                    "success": False,
+                    "message": "تغییر تاریخ انقضای مشخص در MySQL پشتیبانی نمی‌شود.",
+                }
+            return {"success": True, "message": "هیچ تغییری برای اعمال ارسال نشده است."}
+
+        sql_stmt = f"ALTER USER '{safe_user}'@'{safe_host}' {' '.join(clauses)};"
+
+        engine = self._engine or self._create_engine()
+        should_dispose = self._engine is None
+        try:
+            async with engine.connect() as conn:
+                await conn.execute(text(f"SET SESSION max_execution_time = {self.STATEMENT_TIMEOUT_MS};"))
+                await conn.execute(text(sql_stmt))
+                await conn.commit()
+                return {
+                    "success": True,
+                    "message": f"تنظیمات کاربر «{clean_user}» با موفقیت به‌روزرسانی شد.",
+                }
+        except Exception as exc:
+            err_str = str(exc).lower()
+            if any(k in err_str for k in ("access denied", "1227", "create user")):
+                return {
+                    "success": False,
+                    "message": "کاربر اتصال دیتابیس فاقد مجوز کافی (CREATE USER یا SYSTEM_USER) برای تغییر کاربر در MySQL است.",
+                    "insufficient_privilege": True,
+                }
+            return {
+                "success": False,
+                "message": f"خطا در به‌روزرسانی کاربر MySQL: {str(exc)}",
+            }
+        finally:
+            if should_dispose:
+                await engine.dispose()
+
 
 # Auto-register with default registry
 default_connector_registry.register(DatabaseEngine.MYSQL, MySQLConnector)

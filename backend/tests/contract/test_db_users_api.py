@@ -9,11 +9,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.src.core.database import get_db_session
 from backend.src.main import app
-from backend.src.models.audit import AuditLog
 from backend.src.models.connections import DatabaseConnection, DatabaseEngine
-from backend.src.models.identity import Role, User, UserRole, UserStatus
+from backend.src.models.identity import User, UserStatus
 from backend.src.models.rbac import (
-    EntityType,
     PermissionAction,
     PermissionEffect,
     PermissionRule,
@@ -215,18 +213,43 @@ async def test_get_db_users_rbac_enforcement(
 
 
 @pytest.mark.asyncio
-async def test_update_db_user_rbac_and_audit(
-    test_db_session: AsyncSession, db_users_test_data: dict
+@pytest.mark.parametrize(
+    "engine_type,port",
+    [
+        (DatabaseEngine.POSTGRESQL, 5432),
+        (DatabaseEngine.MSSQL, 1433),
+        (DatabaseEngine.MYSQL, 3306),
+        (DatabaseEngine.ORACLE, 1521),
+        (DatabaseEngine.CLICKHOUSE, 8123),
+        (DatabaseEngine.MONGODB, 27017),
+    ],
+)
+async def test_get_db_users_all_six_dialects(
+    test_db_session: AsyncSession,
+    db_users_test_data: dict,
+    engine_type: DatabaseEngine,
+    port: int,
 ):
     """
-    Verifies PATCH /api/v1/connections/{connection_id}/db-users/{username}:
-    - 403 for user lacking MANAGE_DB_USERS
-    - 200 for user with MANAGE_DB_USERS
-    - Emits immutable AuditLog record (action=UPDATE_DB_USER, entity_type=DATABASE)
+    Verifies read-only GET /api/v1/connections/{connection_id}/db-users
+    works across all 6 supported database engines and PATCH is removed (405).
     """
     data = db_users_test_data
-    conn_id = data["connection"].id
-    username = "app_user"
+    unique_suffix = uuid.uuid4().hex[:8]
+    conn = DatabaseConnection(
+        id=uuid.uuid4(),
+        name=f"test_{engine_type.value.lower()}_{unique_suffix}",
+        engine_type=engine_type,
+        host="127.0.0.1",
+        port=port,
+        database_name=f"db_{unique_suffix}",
+        owner=data["admin_user"].email,
+        encrypted_dek=b"k" * 32,
+        encrypted_credentials=b"c" * 64,
+        is_active=True,
+    )
+    test_db_session.add(conn)
+    await test_db_session.flush()
 
     async def override_db():
         yield test_db_session
@@ -235,55 +258,48 @@ async def test_update_db_user_rbac_and_audit(
     try:
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as client:
-            payload = {
-                "can_login": False,
-                "connection_limit": 5,
-                "valid_until": "2027-06-30",
-            }
-
-            # 1. Regular user without permission -> 403
-            reg_headers = {"Authorization": f"Bearer {data['regular_token']}"}
-            resp_403 = await client.patch(
-                f"/api/v1/connections/{conn_id}/db-users/{username}",
-                json=payload,
-                headers=reg_headers,
-            )
-            assert resp_403.status_code == 403
-
-            # 2. Operator user with permission -> 200 and AuditLog recorded
             op_headers = {"Authorization": f"Bearer {data['operator_token']}"}
+            mock_users = [
+                {
+                    "oid": "1",
+                    "username": f"{engine_type.value.lower()}_reader",
+                    "can_login": True,
+                    "is_superuser": False,
+                    "can_create_db": False,
+                    "can_create_role": False,
+                    "connection_limit": -1,
+                    "valid_until": None,
+                    "member_of_roles": ["readonly_role"],
+                    "active_sessions": 1,
+                }
+            ]
+
             mock_connector = AsyncMock()
-            mock_connector.update_database_user = AsyncMock(
-                return_value={"success": True, "message": "کاربر «app_user» با موفقیت به‌روزرسانی شد."}
-            )
+            mock_connector.extract_database_users = AsyncMock(return_value=mock_users)
             mock_connector.__aenter__ = AsyncMock(return_value=mock_connector)
             mock_connector.__aexit__ = AsyncMock(return_value=None)
 
             with patch("backend.src.api.v1.db_users._build_connector_config", return_value={}):
-                with patch("backend.src.api.v1.db_users.default_connector_registry.create_connector", return_value=mock_connector):
-                    resp_200 = await client.patch(
-                        f"/api/v1/connections/{conn_id}/db-users/{username}",
-                        json=payload,
+                with patch(
+                    "backend.src.api.v1.db_users.default_connector_registry.create_connector",
+                    return_value=mock_connector,
+                ):
+                    resp = await client.get(
+                        f"/api/v1/connections/{conn.id}/db-users",
                         headers=op_headers,
                     )
-                    assert resp_200.status_code == 200
-                    body = resp_200.json()
-                    assert body["success"] is True
-                    assert "app_user" in body["message"]
+                    assert resp.status_code == 200
+                    body = resp.json()
+                    assert len(body) == 1
+                    assert body[0]["username"] == f"{engine_type.value.lower()}_reader"
+                    assert body[0]["member_of_roles"] == ["readonly_role"]
 
-            # 3. Verify AuditLog entry was persisted
-            audit_stmt = select(AuditLog).where(
-                AuditLog.action == "UPDATE_DB_USER",
-                AuditLog.entity_id == conn_id,
-                AuditLog.entity_type == EntityType.DATABASE,
+            # Verify PATCH endpoint is removed (404 Not Found)
+            patch_resp = await client.patch(
+                f"/api/v1/connections/{conn.id}/db-users/test_user",
+                json={"can_login": False},
+                headers=op_headers,
             )
-            audit_res = await test_db_session.execute(audit_stmt)
-            audit_log = audit_res.scalar_one_or_none()
-            assert audit_log is not None
-            assert audit_log.actor_username == data["operator_user"].username
-            assert audit_log.diff_jsonb["username"] == username
-            assert audit_log.diff_jsonb["changes"]["can_login"] is False
-            assert audit_log.diff_jsonb["changes"]["connection_limit"] == 5
-            assert audit_log.diff_jsonb["changes"]["valid_until"] == "2027-06-30"
+            assert patch_resp.status_code == 404
     finally:
         app.dependency_overrides.pop(get_db_session, None)

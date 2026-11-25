@@ -278,4 +278,15 @@ describe('DbUserMonitorComponent (Hierarchical Category Tree & Clarified User Fi
     expect(compiled.querySelector('.unsupported-engine-container')).not.toBeNull();
     expect(compiled.querySelector('.alert-danger')).toBeNull();
   });
+
+  it('should render read-only users table without actions column or mutation modals', () => {
+    const compiled = fixture.nativeElement as HTMLElement;
+    const headers = Array.from(compiled.querySelectorAll('table.data-table thead th')).map(
+      (th) => th.textContent?.trim()
+    );
+    expect(headers.length).toBe(6);
+    expect(headers).not.toContain('عملیات');
+    expect(compiled.querySelector('.actions-group')).toBeNull();
+    expect(compiled.querySelector('.modal-backdrop')).toBeNull();
+  });
 });

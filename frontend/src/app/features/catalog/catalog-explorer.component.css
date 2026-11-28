@@ -46,6 +46,7 @@
 
 .tree-pane.collapsed .tree-title,
 .tree-pane.collapsed .segmented-control,
+.tree-pane.collapsed .tree-expand-actions,
 .tree-pane.collapsed .tree-actions,
 .tree-pane.collapsed .tree-scroll-area {
   display: none;
@@ -111,6 +112,67 @@
   background: #ffffff;
   color: var(--primary-700);
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+}
+
+.tree-expand-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.tree-expand-btn {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 4px 8px;
+  border: 1px solid var(--slate-200);
+  background-color: var(--slate-50);
+  color: var(--slate-600);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-family-sans);
+  font-size: 0.72rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.tree-expand-btn:hover {
+  background-color: var(--slate-100);
+  color: var(--primary-700);
+  border-color: var(--slate-300);
+}
+
+.tree-toggle-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--slate-500);
+  border-radius: 4px;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.tree-toggle-btn:hover {
+  background-color: var(--slate-200);
+  color: var(--slate-800);
+}
+
+.tree-toggle-btn .pi {
+  font-size: 0.7rem;
+}
+
+.tree-toggle-spacer {
+  display: inline-block;
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
 }
 
 .tree-actions-subtle {

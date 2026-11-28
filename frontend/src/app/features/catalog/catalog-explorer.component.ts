@@ -2,6 +2,7 @@ import {
   ChangeDetectionStrategy,
   Component,
   OnInit,
+  WritableSignal,
   computed,
   inject,
   signal,
@@ -82,6 +83,8 @@ export class CatalogExplorerComponent implements OnInit {
   categoryTree = signal<CategoryTreeNode[]>([]);
   isTreeLoading = signal<boolean>(false);
   isSidebarExpanded = signal<boolean>(true);
+  readonly expandedPhysicalNodeIds = signal<Set<string>>(new Set());
+  readonly expandedCategoryNodeIds = signal<Set<string>>(new Set());
 
   // Filtered physical database tree based on search & filter criteria
   readonly filteredPhysicalTree = computed<PhysicalDatabaseNode[]>(() => {
@@ -480,6 +483,80 @@ export class CatalogExplorerComponent implements OnInit {
     } finally {
       this.isTreeLoading.set(false);
     }
+  }
+
+  // Tree Expand / Collapse Helpers
+  hasPhysicalChildren(conn: PhysicalDatabaseNode): boolean {
+    return Boolean(conn.schemas && conn.schemas.length > 0);
+  }
+
+  hasCategoryChildren(cat: CategoryTreeNode): boolean {
+    return Boolean(
+      (cat.databases && cat.databases.length > 0) ||
+        (cat.tables && cat.tables.length > 0) ||
+        (cat.children && cat.children.length > 0)
+    );
+  }
+
+  isPhysicalNodeExpanded(id: string): boolean {
+    return this.expandedPhysicalNodeIds().has(id);
+  }
+
+  isCategoryNodeExpanded(id: string): boolean {
+    return this.expandedCategoryNodeIds().has(id);
+  }
+
+  togglePhysicalNode(id: string, event?: Event): void {
+    this.toggleNodeInSet(this.expandedPhysicalNodeIds, id, event);
+  }
+
+  toggleCategoryNode(id: string, event?: Event): void {
+    this.toggleNodeInSet(this.expandedCategoryNodeIds, id, event);
+  }
+
+  expandAllTreeNodes(): void {
+    if (this.activeTreeTab() === 'physical') {
+      const ids = this.filteredPhysicalTree()
+        .filter((conn) => this.hasPhysicalChildren(conn))
+        .map((conn) => conn.id);
+      this.expandedPhysicalNodeIds.set(new Set(ids));
+      return;
+    }
+
+    const ids = new Set<string>();
+    const collect = (nodes: CategoryTreeNode[]) => {
+      for (const node of nodes) {
+        if (this.hasCategoryChildren(node)) {
+          ids.add(node.id);
+        }
+        if (node.children && node.children.length > 0) {
+          collect(node.children);
+        }
+      }
+    };
+    collect(this.categoryTree());
+    this.expandedCategoryNodeIds.set(ids);
+  }
+
+  collapseAllTreeNodes(): void {
+    if (this.activeTreeTab() === 'physical') {
+      this.expandedPhysicalNodeIds.set(new Set());
+    } else {
+      this.expandedCategoryNodeIds.set(new Set());
+    }
+  }
+
+  private toggleNodeInSet(state: WritableSignal<Set<string>>, id: string, event?: Event): void {
+    event?.stopPropagation();
+    state.update((current) => {
+      const next = new Set(current);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
   }
 
   // Tree Node Selection Handlers

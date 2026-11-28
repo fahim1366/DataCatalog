@@ -30,6 +30,27 @@
           دسته‌بندی موضوعی
         </button>
       </div>
+
+      <div class="tree-expand-actions">
+        <button
+          type="button"
+          class="tree-expand-btn"
+          (click)="expandAllTreeNodes()"
+          title="باز کردن همه شاخه‌ها"
+        >
+          <i class="pi pi-plus-square"></i>
+          <span>باز کردن همه</span>
+        </button>
+        <button
+          type="button"
+          class="tree-expand-btn"
+          (click)="collapseAllTreeNodes()"
+          title="جمع کردن همه شاخه‌ها"
+        >
+          <i class="pi pi-minus-square"></i>
+          <span>جمع کردن همه</span>
+        </button>
+      </div>
     </div>
 
     <!-- Tree Content View -->
@@ -97,6 +118,20 @@
             @for (conn of filteredPhysicalTree(); track conn.id) {
               <div class="tree-group">
                 <div class="tree-node node-db" (click)="filterByDatabase(conn.name)">
+                  @if (hasPhysicalChildren(conn)) {
+                    <button
+                      type="button"
+                      class="tree-toggle-btn"
+                      (click)="togglePhysicalNode(conn.id, $event)"
+                      [attr.aria-expanded]="isPhysicalNodeExpanded(conn.id)"
+                      [attr.aria-label]="isPhysicalNodeExpanded(conn.id) ? 'جمع کردن شاخه' : 'باز کردن شاخه'"
+                      [title]="isPhysicalNodeExpanded(conn.id) ? 'جمع کردن' : 'باز کردن'"
+                    >
+                      <i class="pi" [ngClass]="isPhysicalNodeExpanded(conn.id) ? 'pi-chevron-down' : 'pi-chevron-left'"></i>
+                    </button>
+                  } @else {
+                    <span class="tree-toggle-spacer"></span>
+                  }
                   <span class="node-icon"><i class="pi pi-database"></i></span>
                   <div class="node-db-meta" [title]="conn.name">
                     <span class="node-label mono-font" [title]="conn.name">{{ conn.name }}</span>
@@ -123,14 +158,16 @@
                   </button>
                 </div>
 
-                <div class="tree-subnodes">
-                  @for (schema of conn.schemas; track schema.id) {
-                    <div class="tree-node node-schema" (click)="filterBySchema(schema.name)">
-                      <span class="node-icon"><i class="pi pi-folder"></i></span>
-                      <span class="node-label mono-font">{{ schema.name }}</span>
-                    </div>
-                  }
-                </div>
+                @if (hasPhysicalChildren(conn) && isPhysicalNodeExpanded(conn.id)) {
+                  <div class="tree-subnodes">
+                    @for (schema of conn.schemas; track schema.id) {
+                      <div class="tree-node node-schema" (click)="filterBySchema(schema.name)">
+                        <span class="node-icon"><i class="pi pi-folder"></i></span>
+                        <span class="node-label mono-font">{{ schema.name }}</span>
+                      </div>
+                    }
+                  </div>
+                }
               </div>
             } @empty {
               <div class="tree-empty">هیچ پایگاه‌داده‌ای با مشخصات فیلتر یافت نشد.</div>
@@ -157,6 +194,20 @@
     @for (cat of nodes; track cat.id) {
       <div class="tree-group" [style.padding-right.px]="depth * 8">
         <div class="tree-node node-cat" (click)="filterByCategory(cat.name)">
+          @if (hasCategoryChildren(cat)) {
+            <button
+              type="button"
+              class="tree-toggle-btn"
+              (click)="toggleCategoryNode(cat.id, $event)"
+              [attr.aria-expanded]="isCategoryNodeExpanded(cat.id)"
+              [attr.aria-label]="isCategoryNodeExpanded(cat.id) ? 'جمع کردن شاخه' : 'باز کردن شاخه'"
+              [title]="isCategoryNodeExpanded(cat.id) ? 'جمع کردن' : 'باز کردن'"
+            >
+              <i class="pi" [ngClass]="isCategoryNodeExpanded(cat.id) ? 'pi-chevron-down' : 'pi-chevron-left'"></i>
+            </button>
+          } @else {
+            <span class="tree-toggle-spacer"></span>
+          }
           <span class="node-icon"><i class="pi pi-tag"></i></span>
           <span class="node-label">{{ cat.name }}</span>
           @if (cat.assigned_tables_count || (cat.tables && cat.tables.length)) {
@@ -164,38 +215,40 @@
           }
         </div>
 
-        <!-- Assigned Databases -->
-        @if (cat.databases && cat.databases.length > 0) {
-          <div class="tree-subnodes">
-            @for (db of cat.databases; track db.id) {
-              <div class="tree-node node-db-assigned" (click)="filterByDatabase(db.name)">
-                <span class="node-icon"><i class="pi pi-database"></i></span>
-                <span class="node-label mono-font">{{ db.name }}</span>
-                @if (db.engine_type) {
-                  <span class="node-engine-badge">{{ db.engine_type }}</span>
-                }
-              </div>
-            }
-          </div>
-        }
+        @if (hasCategoryChildren(cat) && isCategoryNodeExpanded(cat.id)) {
+          <!-- Assigned Databases -->
+          @if (cat.databases && cat.databases.length > 0) {
+            <div class="tree-subnodes">
+              @for (db of cat.databases; track db.id) {
+                <div class="tree-node node-db-assigned" (click)="filterByDatabase(db.name)">
+                  <span class="node-icon"><i class="pi pi-database"></i></span>
+                  <span class="node-label mono-font">{{ db.name }}</span>
+                  @if (db.engine_type) {
+                    <span class="node-engine-badge">{{ db.engine_type }}</span>
+                  }
+                </div>
+              }
+            </div>
+          }
 
-        <!-- Assigned Tables -->
-        @if (cat.tables && cat.tables.length > 0) {
-          <div class="tree-subnodes">
-            @for (tbl of cat.tables; track tbl.id) {
-              <div class="tree-node node-table-assigned" (click)="filterByTable(tbl.name)">
-                <span class="node-icon"><i class="pi pi-table"></i></span>
-                <span class="node-label mono-font">{{ tbl.name }}</span>
-              </div>
-            }
-          </div>
-        }
+          <!-- Assigned Tables -->
+          @if (cat.tables && cat.tables.length > 0) {
+            <div class="tree-subnodes">
+              @for (tbl of cat.tables; track tbl.id) {
+                <div class="tree-node node-table-assigned" (click)="filterByTable(tbl.name)">
+                  <span class="node-icon"><i class="pi pi-table"></i></span>
+                  <span class="node-label mono-font">{{ tbl.name }}</span>
+                </div>
+              }
+            </div>
+          }
 
-        <!-- Children Categories (Unlimited Recursive Levels) -->
-        @if (cat.children && cat.children.length > 0) {
-          <div class="tree-subnodes">
-            <ng-container *ngTemplateOutlet="categoryNodeTemplate; context: { nodes: cat.children, depth: depth + 1 }"></ng-container>
-          </div>
+          <!-- Children Categories (Unlimited Recursive Levels) -->
+          @if (cat.children && cat.children.length > 0) {
+            <div class="tree-subnodes">
+              <ng-container *ngTemplateOutlet="categoryNodeTemplate; context: { nodes: cat.children, depth: depth + 1 }"></ng-container>
+            </div>
+          }
         }
       </div>
     }

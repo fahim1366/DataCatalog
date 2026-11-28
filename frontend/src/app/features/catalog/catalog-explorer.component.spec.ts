@@ -619,4 +619,119 @@ describe('CatalogExplorerComponent (Phase 2 UI/UX Overhaul)', () => {
 
     expect(compiled.textContent).toContain('users.id');
   });
+
+  it('should expand and collapse physical database tree nodes individually and via expand/collapse all', async () => {
+    fixture.detectChanges();
+    await fixture.whenStable();
+    component.isTreeLoading.set(false);
+
+    component.physicalTree.set([
+      {
+        id: 'conn-1',
+        name: 'prod_pg',
+        database_name: 'prod',
+        engine_type: 'POSTGRESQL',
+        schemas: [
+          { id: 'sch-1', name: 'public', table_count: 2, tables: [] },
+        ],
+      },
+      {
+        id: 'conn-2',
+        name: 'empty_db',
+        database_name: 'empty',
+        engine_type: 'MYSQL',
+        schemas: [],
+      },
+    ]);
+    component.activeTreeTab.set('physical');
+    fixture.detectChanges();
+
+    const compiled = fixture.nativeElement as HTMLElement;
+    const treePane = compiled.querySelector('.tree-pane') as HTMLElement;
+    expect(treePane.textContent).toContain('prod_pg');
+    expect(treePane.textContent).not.toContain('public');
+
+    // Toggle conn-1 via its chevron button without triggering filterByDatabase
+    const filterSpy = vi.spyOn(component, 'filterByDatabase');
+    const toggleBtn = treePane.querySelector('.node-db .tree-toggle-btn') as HTMLButtonElement;
+    expect(toggleBtn).toBeTruthy();
+    toggleBtn.click();
+    fixture.detectChanges();
+
+    expect(component.isPhysicalNodeExpanded('conn-1')).toBe(true);
+    expect(treePane.textContent).toContain('public');
+    expect(filterSpy).not.toHaveBeenCalled();
+
+    // Collapse conn-1 again
+    toggleBtn.click();
+    fixture.detectChanges();
+    expect(component.isPhysicalNodeExpanded('conn-1')).toBe(false);
+    expect(treePane.textContent).not.toContain('public');
+
+    // Expand all and collapse all
+    component.expandAllTreeNodes();
+    fixture.detectChanges();
+    expect(component.isPhysicalNodeExpanded('conn-1')).toBe(true);
+    expect(component.isPhysicalNodeExpanded('conn-2')).toBe(false);
+    expect(treePane.textContent).toContain('public');
+
+    component.collapseAllTreeNodes();
+    fixture.detectChanges();
+    expect(component.isPhysicalNodeExpanded('conn-1')).toBe(false);
+    expect(treePane.textContent).not.toContain('public');
+  });
+
+  it('should expand and collapse category tree nodes recursively', async () => {
+    fixture.detectChanges();
+    await fixture.whenStable();
+    component.isTreeLoading.set(false);
+
+    component.categoryTree.set([
+      {
+        id: 'cat-1',
+        name: 'فروش',
+        tables: [{ id: 'tbl-1', name: 'orders' }],
+        children: [
+          {
+            id: 'cat-2',
+            name: 'فاکتورها',
+            tables: [{ id: 'tbl-2', name: 'invoices' }],
+            children: [],
+          },
+        ],
+      },
+    ]);
+    component.activeTreeTab.set('category');
+    fixture.detectChanges();
+
+    const compiled = fixture.nativeElement as HTMLElement;
+    const treePane = compiled.querySelector('.tree-pane') as HTMLElement;
+    expect(treePane.textContent).toContain('فروش');
+    expect(treePane.textContent).not.toContain('orders');
+    expect(treePane.textContent).not.toContain('فاکتورها');
+
+    // Expand root category
+    const filterSpy = vi.spyOn(component, 'filterByCategory');
+    const rootToggle = treePane.querySelector('.node-cat .tree-toggle-btn') as HTMLButtonElement;
+    expect(rootToggle).toBeTruthy();
+    rootToggle.click();
+    fixture.detectChanges();
+
+    expect(treePane.textContent).toContain('orders');
+    expect(treePane.textContent).toContain('فاکتورها');
+    expect(treePane.textContent).not.toContain('invoices');
+    expect(filterSpy).not.toHaveBeenCalled();
+
+    // Expand all categories recursively
+    component.expandAllTreeNodes();
+    fixture.detectChanges();
+    expect(treePane.textContent).toContain('invoices');
+
+    // Collapse all categories
+    component.collapseAllTreeNodes();
+    fixture.detectChanges();
+    expect(treePane.textContent).not.toContain('orders');
+    expect(treePane.textContent).not.toContain('فاکتورها');
+    expect(treePane.textContent).not.toContain('invoices');
+  });
 });

@@ -340,6 +340,8 @@ class BulkIngestionService:
         col_is_nullables: List[bool] = []
         col_is_primary_keys: List[bool] = []
         col_is_foreign_keys: List[bool] = []
+        col_referenced_tables: List[Optional[str]] = []
+        col_referenced_columns: List[Optional[str]] = []
         col_default_values: List[Optional[str]] = []
         col_source_descriptions: List[Optional[str]] = []
         col_classification_levels: List[str] = []
@@ -365,6 +367,8 @@ class BulkIngestionService:
                 col_is_nullables.append(col_payload.is_nullable)
                 col_is_primary_keys.append(col_payload.is_primary_key)
                 col_is_foreign_keys.append(col_payload.is_foreign_key)
+                col_referenced_tables.append(col_payload.referenced_table)
+                col_referenced_columns.append(col_payload.referenced_column)
                 col_default_values.append(col_payload.default_value)
                 col_source_descriptions.append(col_payload.source_description)
                 col_classification_levels.append(cls_level_str)
@@ -373,12 +377,14 @@ class BulkIngestionService:
             col_upsert_stmt = text("""
                 INSERT INTO catalog_columns (
                     id, table_id, name, ordinal_position, data_type, raw_data_type,
-                    "collation", is_nullable, is_primary_key, is_foreign_key, default_value,
+                    "collation", is_nullable, is_primary_key, is_foreign_key,
+                    referenced_table, referenced_column, default_value,
                     source_description, classification_level, status, updated_at
                 )
                 SELECT 
                     v.id, v.table_id, v.name, v.ordinal_position, v.data_type, v.raw_data_type,
-                    v."collation", v.is_nullable, v.is_primary_key, v.is_foreign_key, v.default_value,
+                    v."collation", v.is_nullable, v.is_primary_key, v.is_foreign_key,
+                    v.referenced_table, v.referenced_column, v.default_value,
                     v.source_description, v.classification_level::classification_level_enum, 'ACTIVE'::lifecycle_status_enum,
                     clock_timestamp()
                 FROM UNNEST(
@@ -392,10 +398,12 @@ class BulkIngestionService:
                     CAST(:is_nullables AS boolean[]),
                     CAST(:is_primary_keys AS boolean[]),
                     CAST(:is_foreign_keys AS boolean[]),
+                    CAST(:referenced_tables AS varchar[]),
+                    CAST(:referenced_columns AS varchar[]),
                     CAST(:default_values AS text[]),
                     CAST(:source_descriptions AS text[]),
                     CAST(:classification_levels AS varchar[])
-                ) AS v(id, table_id, name, ordinal_position, data_type, raw_data_type, "collation", is_nullable, is_primary_key, is_foreign_key, default_value, source_description, classification_level)
+                ) AS v(id, table_id, name, ordinal_position, data_type, raw_data_type, "collation", is_nullable, is_primary_key, is_foreign_key, referenced_table, referenced_column, default_value, source_description, classification_level)
                 ON CONFLICT (table_id, name) DO UPDATE SET
                     ordinal_position = EXCLUDED.ordinal_position,
                     data_type = EXCLUDED.data_type,
@@ -404,6 +412,8 @@ class BulkIngestionService:
                     is_nullable = EXCLUDED.is_nullable,
                     is_primary_key = EXCLUDED.is_primary_key,
                     is_foreign_key = EXCLUDED.is_foreign_key,
+                    referenced_table = EXCLUDED.referenced_table,
+                    referenced_column = EXCLUDED.referenced_column,
                     default_value = EXCLUDED.default_value,
                     source_description = EXCLUDED.source_description,
                     classification_level = EXCLUDED.classification_level,
@@ -425,6 +435,8 @@ class BulkIngestionService:
                     "is_nullables": col_is_nullables,
                     "is_primary_keys": col_is_primary_keys,
                     "is_foreign_keys": col_is_foreign_keys,
+                    "referenced_tables": col_referenced_tables,
+                    "referenced_columns": col_referenced_columns,
                     "default_values": col_default_values,
                     "source_descriptions": col_source_descriptions,
                     "classification_levels": col_classification_levels,

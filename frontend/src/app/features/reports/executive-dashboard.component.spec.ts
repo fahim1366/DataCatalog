@@ -378,7 +378,7 @@ describe('Executive Governance Reporting Dashboard (T044: Apache ECharts Executi
       component.generateReport();
       expect(reportService.getCompletenessReport).toHaveBeenCalledWith(['11111111-1111-1111-1111-111111111111']);
       expect(reportService.getClassificationDistribution).toHaveBeenCalledWith(['11111111-1111-1111-1111-111111111111']);
-      expect(reportService.getReportPreview).toHaveBeenCalledWith(['11111111-1111-1111-1111-111111111111']);
+      expect(fixture.debugElement.query(By.css('[data-testid="report-preview-table"]'))).toBeNull();
     });
 
     it('should support selecting all databases, toggling individual databases, and clearing selection', () => {
@@ -463,7 +463,6 @@ describe('Executive Governance Reporting Dashboard (T044: Apache ECharts Executi
       expect(component.excludeLowRowTables()).toBe(false);
       const compSpy = vi.spyOn(reportService, 'getCompletenessReport');
       const classSpy = vi.spyOn(reportService, 'getClassificationDistribution');
-      const prevSpy = vi.spyOn(reportService, 'getReportPreview');
       const expSpy = vi.spyOn(reportService, 'exportReports');
 
       component.toggleExcludeLowRowTables();
@@ -471,7 +470,6 @@ describe('Executive Governance Reporting Dashboard (T044: Apache ECharts Executi
 
       expect(compSpy).toHaveBeenCalledWith([], true);
       expect(classSpy).toHaveBeenCalledWith([], true);
-      expect(prevSpy).toHaveBeenCalledWith([], 100, true);
 
       component.exportReport('xlsx');
       expect(expSpy).toHaveBeenCalledWith('xlsx', [], true);

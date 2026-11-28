@@ -136,3 +136,16 @@ class TestUnsavedConnectionRequest(BaseModel):
     database_name: str = Field(..., min_length=1, max_length=255)
     credentials: Dict[str, Any] = Field(..., description="Credentials containing username and password")
     custom_params: Dict[str, Any] = Field(default_factory=dict)
+
+
+class BatchScheduleRequest(BaseModel):
+    connection_ids: List[uuid.UUID] = Field(..., min_length=1, description="List of connection IDs to schedule")
+    cron_expression: str = Field(..., min_length=5, max_length=100, description="5-part cron expression")
+    is_enabled: bool = Field(default=True, description="Whether the schedule is enabled")
+
+
+class BatchScheduleResponse(BaseModel):
+    updated_count: int
+    cron_expression: str
+    is_enabled: bool
+    schedules: List[SyncScheduleResponse] = Field(default_factory=list)

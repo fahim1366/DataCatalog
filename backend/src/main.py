@@ -30,15 +30,21 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """Application lifespan context manager for startup pre-flight and graceful shutdown."""
-    # Ensure idempotent schema safety for sync_jobs table (e.g. priority column)
+    # Ensure idempotent schema safety for sync_jobs and catalog_columns tables
     try:
         async with engine.begin() as conn:
             await conn.execute(
                 text("ALTER TABLE sync_jobs ADD COLUMN IF NOT EXISTS priority INTEGER NOT NULL DEFAULT 0;")
             )
-            logger.info("Idempotent schema check passed: priority column ensured on sync_jobs.")
+            await conn.execute(
+                text("ALTER TABLE catalog_columns ADD COLUMN IF NOT EXISTS referenced_table VARCHAR(255);")
+            )
+            await conn.execute(
+                text("ALTER TABLE catalog_columns ADD COLUMN IF NOT EXISTS referenced_column VARCHAR(255);")
+            )
+            logger.info("Idempotent schema checks passed: priority on sync_jobs and FK target columns on catalog_columns.")
     except Exception as exc:
-        logger.warning("Could not execute startup schema check on sync_jobs: %s", exc)
+        logger.warning("Could not execute startup schema check: %s", exc)
     yield
     await dispose_engine()
 

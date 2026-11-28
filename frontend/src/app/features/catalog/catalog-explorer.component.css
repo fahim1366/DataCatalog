@@ -1594,3 +1594,23 @@
     flex: 1 1 auto;
   }
 }
+
+.fk-target-badge {
+  margin-inline-end: 4px;
+}
+
+.fk-ref-target {
+  display: block;
+  font-size: 0.78rem;
+}
+
+.statistics-tab-content {
+  padding: 10px 0;
+}
+
+.toast-sync-link {
+  color: inherit;
+  font-weight: 700;
+  text-decoration: underline;
+  margin-right: 8px;
+}

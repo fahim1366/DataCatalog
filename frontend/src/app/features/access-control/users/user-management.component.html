@@ -470,9 +470,9 @@
             <table class="tree-table">
               <thead>
                 <tr>
-                  <th style="width: 55%;">موضوع / عنوان پایگاه‌داده</th>
-                  <th style="width: 25%;">نوع موتور / گویش</th>
-                  <th style="width: 20%;" class="th-center">وضعیت دسترسی</th>
+                  <th class="col-db-title">موضوع / عنوان پایگاه‌داده</th>
+                  <th class="col-db-engine">نوع موتور / گویش</th>
+                  <th class="col-db-status th-center">وضعیت دسترسی</th>
                 </tr>
               </thead>
               <tbody>
@@ -620,9 +620,9 @@
             <table class="tree-table">
               <thead>
                 <tr>
-                  <th style="width: 35%;">عنوان مجوز</th>
-                  <th style="width: 45%;">شرح دامنه دسترسی</th>
-                  <th style="width: 20%;" class="th-center">وضعیت دسترسی</th>
+                  <th class="col-perm-title">عنوان مجوز</th>
+                  <th class="col-perm-desc">شرح دامنه دسترسی</th>
+                  <th class="col-perm-status th-center">وضعیت دسترسی</th>
                 </tr>
               </thead>
               <tbody>
@@ -661,7 +661,7 @@
 
       <!-- Inline status notifications inside detail card right above buttons -->
       @if (errorMessage()) {
-        <div class="alert alert-danger animate-fade" style="margin-top: 16px; margin-bottom: 8px;">
+        <div class="alert alert-danger animate-fade detail-alert">
           <i class="pi pi-exclamation-triangle alert-icon"></i>
           <span>{{ errorMessage() }}</span>
           <button type="button" class="alert-close" (click)="errorMessage.set(null)" aria-label="بستن">
@@ -670,7 +670,7 @@
         </div>
       }
       @if (successMessage()) {
-        <div class="alert alert-success animate-fade" style="margin-top: 16px; margin-bottom: 8px;">
+        <div class="alert alert-success animate-fade detail-alert">
           <i class="pi pi-check-circle alert-icon"></i>
           <span>{{ successMessage() }}</span>
           <button type="button" class="alert-close" (click)="successMessage.set(null)" aria-label="بستن">

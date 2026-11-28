@@ -316,7 +316,12 @@ async def get_catalog_objects(
         else:
             tables_list.append(item)
 
-    # 2. Indexes Query
+    authorized_table_meta = {
+        tbl.id: (tbl.name, s_name, db_name, tbl.created_at)
+        for tbl, s_name, db_name in table_rows
+    }
+
+    # 2. Indexes & Foreign Key Constraints Query
     idx_query = (
         select(
             CatalogIndex,
@@ -344,11 +349,43 @@ async def get_catalog_objects(
     if table_id:
         idx_query = idx_query.where(CatalogIndex.table_id == table_id)
 
+    idx_query = rbac_filter(idx_query)
     idx_res = await db.execute(idx_query)
     idx_rows = idx_res.all()
 
+    fk_lookup: Dict[tuple, Dict[str, str]] = {}
+    fk_rows = []
+    if authorized_table_meta:
+        fk_stmt = select(
+            CatalogColumn.table_id,
+            CatalogColumn.name,
+            CatalogColumn.referenced_table,
+            CatalogColumn.referenced_column,
+        ).where(
+            CatalogColumn.table_id.in_(list(authorized_table_meta.keys())),
+            CatalogColumn.is_foreign_key.is_(True),
+            CatalogColumn.referenced_table.is_not(None),
+            CatalogColumn.status != LifecycleStatus.DELETED,
+        )
+        fk_res = await db.execute(fk_stmt)
+        fk_rows = fk_res.all()
+        for tbl_id, col_name, ref_tbl, ref_col in fk_rows:
+            fk_lookup[(tbl_id, col_name)] = {
+                "column": col_name,
+                "referenced_table": ref_tbl,
+                "referenced_column": ref_col or "",
+            }
+
+    covered_fk_keys: set[tuple] = set()
     indexes_list: List[CatalogObjectItem] = []
     for idx_obj, t_name, s_name, db_name in idx_rows:
+        cols_list = idx_obj.columns_list or []
+        fk_targets = []
+        for col_name in cols_list:
+            key = (idx_obj.table_id, col_name)
+            if key in fk_lookup:
+                fk_targets.append(fk_lookup[key])
+                covered_fk_keys.add(key)
         indexes_list.append(
             CatalogObjectItem(
                 id=idx_obj.id,
@@ -361,11 +398,47 @@ async def get_catalog_objects(
                     "index_type": idx_obj.index_type,
                     "is_unique": idx_obj.is_unique,
                     "is_primary": idx_obj.is_primary,
-                    "columns_list": idx_obj.columns_list or [],
+                    "is_foreign_key": len(fk_targets) > 0,
+                    "columns_list": cols_list,
+                    "foreign_key_targets": fk_targets,
                     "definition": idx_obj.definition,
                     "table_id": str(idx_obj.table_id),
                 },
                 created_at=idx_obj.created_at,
+            )
+        )
+
+    # Append FOREIGN KEY constraint entries for FK columns without a matching index
+    for tbl_id, col_name, ref_tbl, ref_col in fk_rows:
+        if (tbl_id, col_name) in covered_fk_keys:
+            continue
+        t_name, s_name, db_name, tbl_created_at = authorized_table_meta[tbl_id]
+        ref_target = f"{ref_tbl}.{ref_col}" if ref_col else ref_tbl
+        indexes_list.append(
+            CatalogObjectItem(
+                id=uuid.uuid5(tbl_id, f"fk:{col_name}"),
+                name=f"fk_{t_name}_{col_name}",
+                object_type="INDEX",
+                database_name=db_name,
+                schema_name=s_name,
+                table_name=t_name,
+                details={
+                    "index_type": "FOREIGN KEY",
+                    "is_unique": False,
+                    "is_primary": False,
+                    "is_foreign_key": True,
+                    "columns_list": [col_name],
+                    "foreign_key_targets": [
+                        {
+                            "column": col_name,
+                            "referenced_table": ref_tbl,
+                            "referenced_column": ref_col or "",
+                        }
+                    ],
+                    "definition": f"FOREIGN KEY ({col_name}) REFERENCES {ref_target}",
+                    "table_id": str(tbl_id),
+                },
+                created_at=tbl_created_at,
             )
         )
 
@@ -907,6 +980,8 @@ async def update_column_description(
         is_nullable=column.is_nullable,
         is_primary_key=column.is_primary_key,
         is_foreign_key=column.is_foreign_key,
+        referenced_table=column.referenced_table,
+        referenced_column=column.referenced_column,
         default_value=column.default_value,
         source_description=column.source_description,
         approved_description=column.approved_description,
@@ -1009,6 +1084,8 @@ async def approve_column_ai_description(
         is_nullable=column.is_nullable,
         is_primary_key=column.is_primary_key,
         is_foreign_key=column.is_foreign_key,
+        referenced_table=column.referenced_table,
+        referenced_column=column.referenced_column,
         default_value=column.default_value,
         source_description=column.source_description,
         approved_description=column.approved_description,
@@ -1107,6 +1184,8 @@ async def update_column_classification(
         is_nullable=column.is_nullable,
         is_primary_key=column.is_primary_key,
         is_foreign_key=column.is_foreign_key,
+        referenced_table=column.referenced_table,
+        referenced_column=column.referenced_column,
         default_value=column.default_value,
         source_description=column.source_description,
         approved_description=column.approved_description,

@@ -40,13 +40,20 @@
           <input
             type="text"
             class="sidebar-filter-input"
-            placeholder="جستجو در نام اتصال، دیتابیس، IP یا مالک..."
+            placeholder="نام اتصال یا دیتابیس..."
             [ngModel]="quickTreeSearch()"
             (ngModelChange)="quickTreeSearch.set($event)"
           />
         </div>
 
         <div class="filter-row engine-row">
+          <input
+            type="text"
+            class="sidebar-filter-input td-ltr"
+            placeholder="IP / هاست..."
+            [ngModel]="hostTreeSearch()"
+            (ngModelChange)="hostTreeSearch.set($event)"
+          />
           <select
             class="sidebar-filter-select"
             [ngModel]="filterEngineType()"
@@ -73,6 +80,25 @@
             </button>
           }
         </div>
+      </div>
+
+      <!-- Multi-Select Batch Toolbar -->
+      <div class="batch-selection-toolbar">
+        <button type="button" class="btn-batch-link" (click)="selectAllVisible()">
+          <i class="pi pi-check-square"></i> انتخاب همه
+        </button>
+        <span class="batch-sep">|</span>
+        <button
+          type="button"
+          class="btn-batch-link"
+          (click)="clearSelection()"
+          [disabled]="selectedConnectionIds().size === 0"
+        >
+          پاکسازی انتخاب
+        </button>
+        @if (selectedConnectionIds().size > 0) {
+          <span class="batch-count-pill">{{ selectedConnectionIds().size }} انتخاب‌شده</span>
+        }
       </div>
 
       <!-- Tree scroll container -->
@@ -119,6 +145,14 @@
           [class.uncategorized-header]="isUncat"
           (click)="toggleCategory(node, $event)"
         >
+          <input
+            type="checkbox"
+            class="tree-node-checkbox"
+            [checked]="isCategoryChecked(node)"
+            [indeterminate]="isCategoryIndeterminate(node)"
+            (click)="toggleCategorySelection(node, $event)"
+            title="انتخاب/لغو انتخاب تمام پایگاه‌های داده این دسته"
+          />
           <i
             class="pi expand-chevron"
             [ngClass]="isCategoryExpanded(node) ? 'pi-chevron-down' : 'pi-chevron-left'"
@@ -150,6 +184,13 @@
               >
                 <div class="card-line-1">
                   <div class="card-title-group">
+                    <input
+                      type="checkbox"
+                      class="tree-node-checkbox"
+                      [checked]="isConnectionChecked(conn.id)"
+                      (click)="toggleConnectionSelection(conn.id, $event)"
+                      title="انتخاب برای زمان‌بندی گروهی"
+                    />
                     <span
                       class="status-indicator-dot"
                       [class.online]="conn.is_active"
@@ -183,13 +224,27 @@
 
     <!-- Left Content: Schedule Editor & Operations -->
     <main class="main-editor-pane">
-      @if (!selectedDatabase()) {
+      @if (selectedConnectionIds().size > 0) {
+        <section class="batch-schedule-banner card">
+          <div class="batch-banner-info">
+            <span class="batch-banner-badge">زمان‌بندی گروهی</span>
+            <span class="batch-banner-text">
+              <strong>{{ selectedConnectionIds().size }}</strong> پایگاه داده از درختواره انتخاب شده است.
+              الگوی کرون زیر را تنظیم و دکمه «ذخیره زمان‌بندی گروهی» را بزنید.
+            </span>
+          </div>
+          <button type="button" class="btn-batch-link" (click)="clearSelection()">لغو انتخاب گروهی</button>
+        </section>
+      }
+
+      @if (!selectedDatabase() && selectedConnectionIds().size === 0) {
         <div class="empty-selection card">
           <div class="empty-icon">👈</div>
           <h3>هیچ پایگاه داده‌ای انتخاب نشده است</h3>
           <p>برای مشاهده و تنظیم برنامه زمان‌بندی همگام‌سازی، لطفاً یک پایگاه داده را از ساختار درختی انتخاب کنید.</p>
         </div>
       } @else {
+        @if (selectedDatabase(); as db) {
         <!-- Selected DB Header Card -->
         <section class="db-hero-card card">
           <div class="hero-top">
@@ -257,6 +312,7 @@
             </div>
           }
         </section>
+        }
 
         <!-- Schedule Config Form Card -->
         <section class="schedule-form-card card" [formGroup]="scheduleForm">
@@ -326,20 +382,37 @@
 
           <!-- Save Button Bar -->
           <div class="form-actions">
-            <button
-              type="button"
-              class="btn btn-primary save-btn"
-              [disabled]="scheduleForm.invalid || isSavingSchedule()"
-              (click)="saveSchedule()"
-            >
-              @if (isSavingSchedule()) {
-                <span class="spinner-small"></span>
-                در حال ذخیره تغییرات...
-              } @else {
-                <span>💾</span>
-                ذخیره تنظیمات زمان‌بندی
-              }
-            </button>
+            @if (selectedConnectionIds().size > 0) {
+              <button
+                type="button"
+                class="btn btn-batch-save save-btn"
+                [disabled]="scheduleForm.invalid || isBatchSaving()"
+                (click)="saveBatchSchedule()"
+              >
+                @if (isBatchSaving()) {
+                  <span class="spinner-small"></span>
+                  در حال اعمال گروهی...
+                } @else {
+                  <span>⚡</span>
+                  ذخیره زمان‌بندی گروهی ({{ selectedConnectionIds().size }} پایگاه داده)
+                }
+              </button>
+            } @else if (selectedDatabase()) {
+              <button
+                type="button"
+                class="btn btn-primary save-btn"
+                [disabled]="scheduleForm.invalid || isSavingSchedule()"
+                (click)="saveSchedule()"
+              >
+                @if (isSavingSchedule()) {
+                  <span class="spinner-small"></span>
+                  در حال ذخیره تغییرات...
+                } @else {
+                  <span>💾</span>
+                  ذخیره تنظیمات زمان‌بندی
+                }
+              </button>
+            }
           </div>
         </section>
       }

@@ -1,6 +1,7 @@
 import { Injectable, inject } from '@angular/core';
 import { HttpClient, HttpParams } from '@angular/common/http';
-import { Observable } from 'rxjs';
+import { Observable, Subject } from 'rxjs';
+import { tap } from 'rxjs/operators';
 
 export type SyncJobStatus = 'QUEUED' | 'RUNNING' | 'SUCCESS' | 'PARTIAL_FAILURE' | 'FAILED' | 'CANCELLED';
 export type SyncTriggerType = 'SCHEDULE' | 'MANUAL' | 'RETRY';
@@ -95,6 +96,14 @@ export class SyncJobService {
   private readonly connectionsUrl = '/api/v1/connections';
   private readonly syncJobsUrl = '/api/v1/sync-jobs';
 
+  /** Emits whenever a sync job is triggered, retried, or batch-expedited so /sync-monitor refreshes immediately. */
+  private readonly _syncTriggered$ = new Subject<void>();
+  readonly syncTriggered$ = this._syncTriggered$.asObservable();
+
+  notifySyncTriggered(): void {
+    this._syncTriggered$.next();
+  }
+
   /**
    * Executes a transient dialect connectivity diagnostic test bounded by a 5.0s timeout.
    */
@@ -112,7 +121,7 @@ export class SyncJobService {
     return this.http.post<SyncJobResponse>(
       `${this.connectionsUrl}/${connectionId}/sync`,
       {}
-    );
+    ).pipe(tap(() => this._syncTriggered$.next()));
   }
 
   /**
@@ -162,7 +171,7 @@ export class SyncJobService {
     return this.http.post<SyncJobResponse>(
       `${this.syncJobsUrl}/${jobId}/retry`,
       {}
-    );
+    ).pipe(tap(() => this._syncTriggered$.next()));
   }
 
   /**
@@ -199,7 +208,7 @@ export class SyncJobService {
     return this.http.post<BatchExpediteResponse>(
       `${this.syncJobsUrl}/batch-expedite`,
       { connection_ids: connectionIds }
-    );
+    ).pipe(tap(() => this._syncTriggered$.next()));
   }
 
   /**

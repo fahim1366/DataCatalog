@@ -1228,3 +1228,32 @@
     max-width: 100%;
   }
 }
+
+.col-db-title {
+  width: 55%;
+}
+
+.col-db-engine {
+  width: 25%;
+}
+
+.col-db-status {
+  width: 20%;
+}
+
+.col-perm-title {
+  width: 35%;
+}
+
+.col-perm-desc {
+  width: 45%;
+}
+
+.col-perm-status {
+  width: 20%;
+}
+
+.detail-alert {
+  margin-top: 16px;
+  margin-bottom: 8px;
+}

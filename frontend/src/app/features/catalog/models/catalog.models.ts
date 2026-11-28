@@ -73,6 +73,8 @@ export interface ColumnItem {
   is_nullable: boolean;
   is_primary_key: boolean;
   is_foreign_key: boolean;
+  referenced_table?: string | null;
+  referenced_column?: string | null;
   default_value?: string | null;
   source_description?: string | null;
   approved_description?: string | null;

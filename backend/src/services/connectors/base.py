@@ -87,6 +87,8 @@ class ColumnMetadata:
     is_nullable: bool = True
     is_primary_key: bool = False
     is_foreign_key: bool = False
+    referenced_table: Optional[str] = None
+    referenced_column: Optional[str] = None
     default_value: Optional[str] = None
     source_description: Optional[str] = None
     collation: Optional[str] = None

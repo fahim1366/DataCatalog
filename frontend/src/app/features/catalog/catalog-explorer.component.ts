@@ -29,7 +29,7 @@ import { TableStatisticsChartComponent } from './table-statistics-chart.componen
 import { HasPermissionDirective } from '../../core/directives/has-permission.directive';
 import { RbacService } from '../../core/auth/rbac.service';
 import { SyncJobService } from '../../core/services/sync-job.service';
-import { ActivatedRoute } from '@angular/router';
+import { ActivatedRoute, RouterModule } from '@angular/router';
 
 @Component({
   selector: 'app-catalog-explorer',
@@ -37,6 +37,7 @@ import { ActivatedRoute } from '@angular/router';
   imports: [
     CommonModule,
     FormsModule,
+    RouterModule,
     ScrollingModule,
     InlineDescEditorComponent,
     DriftBannerComponent,
@@ -178,6 +179,7 @@ export class CatalogExplorerComponent implements OnInit {
   // Toast Notification
   toastMessage = signal<string | null>(null);
   toastType = signal<'success' | 'error' | 'info'>('success');
+  toastSyncLink = signal<boolean>(false);
 
   // Inline Owner Editor
   isEditingOwner = signal<boolean>(false);
@@ -323,9 +325,11 @@ export class CatalogExplorerComponent implements OnInit {
     event.stopPropagation();
     this.syncJobService.triggerSync(conn.id).subscribe({
       next: () => {
+        this.toastSyncLink.set(true);
         this.showToast(`همگام‌سازی متادیتا برای پایگاه داده «${conn.name}» آغاز شد.`, 'success');
       },
       error: (err: unknown) => {
+        this.toastSyncLink.set(false);
         const msg = err instanceof Error ? err.message : `خطا در آغاز همگام‌سازی پایگاه داده «${conn.name}»`;
         this.showToast(msg, 'error');
       },

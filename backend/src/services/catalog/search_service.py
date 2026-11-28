@@ -555,6 +555,8 @@ class SearchService:
                 "is_nullable": col.is_nullable,
                 "is_primary_key": col.is_primary_key,
                 "is_foreign_key": col.is_foreign_key,
+                "referenced_table": col.referenced_table,
+                "referenced_column": col.referenced_column,
                 "default_value": col.default_value,
                 "source_description": col.source_description,
                 "approved_description": col.approved_description,

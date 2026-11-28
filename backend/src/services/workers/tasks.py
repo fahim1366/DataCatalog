@@ -4,6 +4,7 @@ import asyncio
 import concurrent.futures
 from datetime import datetime, timezone
 import logging
+import re
 import time
 from typing import Any, Dict, List, Optional, Union
 import uuid
@@ -35,6 +36,13 @@ from backend.src.services.ingestion.bulk_ingestion_service import bulk_ingestion
 from backend.src.services.workers.circuit_breaker import circuit_breaker_manager
 
 logger = logging.getLogger(__name__)
+
+
+def _sanitize_error_text(raw: Any) -> str:
+    """Strips embedded URI credentials (://user:pass@) from error strings."""
+    if raw is None:
+        return ""
+    return re.sub(r"://([^:@/\s]*):([^/\s]+)@", r"://\1:***@", str(raw))
 
 
 def _run_coroutine(coro):
@@ -232,12 +240,13 @@ async def execute_metadata_sync(
                         logger.debug("Collation extraction skipped: %s", col_err)
                     extractions = await connector.extract_all_schemas()
             except Exception as exc:
+                sanitized_exc = _sanitize_error_text(exc)
                 now = datetime.now(timezone.utc)
                 job.status = SyncJobStatus.FAILED.value
                 job.completed_at = now
                 job.duration_ms = max(int((now - job.started_at).total_seconds() * 1000), 0)
-                job.error_message = f"Extraction failed: {str(exc)}"
-                job.error_trace_jsonb = {"connector_error": str(exc)}
+                job.error_message = f"Extraction failed: {sanitized_exc}"
+                job.error_trace_jsonb = {"connector_error": sanitized_exc, "exception_type": type(exc).__name__}
                 if job.schedule:
                     circuit_breaker_manager.record_failure(job.schedule, error_message=job.error_message)
                     await sess.commit()
@@ -279,24 +288,36 @@ async def execute_metadata_sync(
                 total_tables_scanned += len(ext.tables)
                 total_columns_scanned += len(ext.columns)
 
+                fk_map = {
+                    (fk.table_name, fk.column_name): (fk.foreign_table_name, fk.foreign_column_name)
+                    for fk in ext.foreign_keys
+                }
+
                 table_payloads: List[IngestTablePayload] = []
                 for t in ext.tables:
-                    cols = [
-                        IngestColumnPayload(
-                            name=c.name,
-                            ordinal_position=c.ordinal_position,
-                            data_type=c.data_type,
-                            raw_data_type=c.raw_data_type,
-                            collation=c.collation,
-                            is_nullable=c.is_nullable,
-                            is_primary_key=c.is_primary_key,
-                            is_foreign_key=c.is_foreign_key,
-                            default_value=c.default_value,
-                            source_description=c.source_description,
+                    cols = []
+                    for c in ext.columns:
+                        if c.table_name != t.name:
+                            continue
+                        fk_target = fk_map.get((c.table_name, c.name))
+                        ref_table = c.referenced_table or (fk_target[0] if fk_target else None)
+                        ref_col = c.referenced_column or (fk_target[1] if fk_target else None)
+                        cols.append(
+                            IngestColumnPayload(
+                                name=c.name,
+                                ordinal_position=c.ordinal_position,
+                                data_type=c.data_type,
+                                raw_data_type=c.raw_data_type,
+                                collation=c.collation,
+                                is_nullable=c.is_nullable,
+                                is_primary_key=c.is_primary_key,
+                                is_foreign_key=c.is_foreign_key or (fk_target is not None),
+                                referenced_table=ref_table,
+                                referenced_column=ref_col,
+                                default_value=c.default_value,
+                                source_description=c.source_description,
+                            )
                         )
-                        for c in ext.columns
-                        if c.table_name == t.name
-                    ]
 
                     table_type_val = TableType.TABLE
                     try:
@@ -425,8 +446,9 @@ async def execute_metadata_sync(
                 "failed_schemas": failed_schemas,
                 "error_message": job.error_message,
             }
-        except Exception as exc:
-            logger.exception("Unexpected error during execute_metadata_sync for job %s: %s", job_uuid, exc)
+        except BaseException as exc:
+            sanitized_err = _sanitize_error_text(exc)
+            logger.exception("Unexpected error during execute_metadata_sync for job %s: %s", job_uuid, sanitized_err)
             try:
                 await sess.rollback()
                 stmt_re = select(SyncJob).where(SyncJob.id == job_uuid)
@@ -438,8 +460,11 @@ async def execute_metadata_sync(
                     current_job.completed_at = now
                     if current_job.started_at:
                         current_job.duration_ms = max(int((now - current_job.started_at).total_seconds() * 1000), 0)
-                    current_job.error_message = f"Sync failed with unexpected error: {str(exc)}"
-                    current_job.error_trace_jsonb = {"unhandled_exception": str(exc)}
+                    current_job.error_message = f"Sync failed with unexpected error: {sanitized_err}"
+                    current_job.error_trace_jsonb = {
+                        "unhandled_exception": sanitized_err,
+                        "exception_type": type(exc).__name__,
+                    }
                     await sess.commit()
                     logger.info("Marked SyncJob %s as FAILED after unexpected error", job_uuid)
                     await circuit_breaker_manager.record_job_outcome(
@@ -447,10 +472,12 @@ async def execute_metadata_sync(
                     )
             except Exception as commit_err:
                 logger.error("Failed to commit FAILED state for job %s: %s", job_uuid, commit_err)
+            if isinstance(exc, (KeyboardInterrupt, SystemExit)):
+                raise
             return {
                 "success": False,
                 "status": SyncJobStatus.FAILED.value,
-                "error": str(exc),
+                "error": sanitized_err,
                 "job_id": str(job_uuid),
             }
 

@@ -48,3 +48,38 @@ export interface DiffSideBySideRow {
   }[];
 }
 
+export interface DatabaseSnapshotPoint {
+  timestamp: string;
+  label: string;
+  source: 'SYNC_JOB' | 'SNAPSHOT' | string;
+  sync_job_id?: string | null;
+  tables_count: number;
+  changes_count: number;
+}
+
+export type TableChangeStatus = 'ADDED' | 'DROPPED' | 'MODIFIED';
+
+export interface DatabaseTableDiffItem {
+  table_id: string;
+  schema_name: string;
+  table_name: string;
+  change_status: TableChangeStatus;
+  v1_version_num?: number | null;
+  v2_version_num?: number | null;
+  added_columns: ColumnSnapshot[];
+  removed_columns: ColumnSnapshot[];
+  modified_columns: ModifiedColumnItem[];
+}
+
+export interface DatabaseVersionDiffResponse {
+  connection_id: string;
+  v1_ts: string;
+  v2_ts: string;
+  added_tables_count: number;
+  dropped_tables_count: number;
+  modified_tables_count: number;
+  unchanged_tables_count: number;
+  total_column_changes: number;
+  tables: DatabaseTableDiffItem[];
+}
+

@@ -10,16 +10,13 @@
 }
 
 .schedule-management-view,
-.schedule-management-view *,
 .schedule-management-view button,
 .schedule-management-view input,
 .schedule-management-view select,
 .schedule-management-view textarea,
 .schedule-management-view table,
 .schedule-management-view th,
-.schedule-management-view td,
-.schedule-management-view code,
-.schedule-management-view pre {
+.schedule-management-view td {
   font-family: inherit;
 }
 
@@ -292,6 +289,12 @@
 }
 .category-icon {
   font-size: 13px;
+}
+.text-warning {
+  color: #f59e0b !important;
+}
+.text-primary {
+  color: #6366f1 !important;
 }
 .category-name {
   flex: 1;
@@ -843,4 +846,84 @@
   to {
     transform: rotate(360deg);
   }
+}
+
+/* --- Batch Selection & Tree Checkboxes --- */
+.batch-selection-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  font-size: 12px;
+}
+.btn-batch-link {
+  background: transparent;
+  border: none;
+  color: #2563eb;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 2px 4px;
+  font-size: 12px;
+}
+.btn-batch-link:disabled {
+  color: #94a3b8;
+  cursor: not-allowed;
+}
+.batch-sep {
+  color: #cbd5e1;
+}
+.batch-count-pill {
+  margin-right: auto;
+  background: #dbeafe;
+  color: #1d4ed8;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-weight: 700;
+  font-size: 11px;
+}
+.tree-node-checkbox {
+  width: 15px;
+  height: 15px;
+  accent-color: #2563eb;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.batch-schedule-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 16px;
+  margin-bottom: 16px;
+  background: #eff6ff;
+  border-color: #bfdbfe;
+}
+.batch-banner-info {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.batch-banner-badge {
+  background: #2563eb;
+  color: #ffffff;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+}
+.batch-banner-text {
+  font-size: 13px;
+  color: #1e3a8a;
+}
+.btn-batch-save {
+  background-color: #059669;
+  color: #ffffff;
+  border: none;
+}
+.btn-batch-save:hover:not(:disabled) {
+  background-color: #047857;
 }

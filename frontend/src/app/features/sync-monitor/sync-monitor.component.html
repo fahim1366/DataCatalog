@@ -167,7 +167,7 @@
             </div>
 
             <div class="queue-items-grid">
-              @for (job of queueStatus()!.queued_jobs; track job.id) {
+              @for (job of paginatedQueuedJobs(); track job.id) {
                 <div class="queue-job-item item-queued" [class.item-promoted]="(job.priority || 0) >= 10">
                   <div class="queue-position-badge">
                     <span class="pos-num">نوبت {{ job.queue_position }}</span>
@@ -222,6 +222,15 @@
                 </div>
               }
             </div>
+
+            <app-pagination
+              [totalItems]="queueStatus()!.queued_jobs.length"
+              [currentPage]="queueCurrentPage()"
+              [pageSize]="queuePageSize()"
+              [pageSizes]="[5, 10, 20, 50]"
+              (pageChange)="queueCurrentPage.set($event)"
+              (pageSizeChange)="onQueuePageSizeChange($event)"
+            ></app-pagination>
           </div>
         }
       }
@@ -281,9 +290,9 @@
               </td>
             </tr>
           } @else {
-            @for (job of jobs(); track job.id; let idx = $index) {
+            @for (job of paginatedJobs(); track job.id; let idx = $index) {
               <tr class="sync-job-row" [class.row-failed]="job.status === 'FAILED'" [class.row-partial]="job.status === 'PARTIAL_FAILURE'">
-                <td class="td-num text-muted">{{ idx + 1 }}</td>
+                <td class="td-num text-muted">{{ (currentPage() - 1) * pageSize() + idx + 1 }}</td>
                 <td>
                   <span class="mono-font fw-bold" [title]="job.id">{{ job.id.substring(0, 8) }}...</span>
                 </td>
@@ -395,6 +404,15 @@
         </tbody>
       </table>
     </div>
+
+    <app-pagination
+      [totalItems]="jobs().length"
+      [currentPage]="currentPage()"
+      [pageSize]="pageSize()"
+      [pageSizes]="[10, 20, 50]"
+      (pageChange)="currentPage.set($event)"
+      (pageSizeChange)="onPageSizeChange($event)"
+    ></app-pagination>
   </div>
 
   <!-- Diagnostic Drawer / Modal -->

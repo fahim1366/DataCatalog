@@ -16,6 +16,8 @@ class IngestColumnPayload(BaseModel):
     is_nullable: bool = True
     is_primary_key: bool = False
     is_foreign_key: bool = False
+    referenced_table: Optional[str] = Field(None, max_length=255)
+    referenced_column: Optional[str] = Field(None, max_length=255)
     default_value: Optional[str] = None
     source_description: Optional[str] = None
     classification_level: ClassificationLevel = ClassificationLevel.INTERNAL

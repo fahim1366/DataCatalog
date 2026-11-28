@@ -9,6 +9,7 @@ import {
 import { CommonModule } from '@angular/common';
 import { FormsModule, ReactiveFormsModule, FormBuilder, Validators } from '@angular/forms';
 import { HttpClient } from '@angular/common/http';
+import { Router } from '@angular/router';
 import { forkJoin } from 'rxjs';
 import { cronValidator } from '../connections/validators/cron.validator';
 import { DatabaseConnection } from '../connections/models/connection.models';
@@ -67,6 +68,7 @@ export interface CronPreset {
 export class ScheduleManagementComponent implements OnInit {
   private readonly http = inject(HttpClient);
   private readonly fb = inject(FormBuilder);
+  private readonly router = inject(Router);
 
   // States
   readonly isLoadingTree = signal<boolean>(false);
@@ -80,17 +82,26 @@ export class ScheduleManagementComponent implements OnInit {
 
   // Unified quick search & engine filter (matching DbUserMonitorComponent)
   readonly quickTreeSearch = signal<string>('');
+  readonly hostTreeSearch = signal<string>('');
   readonly filterEngineType = signal<string>('');
+
+  // Multi-select checkboxes for batch scheduling
+  readonly selectedConnectionIds = signal<Set<string>>(new Set<string>());
+  readonly isBatchSaving = signal<boolean>(false);
 
   // Tree expansion state
   readonly expandedCategoryIds = signal<Set<string>>(new Set<string>());
 
   // Check whether any tree filter is active
   readonly hasActiveTreeFilters = computed<boolean>(() => {
-    return Boolean(this.quickTreeSearch().trim() || this.filterEngineType());
+    return Boolean(
+      this.quickTreeSearch().trim() ||
+        this.hostTreeSearch().trim() ||
+        this.filterEngineType()
+    );
   });
 
-  // Predicate to verify if a connection matches unified quick search and engine filter
+  // Predicate to verify if a connection matches unified quick search, host/IP, and engine filter
   matchesConnection(conn: DatabaseConnection): boolean {
     const q = this.quickTreeSearch().trim().toLowerCase();
     if (q) {
@@ -102,6 +113,11 @@ export class ScheduleManagementComponent implements OnInit {
       if (!matchesText) {
         return false;
       }
+    }
+
+    const hostQ = this.hostTreeSearch().trim().toLowerCase();
+    if (hostQ && !conn.host.toLowerCase().includes(hostQ)) {
+      return false;
     }
 
     const engine = this.filterEngineType();
@@ -369,7 +385,113 @@ export class ScheduleManagementComponent implements OnInit {
 
   clearTreeFilters(): void {
     this.quickTreeSearch.set('');
+    this.hostTreeSearch.set('');
     this.filterEngineType.set('');
+  }
+
+  // ───── Hierarchical Tree Multi-Select Checkboxes ─────
+  collectNodeConnectionIds(node: DbTreeCategoryNode): string[] {
+    const ids = node.connections.map((c) => c.id);
+    for (const child of node.children) {
+      ids.push(...this.collectNodeConnectionIds(child));
+    }
+    return ids;
+  }
+
+  isCategoryChecked(node: DbTreeCategoryNode): boolean {
+    const ids = this.collectNodeConnectionIds(node);
+    if (ids.length === 0) return false;
+    const selected = this.selectedConnectionIds();
+    return ids.every((id) => selected.has(id));
+  }
+
+  isCategoryIndeterminate(node: DbTreeCategoryNode): boolean {
+    const ids = this.collectNodeConnectionIds(node);
+    if (ids.length === 0) return false;
+    const selected = this.selectedConnectionIds();
+    const count = ids.filter((id) => selected.has(id)).length;
+    return count > 0 && count < ids.length;
+  }
+
+  toggleCategorySelection(node: DbTreeCategoryNode, event: Event): void {
+    event.stopPropagation();
+    const ids = this.collectNodeConnectionIds(node);
+    if (ids.length === 0) return;
+    const next = new Set(this.selectedConnectionIds());
+    const allSelected = ids.every((id) => next.has(id));
+    if (allSelected) {
+      ids.forEach((id) => next.delete(id));
+    } else {
+      ids.forEach((id) => next.add(id));
+    }
+    this.selectedConnectionIds.set(next);
+  }
+
+  isConnectionChecked(connectionId: string): boolean {
+    return this.selectedConnectionIds().has(connectionId);
+  }
+
+  toggleConnectionSelection(connectionId: string, event: Event): void {
+    event.stopPropagation();
+    const next = new Set(this.selectedConnectionIds());
+    if (next.has(connectionId)) {
+      next.delete(connectionId);
+    } else {
+      next.add(connectionId);
+    }
+    this.selectedConnectionIds.set(next);
+  }
+
+  selectAllVisible(): void {
+    const next = new Set(this.selectedConnectionIds());
+    for (const root of this.displayTree()) {
+      this.collectNodeConnectionIds(root).forEach((id) => next.add(id));
+    }
+    const uncat = this.uncategorizedNode();
+    if (uncat) {
+      this.collectNodeConnectionIds(uncat).forEach((id) => next.add(id));
+    }
+    this.selectedConnectionIds.set(next);
+  }
+
+  clearSelection(): void {
+    this.selectedConnectionIds.set(new Set<string>());
+  }
+
+  saveBatchSchedule(): void {
+    const selectedIds = Array.from(this.selectedConnectionIds());
+    if (selectedIds.length === 0 || this.scheduleForm.invalid) {
+      this.scheduleForm.markAllAsTouched();
+      return;
+    }
+
+    this.isBatchSaving.set(true);
+    const payload = {
+      connection_ids: selectedIds,
+      cron_expression: (this.scheduleForm.controls.cron_expression.value || '0 2 * * *').trim(),
+      is_enabled: this.scheduleForm.controls.is_enabled.value ?? true,
+    };
+
+    this.http
+      .post<{ updated_count: number; cron_expression: string; is_enabled: boolean }>(
+        '/api/v1/connections/batch-schedule',
+        payload
+      )
+      .subscribe({
+        next: (res) => {
+          this.isBatchSaving.set(false);
+          this.showToast(
+            `زمان‌بندی گروهی برای ${res.updated_count} پایگاه داده با موفقیت ذخیره شد.`,
+            'success'
+          );
+          this.router.navigate(['/sync-monitor']);
+        },
+        error: (err) => {
+          this.isBatchSaving.set(false);
+          const msg = err?.error?.detail || 'خطا در ذخیره زمان‌بندی گروهی';
+          this.showToast(msg, 'error');
+        },
+      });
   }
 
   selectConnection(conn: DatabaseConnection, categoryName?: string): void {

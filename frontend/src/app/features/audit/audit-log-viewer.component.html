@@ -168,7 +168,7 @@
         (scrolledIndexChange)="onScroll($event)"
       >
         <div
-          *cdkVirtualFor="let item of items(); trackBy: trackById"
+          *cdkVirtualFor="let item of paginatedItems(); trackBy: trackById"
           class="audit-row"
           (click)="inspectPayload(item)"
           tabindex="0"
@@ -218,6 +218,15 @@
         }
       </cdk-virtual-scroll-viewport>
     }
+
+    <app-pagination
+      [totalItems]="items().length"
+      [currentPage]="currentPage()"
+      [pageSize]="pageSize()"
+      [pageSizes]="[10, 20, 50, 100]"
+      (pageChange)="currentPage.set($event)"
+      (pageSizeChange)="onPageSizeChange($event)"
+    ></app-pagination>
   </div>
 
   <!-- Detail Inspection Drawer / Modal -->

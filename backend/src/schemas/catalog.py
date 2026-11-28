@@ -90,6 +90,8 @@ class ColumnItem(BaseModel):
     is_nullable: bool
     is_primary_key: bool
     is_foreign_key: bool
+    referenced_table: Optional[str] = None
+    referenced_column: Optional[str] = None
     default_value: Optional[str] = None
     source_description: Optional[str] = None
     approved_description: Optional[str] = None

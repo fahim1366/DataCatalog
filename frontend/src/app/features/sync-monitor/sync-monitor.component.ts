@@ -23,11 +23,12 @@ import {
 import { ConnectionService } from "../connections/services/connection.service";
 import { DatabaseConnection } from "../connections/models/connection.models";
 import { SyncJobDiagnosticModalComponent } from "./sync-job-diagnostic-modal.component";
+import { PaginationComponent } from "../../shared/components/pagination/pagination.component";
 
 @Component({
   selector: "app-sync-monitor",
   standalone: true,
-  imports: [FormsModule, SyncJobDiagnosticModalComponent],
+  imports: [FormsModule, SyncJobDiagnosticModalComponent, PaginationComponent],
   templateUrl: "./sync-monitor.component.html",
   styleUrls: ["./sync-monitor.component.css"],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -47,11 +48,43 @@ export class SyncMonitorComponent implements OnInit, OnDestroy {
   readonly errorMessage = signal<string | null>(null);
   readonly successMessage = signal<string | null>(null);
   readonly retryingJobId = signal<string | null>(null);
+  readonly currentPage = signal<number>(1);
+  readonly pageSize = signal<number>(10);
+
+  readonly paginatedJobs = computed<SyncJobResponse[]>(() => {
+    const all = this.jobs();
+    const size = this.pageSize();
+    const totalPages = Math.max(1, Math.ceil(all.length / size));
+    const safePage = Math.min(Math.max(1, this.currentPage()), totalPages);
+    const start = (safePage - 1) * size;
+    return all.slice(start, start + size);
+  });
+
+  onPageSizeChange(newSize: number): void {
+    this.pageSize.set(newSize);
+    this.currentPage.set(1);
+  }
 
   // Live Queue & Out-of-order execution states
   readonly queueStatus = signal<SyncQueueStatusResponse | null>(null);
+  readonly queueCurrentPage = signal<number>(1);
+  readonly queuePageSize = signal<number>(5);
   readonly isExpeditingJobId = signal<string | null>(null);
   readonly isCancellingJobId = signal<string | null>(null);
+
+  readonly paginatedQueuedJobs = computed<SyncJobQueueItem[]>(() => {
+    const all = this.queueStatus()?.queued_jobs ?? [];
+    const size = this.queuePageSize();
+    const totalPages = Math.max(1, Math.ceil(all.length / size));
+    const safePage = Math.min(Math.max(1, this.queueCurrentPage()), totalPages);
+    const start = (safePage - 1) * size;
+    return all.slice(start, start + size);
+  });
+
+  onQueuePageSizeChange(newSize: number): void {
+    this.queuePageSize.set(newSize);
+    this.queueCurrentPage.set(1);
+  }
 
   // Batch Expedite Modal state
   readonly showBatchModal = signal<boolean>(false);
@@ -95,6 +128,10 @@ export class SyncMonitorComponent implements OnInit, OnDestroy {
 
   ngOnInit(): void {
     this.startPolling();
+    this.syncJobService.syncTriggered$.pipe(takeUntil(this.destroy$)).subscribe(() => {
+      this.fetchJobsOnce();
+      this.fetchQueueOnce();
+    });
   }
 
   ngOnDestroy(): void {

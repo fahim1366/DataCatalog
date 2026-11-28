@@ -1,3 +1,378 @@
+@if (!isEmbeddedTableMode()) {
+  <div class="db-versions-page" dir="rtl">
+    <header class="db-page-header">
+      <div class="header-titles">
+        <h1 class="db-page-title">مقایسه نسخه‌های اسکیما در سطح پایگاه‌داده</h1>
+        <p class="db-page-subtitle">
+          انتخاب پایگاه داده از درختواره و مقایسه تغییرات ساختاری جداول و ستون‌ها بین دو نقطه زمانی
+        </p>
+      </div>
+    </header>
+
+    <div class="db-split-container">
+      <!-- Right Sidebar: Category -> Database Tree -->
+      <aside class="sidebar-tree-pane card">
+        <div class="pane-header">
+          <div class="pane-title-group">
+            <i class="pi pi-sitemap pane-icon"></i>
+            <h2 class="pane-title">درختواره پایگاه‌های داده</h2>
+          </div>
+          <span class="pane-badge">{{ totalFilteredDatabasesCount() }} پایگاه داده</span>
+        </div>
+
+        <div class="tree-filter-panel">
+          <div class="filter-input-group">
+            <i class="pi pi-search input-icon"></i>
+            <input
+              type="text"
+              class="sidebar-filter-input"
+              placeholder="نام اتصال یا دیتابیس..."
+              [ngModel]="quickTreeSearch()"
+              (ngModelChange)="quickTreeSearch.set($event)"
+            />
+          </div>
+
+          <div class="filter-row">
+            <input
+              type="text"
+              class="sidebar-filter-input td-ltr"
+              placeholder="IP / هاست..."
+              [ngModel]="hostTreeSearch()"
+              (ngModelChange)="hostTreeSearch.set($event)"
+            />
+            <select
+              class="sidebar-filter-select"
+              [ngModel]="filterEngineType()"
+              (ngModelChange)="filterEngineType.set($event)"
+            >
+              <option value="">همه موتورها</option>
+              <option value="POSTGRESQL">PostgreSQL</option>
+              <option value="MSSQL">MSSQL</option>
+              <option value="ORACLE">Oracle</option>
+              <option value="MYSQL">MySQL</option>
+              <option value="CLICKHOUSE">ClickHouse</option>
+              <option value="MONGODB">MongoDB</option>
+            </select>
+
+            @if (hasActiveTreeFilters()) {
+              <button
+                type="button"
+                class="btn-clear-tree-filters"
+                (click)="clearTreeFilters()"
+                title="پاکسازی فیلترها"
+              >
+                پاکسازی
+              </button>
+            }
+          </div>
+        </div>
+
+        <div class="tree-scroll-container">
+          @if (isLoadingTree()) {
+            <div class="tree-loading">
+              <div class="spinner"></div>
+              <span>در حال بارگذاری درختواره...</span>
+            </div>
+          } @else if (displayTree().length === 0 && !uncategorizedNode()) {
+            <div class="tree-empty">
+              <span>پایگاه داده‌ای با این فیلترها یافت نشد.</span>
+            </div>
+          } @else {
+            <ng-template #catBranch let-nodes="nodes">
+              @for (cat of nodes; track cat.id) {
+                <div class="tree-category-group">
+                  <button
+                    type="button"
+                    class="tree-category-btn"
+                    (click)="toggleCategory(cat.id)"
+                  >
+                    <span class="cat-chevron">{{ isCategoryExpanded(cat.id) ? '▾' : '◂' }}</span>
+                    <span class="cat-name">{{ cat.name }}</span>
+                    <span class="cat-count">{{ cat.totalDatabasesCount }}</span>
+                  </button>
+
+                  @if (isCategoryExpanded(cat.id)) {
+                    <div class="tree-category-children">
+                      @for (conn of cat.connections; track conn.id) {
+                        <button
+                          type="button"
+                          class="tree-db-item"
+                          [class.active]="selectedConnection()?.id === conn.id"
+                          (click)="selectConnection(conn)"
+                        >
+                          <span class="db-engine-tag">{{ conn.engine_type }}</span>
+                          <span class="db-item-info">
+                            <span class="db-item-name">{{ conn.name }}</span>
+                            <span class="db-item-host mono-font" dir="ltr">{{ conn.host }}:{{ conn.port }}</span>
+                          </span>
+                        </button>
+                      }
+                      @if (cat.children.length > 0) {
+                        <ng-container
+                          *ngTemplateOutlet="catBranch; context: { nodes: cat.children }"
+                        ></ng-container>
+                      }
+                    </div>
+                  }
+                </div>
+              }
+            </ng-template>
+
+            <ng-container
+              *ngTemplateOutlet="catBranch; context: { nodes: displayTree() }"
+            ></ng-container>
+
+            @if (uncategorizedNode(); as uncat) {
+              <ng-container
+                *ngTemplateOutlet="catBranch; context: { nodes: [uncat] }"
+              ></ng-container>
+            }
+          }
+        </div>
+      </aside>
+
+      <!-- Main Area: Database Version Comparison -->
+      <main class="db-diff-main card">
+        @if (!selectedConnection()) {
+          <div class="diff-empty-state">
+            <h4>یک پایگاه داده انتخاب کنید</h4>
+            <p>برای مشاهده و مقایسه تغییرات اسکیما، یک پایگاه داده را از درختواره سمت راست انتخاب نمایید.</p>
+          </div>
+        } @else {
+          <div class="db-selected-header">
+            <div class="db-selected-meta">
+              <h2 class="db-selected-title">{{ selectedConnection()!.name }}</h2>
+              <span class="db-engine-pill">{{ selectedConnection()!.engine_type }}</span>
+              <span class="db-host-pill mono-font" dir="ltr">
+                {{ selectedConnection()!.host }}:{{ selectedConnection()!.port }} / {{ selectedConnection()!.database_name }}
+              </span>
+            </div>
+          </div>
+
+          <div class="version-selector-toolbar">
+            <div class="toolbar-group">
+              <label for="db-v1-select" class="toolbar-label">نسخه / زمان مبدا:</label>
+              <select
+                id="db-v1-select"
+                class="form-select mono-font"
+                [ngModel]="selectedV1Ts()"
+                (ngModelChange)="selectedV1Ts.set($event)"
+                [disabled]="isLoadingDbSnapshots() || snapshotPoints().length === 0"
+              >
+                @for (pt of snapshotPoints(); track pt.timestamp) {
+                  <option [value]="pt.timestamp">
+                    {{ pt.timestamp | date:'yyyy-MM-dd HH:mm:ss' }} — {{ pt.label }} ({{ pt.tables_count }} جدول)
+                  </option>
+                }
+              </select>
+            </div>
+
+            <div class="toolbar-group">
+              <label for="db-v2-select" class="toolbar-label">نسخه / زمان مقصد:</label>
+              <select
+                id="db-v2-select"
+                class="form-select mono-font"
+                [ngModel]="selectedV2Ts()"
+                (ngModelChange)="selectedV2Ts.set($event)"
+                [disabled]="isLoadingDbSnapshots() || snapshotPoints().length === 0"
+              >
+                @for (pt of snapshotPoints(); track pt.timestamp) {
+                  <option [value]="pt.timestamp">
+                    {{ pt.timestamp | date:'yyyy-MM-dd HH:mm:ss' }} — {{ pt.label }} ({{ pt.tables_count }} جدول)
+                  </option>
+                }
+              </select>
+            </div>
+
+            <div class="toolbar-group">
+              <label for="db-table-filter" class="toolbar-label">فیلتر جدول (اختیاری):</label>
+              <input
+                id="db-table-filter"
+                type="text"
+                class="form-select"
+                placeholder="نام جدول یا اسکیما..."
+                [ngModel]="tableFilterTerm()"
+                (ngModelChange)="tableFilterTerm.set($event)"
+              />
+            </div>
+
+            <div class="toolbar-group toolbar-btn-group">
+              <button
+                type="button"
+                class="btn-compare"
+                (click)="triggerDatabaseComparison()"
+                [disabled]="isLoadingDbDiff() || !selectedV1Ts() || !selectedV2Ts()"
+              >
+                🔄 مقایسه تغییرات
+              </button>
+            </div>
+          </div>
+
+          @if (isLoadingDbSnapshots() || isLoadingDbDiff()) {
+            <div class="diff-loading-state" role="status">
+              <div class="spinner"></div>
+              <span>در حال تحلیل و مقایسه اسکیمای پایگاه داده...</span>
+            </div>
+          } @else if (dbErrorMessage()) {
+            <div class="diff-error-banner" role="alert">
+              <span class="error-icon">⚠</span>
+              <span>{{ dbErrorMessage() }}</span>
+            </div>
+          } @else if (snapshotPoints().length === 0) {
+            <div class="diff-empty-state">
+              <h4>اسنپ‌شاتی برای این پایگاه داده ثبت نشده است</h4>
+              <p>پس از اجرای اولین همگام‌سازی متاداده، نقاط زمانی اسکیما در این بخش نمایش داده می‌شوند.</p>
+            </div>
+          } @else if (dbDiff(); as diff) {
+            <!-- 4 Summary KPI Cards -->
+            <div class="kpi-grid">
+              <div class="kpi-card kpi-added">
+                <span class="kpi-label">جداول اضافه‌شده</span>
+                <strong class="kpi-value">{{ diff.added_tables_count }}</strong>
+              </div>
+              <div class="kpi-card kpi-dropped">
+                <span class="kpi-label">جداول حذف‌شده</span>
+                <strong class="kpi-value">{{ diff.dropped_tables_count }}</strong>
+              </div>
+              <div class="kpi-card kpi-modified">
+                <span class="kpi-label">جداول تغییریافته</span>
+                <strong class="kpi-value">{{ diff.modified_tables_count }}</strong>
+              </div>
+              <div class="kpi-card kpi-columns">
+                <span class="kpi-label">کل تغییرات ستون‌ها</span>
+                <strong class="kpi-value">{{ diff.total_column_changes }}</strong>
+              </div>
+            </div>
+
+            <!-- Expandable Changed Tables List -->
+            @if (filteredDbDiffTables().length === 0) {
+              <div class="diff-empty-state">
+                <div class="empty-icon">✓</div>
+                <h4>تغییری بین دو زمان انتخاب‌شده یافت نشد</h4>
+                <p>ساختار جداول مجاز در هر دو نقطه زمانی یکسان است.</p>
+              </div>
+            } @else {
+              <div class="db-diff-table-wrapper">
+                <table class="db-diff-table">
+                  <thead>
+                    <tr>
+                      <th class="col-expand"></th>
+                      <th>اسکیما</th>
+                      <th>نام جدول</th>
+                      <th>وضعیت تغییر</th>
+                      <th>تغییرات ستون‌ها</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    @for (tbl of filteredDbDiffTables(); track tbl.table_id) {
+                      <tr
+                        class="db-diff-row"
+                        [class.row-added]="tbl.change_status === 'ADDED'"
+                        [class.row-dropped]="tbl.change_status === 'DROPPED'"
+                        [class.row-modified]="tbl.change_status === 'MODIFIED'"
+                        (click)="toggleTableExpand(tbl.table_id)"
+                      >
+                        <td class="col-expand">
+                          <span class="expand-chevron">{{ isTableExpanded(tbl.table_id) ? '▾' : '▸' }}</span>
+                        </td>
+                        <td class="mono-font">{{ tbl.schema_name }}</td>
+                        <td class="mono-font cell-name">{{ tbl.table_name }}</td>
+                        <td>
+                          @if (tbl.change_status === 'ADDED') {
+                            <span class="diff-badge badge-green">ADDED</span>
+                          } @else if (tbl.change_status === 'DROPPED') {
+                            <span class="diff-badge badge-red">DROPPED</span>
+                          } @else {
+                            <span class="diff-badge badge-amber">MODIFIED</span>
+                          }
+                        </td>
+                        <td>
+                          <div class="table-col-counts">
+                            @if (tbl.added_columns.length > 0) {
+                              <span class="summary-badge badge-green">+{{ tbl.added_columns.length }}</span>
+                            }
+                            @if (tbl.removed_columns.length > 0) {
+                              <span class="summary-badge badge-red">-{{ tbl.removed_columns.length }}</span>
+                            }
+                            @if (tbl.modified_columns.length > 0) {
+                              <span class="summary-badge badge-amber">~{{ tbl.modified_columns.length }}</span>
+                            }
+                          </div>
+                        </td>
+                      </tr>
+
+                      @if (isTableExpanded(tbl.table_id)) {
+                        <tr class="db-diff-detail-row">
+                          <td colspan="5" class="db-diff-detail-cell">
+                            <div class="table-detail-panel">
+                              @if (tbl.added_columns.length > 0) {
+                                <div class="detail-group">
+                                  <h5 class="detail-heading heading-added">ستون‌های اضافه‌شده ({{ tbl.added_columns.length }})</h5>
+                                  <div class="detail-col-list">
+                                    @for (col of tbl.added_columns; track col.name) {
+                                      <span class="detail-col-chip chip-added">
+                                        <span class="mono-font">{{ col.name }}</span>
+                                        <span class="type-tag">{{ col.data_type }}</span>
+                                        @if (col.is_primary_key) { <span class="pk-badge">PK</span> }
+                                        @if (col.is_foreign_key) { <span class="fk-badge">FK</span> }
+                                        @if (col.is_nullable === false) { <span class="not-null-badge">NOT NULL</span> }
+                                      </span>
+                                    }
+                                  </div>
+                                </div>
+                              }
+
+                              @if (tbl.removed_columns.length > 0) {
+                                <div class="detail-group">
+                                  <h5 class="detail-heading heading-removed">ستون‌های حذف‌شده ({{ tbl.removed_columns.length }})</h5>
+                                  <div class="detail-col-list">
+                                    @for (col of tbl.removed_columns; track col.name) {
+                                      <span class="detail-col-chip chip-removed">
+                                        <span class="mono-font">{{ col.name }}</span>
+                                        <span class="type-tag">{{ col.data_type }}</span>
+                                      </span>
+                                    }
+                                  </div>
+                                </div>
+                              }
+
+                              @if (tbl.modified_columns.length > 0) {
+                                <div class="detail-group">
+                                  <h5 class="detail-heading heading-modified">ستون‌های تغییریافته ({{ tbl.modified_columns.length }})</h5>
+                                  <div class="detail-mod-list">
+                                    @for (mod of tbl.modified_columns; track mod.column_name) {
+                                      <div class="detail-mod-row">
+                                        <span class="mono-font cell-name">{{ mod.column_name }}</span>
+                                        <div class="attribute-diffs-container">
+                                          @for (attr of getAttributeDiffs(mod); track attr.attribute) {
+                                            <span class="attribute-diff-chip">
+                                              <span class="attr-name">{{ attr.attribute }}:</span>
+                                              <span class="old-attr">{{ attr.v1_val ?? 'null' }}</span>
+                                              <span class="attr-arrow">➔</span>
+                                              <span class="new-attr">{{ attr.v2_val ?? 'null' }}</span>
+                                            </span>
+                                          }
+                                        </div>
+                                      </div>
+                                    }
+                                  </div>
+                                </div>
+                              }
+                            </div>
+                          </td>
+                        </tr>
+                      }
+                    }
+                  </tbody>
+                </table>
+              </div>
+            }
+          }
+        }
+      </main>
+    </div>
+  </div>
+} @else {
 <div class="version-diff-container">
   <!-- Top Selector Toolbar for Standalone Version Comparison -->
   @if (availableTables().length > 0) {
@@ -359,3 +734,4 @@
     }
   }
 </div>
+}

@@ -15,8 +15,9 @@ import { DatabaseConnection } from '../../connections/models/connection.models';
 import { CategoryTreeNode } from '../../catalog/models/catalog.models';
 import { DbUserService } from '../services/db-user.service';
 import { DatabaseUserItem } from '../models/db-user.models';
+import { PaginationComponent } from '../../../shared/components/pagination/pagination.component';
 
-export type UserFilterType = 'ALL' | 'LOGIN' | 'ROLES';
+export type UserFilterType = 'ALL' | 'ACTIVE';
 
 export interface DbTreeCategoryNode {
   id: string;
@@ -32,7 +33,7 @@ export interface DbTreeCategoryNode {
 @Component({
   selector: 'app-db-user-monitor',
   standalone: true,
-  imports: [CommonModule, FormsModule, RouterModule],
+  imports: [CommonModule, FormsModule, RouterModule, PaginationComponent],
   templateUrl: './db-user-monitor.component.html',
   styleUrls: ['./db-user-monitor.component.css'],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -51,8 +52,9 @@ export class DbUserMonitorComponent implements OnInit {
   isLoadingConnections = signal<boolean>(false);
   selectedConnection = signal<DatabaseConnection | null>(null);
 
-  // Unified quick search + engine filter
+  // Unified quick search + host/IP + engine filter
   quickTreeSearch = signal<string>('');
+  hostTreeSearch = signal<string>('');
   filterEngineType = signal<string>('');
 
   // Tree expansion state
@@ -65,13 +67,24 @@ export class DbUserMonitorComponent implements OnInit {
   unsupportedEngineMessage = signal<string | null>(null);
   userSearchQuery = signal<string>('');
   userTypeFilter = signal<UserFilterType>('ALL');
+  currentPage = signal<number>(1);
+  pageSize = signal<number>(10);
+
+  // Only actual login users (can_login === true) are displayed in table and stats
+  loginOnlyUsers = computed<DatabaseUserItem[]>(() => {
+    return this.users().filter((u) => u.can_login === true);
+  });
 
   // Check whether any tree filter is active
   hasActiveTreeFilters = computed<boolean>(() => {
-    return Boolean(this.quickTreeSearch().trim() || this.filterEngineType());
+    return Boolean(
+      this.quickTreeSearch().trim() ||
+        this.hostTreeSearch().trim() ||
+        this.filterEngineType()
+    );
   });
 
-  // Predicate to verify if a connection matches unified quick search and engine filter
+  // Predicate to verify if a connection matches unified quick search, host/IP, and engine filter
   matchesConnection(conn: DatabaseConnection): boolean {
     const q = this.quickTreeSearch().trim().toLowerCase();
     if (q) {
@@ -83,6 +96,11 @@ export class DbUserMonitorComponent implements OnInit {
       if (!matchesText) {
         return false;
       }
+    }
+
+    const hostQ = this.hostTreeSearch().trim().toLowerCase();
+    if (hostQ && !conn.host.toLowerCase().includes(hostQ)) {
+      return false;
     }
 
     const engine = this.filterEngineType();
@@ -257,19 +275,18 @@ export class DbUserMonitorComponent implements OnInit {
   // Resets tree search and engine filters
   clearTreeFilters(): void {
     this.quickTreeSearch.set('');
+    this.hostTreeSearch.set('');
     this.filterEngineType.set('');
   }
 
-  // Filtered users list with clarified filter pills
+  // Filtered login users list
   filteredUsers = computed<DatabaseUserItem[]>(() => {
     const query = this.userSearchQuery().trim().toLowerCase();
     const filter = this.userTypeFilter();
-    let list = this.users();
+    let list = this.loginOnlyUsers();
 
-    if (filter === 'LOGIN') {
-      list = list.filter((u) => u.can_login);
-    } else if (filter === 'ROLES') {
-      list = list.filter((u) => !u.can_login);
+    if (filter === 'ACTIVE') {
+      list = list.filter((u) => (u.active_sessions || 0) > 0);
     }
 
     if (query) {
@@ -283,16 +300,40 @@ export class DbUserMonitorComponent implements OnInit {
     return list;
   });
 
-  // Counts for summary pills
+  // Paginated slice of filteredUsers
+  paginatedUsers = computed<DatabaseUserItem[]>(() => {
+    const list = this.filteredUsers();
+    const size = this.pageSize();
+    const totalPages = Math.max(1, Math.ceil(list.length / size));
+    const safePage = Math.min(Math.max(1, this.currentPage()), totalPages);
+    const start = (safePage - 1) * size;
+    return list.slice(start, start + size);
+  });
+
+  // Counts for summary pills (login users only)
   userStats = computed(() => {
-    const all = this.users();
+    const loginUsers = this.loginOnlyUsers();
     return {
-      total: all.length,
-      loginUsers: all.filter((u) => u.can_login).length,
-      roles: all.filter((u) => !u.can_login).length,
-      activeSessions: all.reduce((acc, u) => acc + (u.active_sessions || 0), 0),
+      total: loginUsers.length,
+      activeUsers: loginUsers.filter((u) => (u.active_sessions || 0) > 0).length,
+      activeSessions: loginUsers.reduce((acc, u) => acc + (u.active_sessions || 0), 0),
     };
   });
+
+  onUserSearchChange(val: string): void {
+    this.userSearchQuery.set(val);
+    this.currentPage.set(1);
+  }
+
+  onUserFilterChange(filter: UserFilterType): void {
+    this.userTypeFilter.set(filter);
+    this.currentPage.set(1);
+  }
+
+  onPageSizeChange(newSize: number): void {
+    this.pageSize.set(newSize);
+    this.currentPage.set(1);
+  }
 
   ngOnInit(): void {
     this.loadData();
@@ -346,6 +387,7 @@ export class DbUserMonitorComponent implements OnInit {
   loadUsers(connectionId: string): void {
     this.isLoadingUsers.set(true);
     this.users.set([]);
+    this.currentPage.set(1);
     this.isUnsupportedEngine.set(false);
     this.unsupportedEngineMessage.set(null);
     this.errorMessage.set(null);

@@ -1,6 +1,7 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
+import { provideRouter, Router } from '@angular/router';
 import { By } from '@angular/platform-browser';
 import { ScheduleManagementComponent } from './schedule-management.component';
 import { CategoryTreeNode } from '../catalog/models/catalog.models';
@@ -82,7 +83,7 @@ describe('ScheduleManagementComponent', () => {
   beforeEach(async () => {
     await TestBed.configureTestingModule({
       imports: [ScheduleManagementComponent],
-      providers: [provideHttpClient(), provideHttpClientTesting()],
+      providers: [provideHttpClient(), provideHttpClientTesting(), provideRouter([])],
     }).compileComponents();
 
     httpMock = TestBed.inject(HttpTestingController);
@@ -199,5 +200,41 @@ describe('ScheduleManagementComponent', () => {
     req.flush(mockSchedule);
 
     expect(component.toastMessage()).toContain('با موفقیت انجام شد');
+  });
+
+  it('should show only one save button and navigate to /sync-monitor after batch schedule save', () => {
+    setupInitialData();
+    const router = TestBed.inject(Router);
+    const navigateSpy = vi.spyOn(router, 'navigate').mockResolvedValue(true);
+
+    // Initially only single save button is shown
+    expect(fixture.debugElement.queryAll(By.css('.form-actions .save-btn')).length).toBe(1);
+
+    component.selectAllVisible();
+    fixture.detectChanges();
+    expect(component.selectedConnectionIds().size).toBe(2);
+    expect(component.isCategoryChecked(component.displayTree()[0])).toBe(true);
+
+    // Still only ONE save button (batch save) when group is selected
+    const saveButtons = fixture.debugElement.queryAll(By.css('.form-actions .save-btn'));
+    expect(saveButtons.length).toBe(1);
+    expect(saveButtons[0].nativeElement.textContent).toContain('ذخیره زمان‌بندی گروهی');
+
+    component.scheduleForm.patchValue({
+      cron_expression: '0 */4 * * *',
+      is_enabled: true,
+    });
+    component.saveBatchSchedule();
+
+    const batchReq = httpMock.expectOne('/api/v1/connections/batch-schedule');
+    expect(batchReq.request.method).toBe('POST');
+    expect(batchReq.request.body.connection_ids.length).toBe(2);
+    expect(batchReq.request.body.cron_expression).toBe('0 */4 * * *');
+    expect(batchReq.request.body.is_enabled).toBe(true);
+
+    batchReq.flush({ updated_count: 2, cron_expression: '0 */4 * * *', is_enabled: true });
+
+    expect(component.toastMessage()).toContain('زمان‌بندی گروهی برای 2 پایگاه داده');
+    expect(navigateSpy).toHaveBeenCalledWith(['/sync-monitor']);
   });
 });

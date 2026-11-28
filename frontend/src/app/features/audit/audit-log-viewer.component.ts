@@ -12,11 +12,12 @@ import { FormsModule } from '@angular/forms';
 import { ScrollingModule } from '@angular/cdk/scrolling';
 import { AuditService } from './services/audit.service';
 import { AuditLogFilterParams, AuditLogItem } from './models/audit.models';
+import { PaginationComponent } from '../../shared/components/pagination/pagination.component';
 
 @Component({
   selector: 'app-audit-log-viewer',
   standalone: true,
-  imports: [CommonModule, FormsModule, ScrollingModule],
+  imports: [CommonModule, FormsModule, ScrollingModule, PaginationComponent],
   templateUrl: './audit-log-viewer.component.html',
   styleUrls: ['./audit-log-viewer.component.css'],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -54,6 +55,23 @@ export class AuditLogViewerComponent implements OnInit {
 
   // Inspection modal / drawer state
   readonly selectedItem = signal<AuditLogItem | null>(null);
+
+  // Client-side pagination over loaded/input items
+  readonly currentPage = signal<number>(1);
+  readonly pageSize = signal<number>(20);
+  readonly paginatedItems = computed<AuditLogItem[]>(() => {
+    const list = this.items();
+    const size = this.pageSize();
+    const totalPages = Math.max(1, Math.ceil(list.length / size));
+    const safePage = Math.min(Math.max(1, this.currentPage()), totalPages);
+    const start = (safePage - 1) * size;
+    return list.slice(start, start + size);
+  });
+
+  onPageSizeChange(newSize: number): void {
+    this.pageSize.set(newSize);
+    this.currentPage.set(1);
+  }
 
   /**
    * Prettified JSON string representation of the inspected record's diff payload.

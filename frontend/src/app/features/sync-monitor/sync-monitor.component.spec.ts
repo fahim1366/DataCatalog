@@ -300,4 +300,46 @@ describe('SyncMonitorComponent (T081)', () => {
     expect(batchSpy).toHaveBeenCalledWith(['conn-1', 'conn-2']);
     expect(component.showBatchModal()).toBe(false);
   });
+
+  it('should paginate queued jobs in the live sync queue section', () => {
+    const queuedItems = Array.from({ length: 7 }, (_, idx) => ({
+      id: `q-job-${idx + 1}`,
+      connection_id: `conn-${idx + 1}`,
+      connection_name: `DB ${idx + 1}`,
+      status: 'QUEUED' as const,
+      triggered_by: 'MANUAL' as const,
+      priority: 0,
+      queue_position: idx + 1,
+      estimated_wait_seconds: (idx + 1) * 10,
+      tables_scanned: 0,
+      tables_created: 0,
+      tables_updated: 0,
+      tables_deleted: 0,
+      columns_scanned: 0,
+      changes_detected: 0,
+      created_at: '2026-11-16T10:00:00Z',
+    }));
+
+    vi.spyOn(syncJobService, 'getQueueStatus').mockReturnValue(
+      of({
+        worker_online: true,
+        running_jobs: [],
+        queued_jobs: queuedItems,
+      })
+    );
+
+    fixture.detectChanges();
+
+    // Default queuePageSize is 5
+    expect(fixture.debugElement.queryAll(By.css('.item-queued')).length).toBe(5);
+    expect(component.paginatedQueuedJobs()[0].id).toBe('q-job-1');
+
+    // Go to page 2
+    component.queueCurrentPage.set(2);
+    fixture.detectChanges();
+
+    const page2Items = fixture.debugElement.queryAll(By.css('.item-queued'));
+    expect(page2Items.length).toBe(2);
+    expect(component.paginatedQueuedJobs()[0].id).toBe('q-job-6');
+  });
 });

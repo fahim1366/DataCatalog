@@ -1,7 +1,14 @@
 import { Injectable, inject } from '@angular/core';
 import { HttpClient, HttpParams } from '@angular/common/http';
 import { Observable, map } from 'rxjs';
-import { TableVersionItem, VersionDiffResponse } from '../models/version.models';
+import {
+  DatabaseSnapshotPoint,
+  DatabaseVersionDiffResponse,
+  TableVersionItem,
+  VersionDiffResponse,
+} from '../models/version.models';
+import { CategoryTreeNode } from '../../catalog/models/catalog.models';
+import { DatabaseConnection } from '../../connections/models/connection.models';
 
 @Injectable({
   providedIn: 'root',
@@ -16,6 +23,49 @@ export class VersionService {
   getTables(): Observable<Array<{ id: string; name: string; schema_name?: string }>> {
     return this.http.get<{ items: Array<{ id: string; name: string; schema_name?: string }> }>('/api/v1/search?q=').pipe(
       map(res => res?.items || [])
+    );
+  }
+
+  /**
+   * Retrieves all database connections for database-centric version comparison.
+   */
+  getConnections(): Observable<DatabaseConnection[]> {
+    return this.http.get<DatabaseConnection[]>('/api/v1/connections');
+  }
+
+  /**
+   * Retrieves hierarchical category tree with assigned databases.
+   */
+  getCategoryTree(): Observable<CategoryTreeNode[]> {
+    return this.http.get<CategoryTreeNode[]>('/api/v1/categories/tree');
+  }
+
+  /**
+   * Retrieves chronological snapshot points for a database connection.
+   */
+  getConnectionVersions(connectionId: string): Observable<DatabaseSnapshotPoint[]> {
+    return this.http.get<DatabaseSnapshotPoint[]>(`/api/v1/connections/${connectionId}/versions`);
+  }
+
+  /**
+   * Compares database-wide schema versions between two timestamps.
+   */
+  compareConnectionVersions(
+    connectionId: string,
+    v1Ts: string,
+    v2Ts: string,
+    schemaName?: string
+  ): Observable<DatabaseVersionDiffResponse> {
+    let params = new HttpParams()
+      .set('v1_ts', v1Ts)
+      .set('v2_ts', v2Ts);
+    if (schemaName) {
+      params = params.set('schema_name', schemaName);
+    }
+
+    return this.http.get<DatabaseVersionDiffResponse>(
+      `/api/v1/connections/${connectionId}/versions/compare`,
+      { params }
     );
   }
 

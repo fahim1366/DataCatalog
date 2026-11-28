@@ -33,6 +33,8 @@ from backend.src.models.rbac import (
     PermissionRule,
 )
 from backend.src.schemas.connections import (
+    BatchScheduleRequest,
+    BatchScheduleResponse,
     ConnectionCreateRequest,
     ConnectionResponse,
     ConnectionTestResponse,
@@ -1022,4 +1024,90 @@ async def list_connection_sync_jobs(
 
     items = [SyncJobResponse.model_validate(row) for row in rows]
     return SyncJobListResponse(items=items, total=total, next_cursor=next_cursor)
+
+
+@router.post(
+    "/batch-schedule",
+    response_model=BatchScheduleResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Batch create or update sync schedules for multiple connections",
+)
+async def batch_update_schedules(
+    payload: BatchScheduleRequest,
+    user_ctx: UserContext = Depends(require_manage_schedules),
+    db: AsyncSession = Depends(get_db_session),
+) -> BatchScheduleResponse:
+    """
+    Validates a 5-part cron expression, atomically creates or updates SyncSchedule
+    for all selected connections, and records an audit log event.
+    """
+    cron_expr = payload.cron_expression.strip()
+    try:
+        validate_cron_expression(cron_expr)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(exc) or "Invalid 5-part cron expression.",
+        ) from exc
+
+    unique_ids = list(dict.fromkeys(payload.connection_ids))
+    conn_stmt = select(DatabaseConnection).where(DatabaseConnection.id.in_(unique_ids))
+    conns = list((await db.execute(conn_stmt)).scalars().all())
+    if not conns:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="None of the specified connections were found.",
+        )
+
+    found_ids = [c.id for c in conns]
+    sched_stmt = select(SyncSchedule).where(SyncSchedule.connection_id.in_(found_ids))
+    existing_schedules = {
+        s.connection_id: s for s in (await db.execute(sched_stmt)).scalars().all()
+    }
+
+    updated_schedules: List[SyncSchedule] = []
+    for cid in found_ids:
+        sched = existing_schedules.get(cid)
+        if sched is None:
+            sched = SyncSchedule(
+                id=uuid.uuid4(),
+                connection_id=cid,
+                cron_expression=cron_expr,
+                is_enabled=payload.is_enabled,
+                circuit_state="CLOSED",
+                consecutive_failures=0,
+            )
+            db.add(sched)
+        else:
+            sched.cron_expression = cron_expr
+            sched.is_enabled = payload.is_enabled
+        updated_schedules.append(sched)
+
+    await db.flush()
+    for sched in updated_schedules:
+        await db.refresh(sched)
+
+    await record_audit_event(
+        session=db,
+        actor_username=user_ctx.user.username,
+        actor_id=user_ctx.user_id,
+        action="BATCH_UPDATE_SYNC_SCHEDULE",
+        entity_type=EntityType.DATABASE,
+        entity_id=found_ids[0],
+        diff_jsonb={
+            "connection_ids": [str(cid) for cid in found_ids],
+            "cron_expression": cron_expr,
+            "is_enabled": payload.is_enabled,
+            "updated_count": len(updated_schedules),
+        },
+        flush=True,
+    )
+    await db.commit()
+
+    return BatchScheduleResponse(
+        updated_count=len(updated_schedules),
+        cron_expression=cron_expr,
+        is_enabled=payload.is_enabled,
+        schedules=[SyncScheduleResponse.model_validate(s) for s in updated_schedules],
+    )
 

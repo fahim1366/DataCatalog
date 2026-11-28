@@ -727,12 +727,24 @@
                     @if (idx.details?.['is_unique']) {
                       <span class="badge badge-internal">UNIQUE</span>
                     }
-                    @if (!idx.details?.['is_primary'] && !idx.details?.['is_unique']) {
+                    @if (idx.details?.['is_foreign_key'] || idx.details?.['foreign_key_targets']?.length) {
+                      <span class="badge badge-internal">FOREIGN KEY</span>
+                    }
+                    @if (!idx.details?.['is_primary'] && !idx.details?.['is_unique'] && !idx.details?.['is_foreign_key'] && !idx.details?.['foreign_key_targets']?.length) {
                       <span class="text-muted">INDEX</span>
                     }
                   </td>
                   <td class="mono-font">
                     {{ idx.details?.['columns_list']?.join(', ') || '-' }}
+                    @if (idx.details?.['foreign_key_targets']?.length) {
+                      <div class="fk-targets-inline text-muted" dir="ltr">
+                        @for (fk of idx.details?.['foreign_key_targets']; track fk.column) {
+                          <span class="badge badge-internal fk-target-badge">
+                            → {{ fk.referenced_table }}{{ fk.referenced_column ? '.' + fk.referenced_column : '' }}
+                          </span>
+                        }
+                      </div>
+                    }
                   </td>
                   <td class="mono-font text-muted definition-cell" [title]="idx.details?.['definition'] || ''">
                     <code>{{ idx.details?.['definition'] || '-' }}</code>
@@ -992,8 +1004,15 @@
                     </td>
                     <td>
                       @if (col.is_primary_key) { <span>کلید اصلی</span> }
-                      @else if (col.is_foreign_key) { <span>کلید خارجی</span> }
-                      @else { <span class="text-muted">-</span> }
+                      @if (col.is_foreign_key) {
+                        <span>{{ col.is_primary_key ? ' / کلید خارجی' : 'کلید خارجی' }}</span>
+                        @if (col.referenced_table) {
+                          <span class="mono-font text-muted fk-ref-target" dir="ltr">
+                            → {{ col.referenced_table }}{{ col.referenced_column ? '.' + col.referenced_column : '' }}
+                          </span>
+                        }
+                      }
+                      @if (!col.is_primary_key && !col.is_foreign_key) { <span class="text-muted">-</span> }
                     </td>
                     <td>
                       @if (!col.is_nullable) {
@@ -1202,12 +1221,24 @@
                         @if (idx.details?.['is_unique']) {
                           <span class="badge badge-internal">UNIQUE</span>
                         }
-                        @if (!idx.details?.['is_primary'] && !idx.details?.['is_unique']) {
+                        @if (idx.details?.['is_foreign_key'] || idx.details?.['foreign_key_targets']?.length) {
+                          <span class="badge badge-internal">FOREIGN KEY</span>
+                        }
+                        @if (!idx.details?.['is_primary'] && !idx.details?.['is_unique'] && !idx.details?.['is_foreign_key'] && !idx.details?.['foreign_key_targets']?.length) {
                           <span class="text-muted">INDEX</span>
                         }
                       </td>
                       <td class="mono-font">
                         {{ idx.details?.['columns_list']?.join(', ') || '-' }}
+                        @if (idx.details?.['foreign_key_targets']?.length) {
+                          <div class="fk-targets-inline text-muted" dir="ltr">
+                            @for (fk of idx.details?.['foreign_key_targets']; track fk.column) {
+                              <span class="badge badge-internal fk-target-badge">
+                                → {{ fk.referenced_table }}{{ fk.referenced_column ? '.' + fk.referenced_column : '' }}
+                              </span>
+                            }
+                          </div>
+                        }
                       </td>
                       <td class="mono-font text-muted definition-cell" [title]="idx.details?.['definition'] || ''">
                         <code>{{ idx.details?.['definition'] || '-' }}</code>
@@ -1268,7 +1299,7 @@
 
         <!-- TAB 4: TABLE STATISTICS -->
         @if (activeInspectorTab() === 'statistics') {
-          <div class="statistics-tab-content" style="padding: 10px 0;">
+          <div class="statistics-tab-content">
             <app-table-statistics-chart [tableId]="selectedTable()!.id"></app-table-statistics-chart>
           </div>
         }
@@ -1288,7 +1319,12 @@
 @if (toastMessage()) {
   <div class="toast-container">
     <div class="toast" [class.toast-success]="toastType() === 'success'" [class.toast-error]="toastType() === 'error'" [class.toast-info]="toastType() === 'info'">
-      {{ toastMessage() }}
+      <span>{{ toastMessage() }}</span>
+      @if (toastSyncLink() && toastType() === 'success') {
+        <a routerLink="/sync-monitor" class="toast-sync-link">
+          مشاهده در مانیتورینگ
+        </a>
+      }
     </div>
   </div>
 }

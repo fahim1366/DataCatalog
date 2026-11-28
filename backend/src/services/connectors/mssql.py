@@ -30,18 +30,41 @@ from backend.src.services.connectors.registry import default_connector_registry
 logger = logging.getLogger(__name__)
 
 
+def _has_sql_server_odbc_driver() -> bool:
+    """Checks whether a SQL Server ODBC driver (17/18/etc.) is registered on the OS."""
+    try:
+        import pyodbc  # noqa: F401
+        return any("sql server" in d.lower() for d in pyodbc.drivers())
+    except Exception:
+        return False
+
+
 def _detect_mssql_driver() -> Optional[str]:
-    """Detects available async MSSQL drivers."""
+    """
+    Detects available MSSQL drivers.
+    Prefers aioodbc when an OS SQL Server ODBC driver is present;
+    gracefully falls back to pymssql on Windows/Linux when ODBC Driver 17/18 is absent.
+    """
+    has_aioodbc = False
     try:
         import aioodbc  # noqa: F401
-        return "aioodbc"
+        has_aioodbc = True
     except ImportError:
         pass
+
+    has_pymssql = False
     try:
         import pymssql  # noqa: F401
-        return "pymssql"
+        has_pymssql = True
     except ImportError:
         pass
+
+    if has_aioodbc:
+        if _has_sql_server_odbc_driver() or not has_pymssql:
+            return "aioodbc"
+        return "pymssql"
+    if has_pymssql:
+        return "pymssql"
     return None
 
 
@@ -262,6 +285,84 @@ class MSSQLConnector(BaseMetadataConnector):
         else:
             return f"mssql+pymssql://{auth}{host}:{port}/{database}"
 
+    def _uses_pymssql(self) -> bool:
+        if "url" in self.config:
+            return str(self.config["url"]).startswith("mssql+pymssql")
+        custom_params = self.config.get("custom_params") or {}
+        if str(custom_params.get("driver", "")).lower() == "pymssql":
+            return True
+        return _detect_mssql_driver() == "pymssql"
+
+    def _convert_sql_for_pymssql(self, sql: str) -> str:
+        """Converts SQLAlchemy :param_name placeholders to pymssql %(param_name)s."""
+        return re.sub(r"(?<!:):([A-Za-z_][A-Za-z0-9_]*)", r"%(\1)s", sql)
+
+    async def _pymssql_query(
+        self,
+        sql: str,
+        params: Optional[Dict[str, Any]] = None,
+        fetch: bool = True,
+        commit: bool = False,
+    ) -> List[Dict[str, Any]]:
+        """Executes a SQL statement via pymssql in a worker thread."""
+        import pymssql
+
+        host = self.config.get("host", "127.0.0.1")
+        port = int(self.config.get("port", 1433))
+        database = self.config.get("database") or self.config.get("database_name", "master")
+        username = self.config.get("username") or self.config.get("user", "sa")
+        password = self.config.get("password", "")
+        converted_sql = self._convert_sql_for_pymssql(sql)
+
+        def _run() -> List[Dict[str, Any]]:
+            conn = pymssql.connect(
+                server=host,
+                port=port,
+                user=username,
+                password=password,
+                database=database,
+                login_timeout=10,
+                timeout=max(1, self.STATEMENT_TIMEOUT_MS // 1000),
+                as_dict=True,
+            )
+            try:
+                with conn.cursor() as cursor:
+                    for setup_stmt in self.get_session_setup_statements():
+                        cursor.execute(setup_stmt)
+                    if params:
+                        cursor.execute(converted_sql, params)
+                    else:
+                        cursor.execute(converted_sql)
+                    rows = list(cursor.fetchall()) if fetch else []
+                if commit:
+                    conn.commit()
+                return rows
+            finally:
+                conn.close()
+
+        return await asyncio.to_thread(_run)
+
+    async def _query_rows(self, sql: str, params: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
+        """Unified query helper supporting both aioodbc (SQLAlchemy Async) and pymssql."""
+        if self._uses_pymssql():
+            return await self._pymssql_query(sql, params=params, fetch=True, commit=False)
+
+        engine = self._engine or self._create_engine()
+        should_dispose = self._engine is None
+        try:
+            async with engine.connect() as conn:
+                for stmt in self.get_session_setup_statements():
+                    await conn.execute(text(stmt))
+                result = (
+                    await conn.execute(text(sql), params)
+                    if params is not None
+                    else await conn.execute(text(sql))
+                )
+                return [dict(row) for row in result.mappings().all()]
+        finally:
+            if should_dispose:
+                await engine.dispose()
+
     def _create_engine(self) -> AsyncEngine:
         url = self.build_connection_url()
         return create_async_engine(
@@ -273,7 +374,7 @@ class MSSQLConnector(BaseMetadataConnector):
 
     async def __aenter__(self) -> "MSSQLConnector":
         self._is_closed = False
-        if self._engine is None:
+        if not self._uses_pymssql() and self._engine is None:
             self._engine = self._create_engine()
         return self
 
@@ -310,224 +411,161 @@ class MSSQLConnector(BaseMetadataConnector):
             )
 
     async def _run_connection_test(self, start_time: float) -> ConnectionTestResult:
-        engine = self._engine or self._create_engine()
-        should_dispose = self._engine is None
-        try:
-            async with engine.connect() as conn:
-                for stmt in self.get_session_setup_statements():
-                    await conn.execute(text(stmt))
+        rows = await self._query_rows(self.QUERIES["TEST"])
+        row = rows[0] if rows else {}
+        server_ver = row.get("server_version")
+        db_name = row.get("current_database") or ""
+        elapsed_ms = round((time.monotonic() - start_time) * 1000, 2)
 
-                result = await conn.execute(text(self.QUERIES["TEST"]))
-                row = result.fetchone()
-                server_ver = row[0] if row else None
-                db_name = row[1] if row else ""
-                elapsed_ms = round((time.monotonic() - start_time) * 1000, 2)
-
-                return ConnectionTestResult(
-                    success=True,
-                    latency_ms=elapsed_ms,
-                    dialect="MSSQL",
-                    server_version=server_ver,
-                    message=f"Successfully connected to SQL Server database '{db_name}'.",
-                    diagnostic_details={
-                        "version_string": server_ver or "",
-                        "database": db_name,
-                        "session_read_only": True,
-                        "tcp_reachable": True,
-                        "auth_valid": True,
-                    },
-                )
-        finally:
-            if should_dispose:
-                await engine.dispose()
+        return ConnectionTestResult(
+            success=True,
+            latency_ms=elapsed_ms,
+            dialect="MSSQL",
+            server_version=server_ver,
+            message=f"Successfully connected to SQL Server database '{db_name}'.",
+            diagnostic_details={
+                "version_string": server_ver or "",
+                "database": db_name,
+                "session_read_only": True,
+                "tcp_reachable": True,
+                "auth_valid": True,
+            },
+        )
 
     async def discover_databases(self) -> List[str]:
         """Query sys.databases WHERE state = 0 AND database_id > 4."""
-        engine = self._engine or self._create_engine()
-        should_dispose = self._engine is None
-        try:
-            async with engine.connect() as conn:
-                for stmt in self.get_session_setup_statements():
-                    await conn.execute(text(stmt))
-                result = await conn.execute(text(self.QUERIES["DISCOVER_DATABASES"]))
-                return [r[0] for r in result.fetchall()]
-        finally:
-            if should_dispose:
-                await engine.dispose()
+        rows = await self._query_rows(self.QUERIES["DISCOVER_DATABASES"])
+        return [r["name"] for r in rows]
 
     async def _run_database_discovery(self, start_time: float) -> Dict[str, Any]:
-        engine = self._engine or self._create_engine()
-        should_dispose = self._engine is None
-        try:
-            async with engine.connect() as conn:
-                for stmt in self.get_session_setup_statements():
-                    await conn.execute(text(stmt))
-
-                ver_res = await conn.execute(text(self.QUERIES["TEST"]))
-                ver_row = ver_res.fetchone()
-                server_ver = ver_row[0] if ver_row else None
-
-                db_res = await conn.execute(text(self.QUERIES["DISCOVER_DATABASES"]))
-                databases = [r[0] for r in db_res.fetchall()]
-                elapsed_ms = round((time.monotonic() - start_time) * 1000, 2)
-                return {
-                    "success": True,
-                    "databases": databases,
-                    "latency_ms": elapsed_ms,
-                    "server_version": server_ver,
-                    "message": f"Successfully discovered {len(databases)} databases.",
-                }
-        finally:
-            if should_dispose:
-                await engine.dispose()
+        ver_rows = await self._query_rows(self.QUERIES["TEST"])
+        server_ver = ver_rows[0].get("server_version") if ver_rows else None
+        db_rows = await self._query_rows(self.QUERIES["DISCOVER_DATABASES"])
+        databases = [r["name"] for r in db_rows]
+        elapsed_ms = round((time.monotonic() - start_time) * 1000, 2)
+        return {
+            "success": True,
+            "databases": databases,
+            "latency_ms": elapsed_ms,
+            "server_version": server_ver,
+            "message": f"Successfully discovered {len(databases)} databases.",
+        }
 
     async def extract_database_collation(self) -> Optional[str]:
         """Extracts SQL Server database default collation."""
-        engine = self._engine or self._create_engine()
-        should_dispose = self._engine is None
         try:
-            async with engine.connect() as conn:
-                for stmt in self.get_session_setup_statements():
-                    await conn.execute(text(stmt))
-                result = await conn.execute(text(self.QUERIES["COLLATION"]))
-                row = result.fetchone()
-                return str(row[0]) if row and row[0] else None
+            rows = await self._query_rows(self.QUERIES["COLLATION"])
+            col = rows[0].get("collation_name") if rows else None
+            return str(col) if col else None
         except Exception as exc:
             logger.debug("MSSQL database collation extraction failed: %s", exc)
             return None
-        finally:
-            if should_dispose:
-                await engine.dispose()
 
     async def extract_schemas(self) -> List[SchemaMetadata]:
         """Lists accessible schemas excluding system schemas."""
-        engine = self._engine or self._create_engine()
-        should_dispose = self._engine is None
-        try:
-            async with engine.connect() as conn:
-                for stmt in self.get_session_setup_statements():
-                    await conn.execute(text(stmt))
-                result = await conn.execute(text(self.QUERIES["SCHEMAS"]))
-                return [
-                    SchemaMetadata(name=row["schema_name"], owner=row["owner"])
-                    for row in result.mappings().all()
-                ]
-        finally:
-            if should_dispose:
-                await engine.dispose()
+        rows = await self._query_rows(self.QUERIES["SCHEMAS"])
+        return [
+            SchemaMetadata(name=row["schema_name"], owner=row["owner"])
+            for row in rows
+        ]
 
     async def extract_schema_metadata(self, schema_name: str) -> SchemaExtractionResult:
         """Bulk extracts tables, columns, constraints, statistics, indexes, and routines."""
-        engine = self._engine or self._create_engine()
-        should_dispose = self._engine is None
-        try:
-            async with engine.connect() as conn:
-                for stmt in self.get_session_setup_statements():
-                    await conn.execute(text(stmt))
+        params = {"schema_name": schema_name}
+        tbl_rows = await self._query_rows(self.QUERIES["TABLES"], params)
+        tables = [
+            TableMetadata(
+                schema_name=schema_name,
+                name=row["table_name"],
+                table_type=row["table_type"],
+                row_count_estimate=int(row["row_count_estimate"] or 0),
+                size_bytes=int(row["size_bytes"] or 0),
+                source_description=row["source_description"],
+                owner=row["owner"],
+            )
+            for row in tbl_rows
+        ]
 
-                # Tables
-                tbl_res = await conn.execute(text(self.QUERIES["TABLES"]), {"schema_name": schema_name})
-                tables = [
-                    TableMetadata(
-                        schema_name=schema_name,
-                        name=row["table_name"],
-                        table_type=row["table_type"],
-                        row_count_estimate=int(row["row_count_estimate"] or 0),
-                        size_bytes=int(row["size_bytes"] or 0),
-                        source_description=row["source_description"],
-                        owner=row["owner"],
-                    )
-                    for row in tbl_res.mappings().all()
-                ]
+        col_rows = await self._query_rows(self.QUERIES["COLUMNS"], params)
+        columns = [
+            ColumnMetadata(
+                schema_name=schema_name,
+                table_name=row["table_name"],
+                name=row["column_name"],
+                ordinal_position=int(row["ordinal_position"]),
+                data_type=row["data_type"],
+                raw_data_type=row["raw_data_type"] or row["data_type"],
+                collation=row["collation"],
+                is_nullable=bool(row["is_nullable"]),
+                is_primary_key=bool(row["is_primary_key"]),
+                is_foreign_key=bool(row["is_foreign_key"]),
+                default_value=row["default_value"],
+                source_description=row["source_description"],
+            )
+            for row in col_rows
+        ]
 
-                # Columns
-                col_res = await conn.execute(text(self.QUERIES["COLUMNS"]), {"schema_name": schema_name})
-                columns = [
-                    ColumnMetadata(
-                        schema_name=schema_name,
-                        table_name=row["table_name"],
-                        name=row["column_name"],
-                        ordinal_position=int(row["ordinal_position"]),
-                        data_type=row["data_type"],
-                        raw_data_type=row["raw_data_type"] or row["data_type"],
-                        collation=row["collation"],
-                        is_nullable=bool(row["is_nullable"]),
-                        is_primary_key=bool(row["is_primary_key"]),
-                        is_foreign_key=bool(row["is_foreign_key"]),
-                        default_value=row["default_value"],
-                        source_description=row["source_description"],
-                    )
-                    for row in col_res.mappings().all()
-                ]
+        fk_rows = await self._query_rows(self.QUERIES["FOREIGN_KEYS"], params)
+        foreign_keys = [
+            ForeignKeyMetadata(
+                schema_name=schema_name,
+                table_name=row["table_name"],
+                column_name=row["column_name"],
+                foreign_schema_name=row["foreign_schema_name"],
+                foreign_table_name=row["foreign_table_name"],
+                foreign_column_name=row["foreign_column_name"],
+                constraint_name=row["constraint_name"],
+            )
+            for row in fk_rows
+        ]
 
-                # Foreign Keys
-                fk_res = await conn.execute(text(self.QUERIES["FOREIGN_KEYS"]), {"schema_name": schema_name})
-                foreign_keys = [
-                    ForeignKeyMetadata(
-                        schema_name=schema_name,
-                        table_name=row["table_name"],
-                        column_name=row["column_name"],
-                        foreign_schema_name=row["foreign_schema_name"],
-                        foreign_table_name=row["foreign_table_name"],
-                        foreign_column_name=row["foreign_column_name"],
-                        constraint_name=row["constraint_name"],
-                    )
-                    for row in fk_res.mappings().all()
-                ]
+        stat_rows = await self._query_rows(self.QUERIES["STATISTICS"], params)
+        statistics = [
+            TableStatisticsMetadata(
+                schema_name=schema_name,
+                table_name=row["table_name"],
+                row_count_estimate=int(row["row_count_estimate"] or 0),
+                size_bytes=int(row["size_bytes"] or 0),
+            )
+            for row in stat_rows
+        ]
 
-                # Statistics
-                stat_res = await conn.execute(text(self.QUERIES["STATISTICS"]), {"schema_name": schema_name})
-                statistics = [
-                    TableStatisticsMetadata(
-                        schema_name=schema_name,
-                        table_name=row["table_name"],
-                        row_count_estimate=int(row["row_count_estimate"] or 0),
-                        size_bytes=int(row["size_bytes"] or 0),
-                    )
-                    for row in stat_res.mappings().all()
-                ]
+        idx_rows = await self._query_rows(self.QUERIES["INDEXES"], params)
+        indexes = [
+            IndexMetadata(
+                schema_name=schema_name,
+                table_name=row["table_name"],
+                name=row["index_name"],
+                is_unique=bool(row["is_unique"]),
+                is_primary=bool(row["is_primary"]),
+                index_type=row["index_type"] or "BTREE",
+                columns_list=[c.strip() for c in (row["column_names"] or "").split(",") if c.strip()],
+            )
+            for row in idx_rows
+        ]
 
-                # Indexes
-                idx_res = await conn.execute(text(self.QUERIES["INDEXES"]), {"schema_name": schema_name})
-                indexes = [
-                    IndexMetadata(
-                        schema_name=schema_name,
-                        table_name=row["table_name"],
-                        name=row["index_name"],
-                        is_unique=bool(row["is_unique"]),
-                        is_primary=bool(row["is_primary"]),
-                        index_type=row["index_type"] or "BTREE",
-                        columns_list=[c.strip() for c in (row["column_names"] or "").split(",") if c.strip()],
-                    )
-                    for row in idx_res.mappings().all()
-                ]
+        rt_rows = await self._query_rows(self.QUERIES["ROUTINES"], params)
+        routines = [
+            RoutineMetadata(
+                schema_name=schema_name,
+                name=row["routine_name"],
+                routine_type=row["routine_type"],
+                language=row["language"] or "sql",
+                source_description=row["source_description"],
+            )
+            for row in rt_rows
+        ]
 
-                # Routines
-                rt_res = await conn.execute(text(self.QUERIES["ROUTINES"]), {"schema_name": schema_name})
-                routines = [
-                    RoutineMetadata(
-                        schema_name=schema_name,
-                        name=row["routine_name"],
-                        routine_type=row["routine_type"],
-                        language=row["language"] or "sql",
-                        source_description=row["source_description"],
-                    )
-                    for row in rt_res.mappings().all()
-                ]
-
-                return SchemaExtractionResult(
-                    schema=SchemaMetadata(name=schema_name),
-                    tables=tables,
-                    columns=columns,
-                    foreign_keys=foreign_keys,
-                    statistics=statistics,
-                    indexes=indexes,
-                    routines=routines,
-                    success=True,
-                )
-        finally:
-            if should_dispose:
-                await engine.dispose()
+        return SchemaExtractionResult(
+            schema=SchemaMetadata(name=schema_name),
+            tables=tables,
+            columns=columns,
+            foreign_keys=foreign_keys,
+            statistics=statistics,
+            indexes=indexes,
+            routines=routines,
+            success=True,
+        )
 
     async def extract_database_users(self) -> List[Dict[str, Any]]:
         """
@@ -537,86 +575,99 @@ class MSSQLConnector(BaseMetadataConnector):
         return await asyncio.wait_for(self._run_extract_database_users(), timeout=15.0)
 
     async def _run_extract_database_users(self) -> List[Dict[str, Any]]:
-        engine = self._engine or self._create_engine()
-        should_dispose = self._engine is None
-        try:
-            async with engine.connect() as conn:
-                for stmt in self.get_session_setup_statements():
-                    await conn.execute(text(stmt))
+        principals_sql = """
+            SELECT
+                sp.principal_id AS oid,
+                sp.name AS username,
+                sp.type AS principal_type,
+                sp.is_disabled AS is_disabled,
+                ISNULL(IS_SRVROLEMEMBER('sysadmin', sp.name), 0) AS is_superuser,
+                ISNULL(IS_SRVROLEMEMBER('dbcreator', sp.name), 0) AS can_create_db,
+                ISNULL(IS_SRVROLEMEMBER('securityadmin', sp.name), 0) AS can_create_role
+            FROM sys.server_principals sp
+            WHERE sp.type IN ('S', 'U', 'G', 'R')
+              AND sp.name NOT LIKE '##%'
+              AND sp.name NOT LIKE 'NT %'
+            ORDER BY sp.name;
+        """
+        roles_sql = """
+            SELECT
+                m.name AS member_name,
+                r.name AS role_name
+            FROM sys.server_role_members srm
+            JOIN sys.server_principals m ON srm.member_principal_id = m.principal_id
+            JOIN sys.server_principals r ON srm.role_principal_id = r.principal_id;
+        """
+        sess_sql = """
+            SELECT
+                login_name AS username,
+                COUNT(*) AS active_sessions
+            FROM sys.dm_exec_sessions
+            WHERE is_user_process = 1
+            GROUP BY login_name;
+        """
 
-                principals_sql = """
-                    SELECT
-                        sp.principal_id AS oid,
-                        sp.name AS username,
-                        sp.type AS principal_type,
-                        sp.is_disabled AS is_disabled,
-                        ISNULL(IS_SRVROLEMEMBER('sysadmin', sp.name), 0) AS is_superuser,
-                        ISNULL(IS_SRVROLEMEMBER('dbcreator', sp.name), 0) AS can_create_db,
-                        ISNULL(IS_SRVROLEMEMBER('securityadmin', sp.name), 0) AS can_create_role
-                    FROM sys.server_principals sp
-                    WHERE sp.type IN ('S', 'U', 'G', 'R')
-                      AND sp.name NOT LIKE '##%'
-                      AND sp.name NOT LIKE 'NT %'
-                    ORDER BY sp.name;
-                """
-                res = await conn.execute(text(principals_sql))
-                principals = res.mappings().all()
+        roles_by_member: Dict[str, List[str]] = {}
+        sessions_by_user: Dict[str, int] = {}
 
-                roles_by_member: Dict[str, List[str]] = {}
-                try:
-                    roles_sql = """
-                        SELECT
-                            m.name AS member_name,
-                            r.name AS role_name
-                        FROM sys.server_role_members srm
-                        JOIN sys.server_principals m ON srm.member_principal_id = m.principal_id
-                        JOIN sys.server_principals r ON srm.role_principal_id = r.principal_id;
-                    """
-                    roles_res = await conn.execute(text(roles_sql))
-                    for r in roles_res.mappings().all():
-                        roles_by_member.setdefault(str(r["member_name"]), []).append(str(r["role_name"]))
-                except Exception as exc:
-                    logger.debug("MSSQL server_role_members query failed: %s", exc)
+        if self._uses_pymssql():
+            principals = await self._pymssql_query(principals_sql, fetch=True, commit=False)
+            try:
+                for r in await self._pymssql_query(roles_sql, fetch=True, commit=False):
+                    roles_by_member.setdefault(str(r["member_name"]), []).append(str(r["role_name"]))
+            except Exception as exc:
+                logger.debug("MSSQL server_role_members query failed: %s", exc)
+            try:
+                for s in await self._pymssql_query(sess_sql, fetch=True, commit=False):
+                    if s["username"]:
+                        sessions_by_user[str(s["username"])] = int(s["active_sessions"] or 0)
+            except Exception as exc:
+                logger.debug("MSSQL dm_exec_sessions query failed: %s", exc)
+        else:
+            engine = self._engine or self._create_engine()
+            should_dispose = self._engine is None
+            try:
+                async with engine.connect() as conn:
+                    for stmt in self.get_session_setup_statements():
+                        await conn.execute(text(stmt))
+                    res = await conn.execute(text(principals_sql))
+                    principals = [dict(row) for row in res.mappings().all()]
+                    try:
+                        roles_res = await conn.execute(text(roles_sql))
+                        for r in roles_res.mappings().all():
+                            roles_by_member.setdefault(str(r["member_name"]), []).append(str(r["role_name"]))
+                    except Exception as exc:
+                        logger.debug("MSSQL server_role_members query failed: %s", exc)
+                    try:
+                        sess_res = await conn.execute(text(sess_sql))
+                        for s in sess_res.mappings().all():
+                            if s["username"]:
+                                sessions_by_user[str(s["username"])] = int(s["active_sessions"] or 0)
+                    except Exception as exc:
+                        logger.debug("MSSQL dm_exec_sessions query failed: %s", exc)
+            finally:
+                if should_dispose:
+                    await engine.dispose()
 
-                sessions_by_user: Dict[str, int] = {}
-                try:
-                    sess_sql = """
-                        SELECT
-                            login_name AS username,
-                            COUNT(*) AS active_sessions
-                        FROM sys.dm_exec_sessions
-                        WHERE is_user_process = 1
-                        GROUP BY login_name;
-                    """
-                    sess_res = await conn.execute(text(sess_sql))
-                    for s in sess_res.mappings().all():
-                        if s["username"]:
-                            sessions_by_user[str(s["username"])] = int(s["active_sessions"] or 0)
-                except Exception as exc:
-                    logger.debug("MSSQL dm_exec_sessions query failed: %s", exc)
-
-                users: List[Dict[str, Any]] = []
-                for row in principals:
-                    uname = str(row["username"])
-                    ptype = str(row.get("principal_type") or "").strip().upper()
-                    is_disabled = bool(row.get("is_disabled"))
-                    can_login = False if ptype == "R" else (not is_disabled)
-                    users.append({
-                        "oid": str(row["oid"]),
-                        "username": uname,
-                        "can_login": can_login,
-                        "is_superuser": bool(row.get("is_superuser")),
-                        "can_create_db": bool(row.get("can_create_db")),
-                        "can_create_role": bool(row.get("can_create_role")),
-                        "connection_limit": -1,
-                        "valid_until": None,
-                        "member_of_roles": roles_by_member.get(uname, []),
-                        "active_sessions": sessions_by_user.get(uname, 0),
-                    })
-                return users
-        finally:
-            if should_dispose:
-                await engine.dispose()
+        users: List[Dict[str, Any]] = []
+        for row in principals:
+            uname = str(row["username"])
+            ptype = str(row.get("principal_type") or "").strip().upper()
+            is_disabled = bool(row.get("is_disabled"))
+            can_login = False if ptype == "R" else (not is_disabled)
+            users.append({
+                "oid": str(row["oid"]),
+                "username": uname,
+                "can_login": can_login,
+                "is_superuser": bool(row.get("is_superuser")),
+                "can_create_db": bool(row.get("can_create_db")),
+                "can_create_role": bool(row.get("can_create_role")),
+                "connection_limit": -1,
+                "valid_until": None,
+                "member_of_roles": roles_by_member.get(uname, []),
+                "active_sessions": sessions_by_user.get(uname, 0),
+            })
+        return users
 
     async def update_database_user(
         self,
@@ -648,6 +699,26 @@ class MSSQLConnector(BaseMetadataConnector):
         action = "ENABLE" if can_login else "DISABLE"
         escaped_user = clean_user.replace("]", "]]")
         sql_stmt = f"ALTER LOGIN [{escaped_user}] {action};"
+
+        if self._uses_pymssql():
+            try:
+                await self._pymssql_query(sql_stmt, fetch=False, commit=True)
+                return {
+                    "success": True,
+                    "message": f"تنظیمات کاربر «{clean_user}» با موفقیت به‌روزرسانی شد.",
+                }
+            except Exception as exc:
+                err_str = str(exc).lower()
+                if any(k in err_str for k in ("permission", "alter any login", "15151", "15247")):
+                    return {
+                        "success": False,
+                        "message": "کاربر اتصال دیتابیس فاقد مجوز کافی (ALTER ANY LOGIN یا sysadmin) برای تغییر وضعیت ورود در SQL Server است.",
+                        "insufficient_privilege": True,
+                    }
+                return {
+                    "success": False,
+                    "message": f"خطا در به‌روزرسانی کاربر SQL Server: {str(exc)}",
+                }
 
         engine = self._engine or self._create_engine()
         should_dispose = self._engine is None

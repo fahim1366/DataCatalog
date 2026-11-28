@@ -270,6 +270,8 @@ class CatalogColumn(Base):
     is_foreign_key: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default=text("false")
     )
+    referenced_table: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    referenced_column: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     default_value: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     source_description: Mapped[Optional[str]] = mapped_column(
         Text, nullable=True

@@ -16,7 +16,6 @@ import {
   ClassificationReport,
   CompletenessReport,
   DatabaseCompletenessItem,
-  ReportPreviewItem,
 } from './models/report.models';
 import { CompletenessGaugeComponent } from './completeness-gauge.component';
 import { ClassificationSunburstComponent } from './classification-sunburst.component';
@@ -41,7 +40,6 @@ export class ExecutiveDashboardComponent implements OnInit {
 
   readonly completenessReport = signal<CompletenessReport | null>(null);
   readonly classificationReport = signal<ClassificationReport | null>(null);
-  readonly reportPreview = signal<ReportPreviewItem[]>([]);
   readonly isLoading = signal<boolean>(false);
   readonly isRefreshing = signal<boolean>(false);
   readonly isExporting = signal<boolean>(false);
@@ -268,19 +266,14 @@ export class ExecutiveDashboardComponent implements OnInit {
     const classification$ = excludeLowRows
       ? this.reportService.getClassificationDistribution(ids, true)
       : this.reportService.getClassificationDistribution(ids);
-    const preview$ = excludeLowRows
-      ? this.reportService.getReportPreview(ids, 100, true)
-      : this.reportService.getReportPreview(ids);
 
     forkJoin({
       completeness: completeness$,
       classification: classification$,
-      preview: preview$,
     }).subscribe({
-      next: ({ completeness, classification, preview }) => {
+      next: ({ completeness, classification }) => {
         this.completenessReport.set(completeness);
         this.classificationReport.set(classification);
-        this.reportPreview.set(preview || []);
         this.isLoading.set(false);
       },
       error: (err: unknown) => {

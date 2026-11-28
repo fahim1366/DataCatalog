@@ -224,30 +224,50 @@ describe('DbUserMonitorComponent (Hierarchical Category Tree & Clarified User Fi
     expect(component.filterEngineType()).toBe('');
   });
 
-  it('should filter users table correctly with clarified ALL, LOGIN, and ROLES pills without duplication', () => {
+  it('should filter out non-login roles so only can_login === true users appear in table and stats', () => {
     expect(component.users().length).toBe(3);
+    expect(component.loginOnlyUsers().length).toBe(2);
+    expect(component.loginOnlyUsers().every((u) => u.can_login)).toBe(true);
 
-    // ALL
-    component.userTypeFilter.set('ALL');
-    expect(component.filteredUsers().length).toBe(3);
-
-    // LOGIN
-    component.userTypeFilter.set('LOGIN');
+    // ALL (login users only)
+    component.onUserFilterChange('ALL');
     expect(component.filteredUsers().length).toBe(2);
-    expect(component.filteredUsers().every((u) => u.can_login)).toBe(true);
+    expect(component.filteredUsers().some((u) => u.username === 'etl_role_group')).toBe(false);
 
-    // ROLES (Nologin)
-    component.userTypeFilter.set('ROLES');
-    expect(component.filteredUsers().length).toBe(1);
-    expect(component.filteredUsers()[0].username).toBe('etl_role_group');
-    expect(component.filteredUsers()[0].can_login).toBe(false);
+    // ACTIVE (active_sessions > 0)
+    component.onUserFilterChange('ACTIVE');
+    expect(component.filteredUsers().length).toBe(2);
 
-    // Stats
+    // Stats only reflect login users
     const stats = component.userStats();
-    expect(stats.total).toBe(3);
-    expect(stats.loginUsers).toBe(2);
-    expect(stats.roles).toBe(1);
+    expect(stats.total).toBe(2);
+    expect(stats.activeUsers).toBe(2);
     expect(stats.activeSessions).toBe(4);
+  });
+
+  it('should paginate login users client-side', () => {
+    const manyUsers: DatabaseUserItem[] = Array.from({ length: 15 }, (_, idx) => ({
+      oid: String(2000 + idx),
+      username: `user_${idx + 1}`,
+      can_login: true,
+      is_superuser: false,
+      can_create_db: false,
+      can_create_role: false,
+      member_of_roles: [],
+      connection_limit: 10,
+      valid_until: 'infinity',
+      active_sessions: 0,
+    }));
+    component.users.set(manyUsers);
+    component.pageSize.set(10);
+    component.currentPage.set(1);
+
+    expect(component.paginatedUsers().length).toBe(10);
+    expect(component.paginatedUsers()[0].username).toBe('user_1');
+
+    component.currentPage.set(2);
+    expect(component.paginatedUsers().length).toBe(5);
+    expect(component.paginatedUsers()[0].username).toBe('user_11');
   });
 
   it('should auto-select first active connection when first connection is inactive', () => {

@@ -545,4 +545,78 @@ describe('CatalogExplorerComponent (Phase 2 UI/UX Overhaul)', () => {
     expect(component.isTableEmpty(normalHit)).toBe(false);
     expect(component.isTableLowRow(normalHit)).toBe(false);
   });
+
+  it('should display foreign key target table and column in Columns and Indexes tabs', async () => {
+    component.selectedTable.set({
+      id: 'tbl-fk',
+      schema_id: 'sch-1',
+      schema_name: 'public',
+      database_name: 'app_db',
+      name: 'orders',
+      table_type: 'TABLE',
+      row_count_estimate: 50,
+      size_bytes: 2048,
+      status: 'ACTIVE',
+      columns: [
+        {
+          id: 'c-fk',
+          table_id: 'tbl-fk',
+          name: 'user_id',
+          ordinal_position: 1,
+          data_type: 'uuid',
+          raw_data_type: 'uuid',
+          is_nullable: false,
+          is_primary_key: false,
+          is_foreign_key: true,
+          referenced_table: 'users',
+          referenced_column: 'id',
+          classification_level: 'INTERNAL',
+          status: 'ACTIVE',
+        },
+      ],
+      tags: [],
+    } as any);
+
+    component.selectedTableId.set('tbl-fk');
+    component.activeInspectorTab.set('columns');
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    const compiled = fixture.nativeElement as HTMLElement;
+    expect(compiled.textContent).toContain('users.id');
+
+    component.catalogObjects.set({
+      counts: { tables: 0, views: 0, indexes: 1, procedures: 0, functions: 0 },
+      tables: [],
+      views: [],
+      indexes: [
+        {
+          id: 'idx-fk',
+          name: 'idx_orders_user_id',
+          object_type: 'INDEX',
+          database_name: 'app_db',
+          schema_name: 'public',
+          table_name: 'orders',
+          details: {
+            table_id: 'tbl-fk',
+            index_type: 'BTREE',
+            is_unique: false,
+            is_primary: false,
+            columns_list: ['user_id'],
+            foreign_key_targets: [
+              { column: 'user_id', referenced_table: 'users', referenced_column: 'id' },
+            ],
+            definition: 'CREATE INDEX idx_orders_user_id ON orders (user_id)',
+          },
+        } as any,
+      ],
+      procedures: [],
+      functions: [],
+    });
+    component.activeInspectorTab.set('indexes');
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    expect(compiled.textContent).toContain('users.id');
+  });
 });
